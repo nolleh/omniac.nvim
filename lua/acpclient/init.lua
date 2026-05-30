@@ -2,10 +2,12 @@ local config = require("acpclient.config")
 local selection = require("acpclient.selection")
 local mentions = require("acpclient.mentions")
 local transport = require("acpclient.transport")
+local acp_backend = require("acpclient.backend.acp")
 
 local M = {
   config = config.defaults,
   transport = nil,
+  backend = nil,
   response_buffer = "",
 }
 
@@ -107,8 +109,32 @@ local function first_tool_answer(question)
   return { answers = {} }
 end
 
+local function is_default_codex_command(cmd)
+  return vim.deep_equal(cmd, { "codex", "app-server" })
+end
+
+local function resolve_backend_kind(kind)
+  if kind and kind ~= "auto" then
+    return kind
+  end
+
+  if vim.fn.executable("codex-acp") == 1 then
+    return "acp"
+  end
+
+  return "codex"
+end
+
 function M.setup(opts)
   M.config = config.merge(opts)
+  M.config.backend = M.config.backend or {}
+  M.config.backend.kind = resolve_backend_kind(M.config.backend.kind)
+  if M.config.backend.kind == "acp" and is_default_codex_command(M.config.agent and M.config.agent.cmd or {}) then
+    M.config.agent.cmd = { "codex-acp" }
+  end
+  if M.config.backend.kind == "acp" then
+    M.config.agent.auto_initialize = false
+  end
   M.response_buffer = ""
 
   vim.api.nvim_create_user_command("AcpClientConnect", function()
@@ -129,8 +155,9 @@ function M.setup(opts)
       return
     end
 
-    if M.transport and M.transport.get_debug_log then
-      vim.notify(vim.inspect(M.transport:get_debug_log()), vim.log.levels.INFO, { title = "acpclient debug" })
+    local active = M.backend or M.transport
+    if active and active.get_debug_log then
+      vim.notify(vim.inspect(active:get_debug_log()), vim.log.levels.INFO, { title = "acpclient debug" })
     else
       vim.notify("no active transport", vim.log.levels.WARN, { title = "acpclient debug" })
     end
@@ -156,6 +183,20 @@ end
 
 function M.ask(extra)
   local prompt = build_prompt(extra)
+  if M.config.backend and M.config.backend.kind == "acp" and M.backend then
+    M.backend:prompt(prompt, nil, function(err, result)
+      if err then
+        vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "acpclient response" })
+        return
+      end
+
+      if result and M.config.debug then
+        vim.notify(vim.inspect(result), vim.log.levels.INFO, { title = "acpclient response" })
+      end
+    end)
+    return prompt
+  end
+
   if M.transport then
     M.transport:prompt(prompt, nil, function(err, result)
       if err then
@@ -197,6 +238,45 @@ function M.open_file_diff(path, proposed_lines, opts)
 end
 
 function M.connect()
+  if M.config.backend and M.config.backend.kind == "acp" then
+    local client = acp_backend.new(M.config)
+    client
+      :on_notification(function(message)
+        local method = message and message.method
+        local params = message and message.params or {}
+
+        if M.config.debug then
+          vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "acpclient event" })
+          return
+        end
+
+        if method == "acpclient/response" then
+          local text = params.text
+          if text and text ~= "" then
+            vim.notify(text, vim.log.levels.INFO, { title = "acpclient response" })
+          end
+          return
+        end
+
+        if method == "acpclient/error" then
+          vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "acpclient error" })
+        end
+      end)
+      :on_exit(function(code, signal)
+        vim.notify(
+          string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
+          vim.log.levels.WARN,
+          { title = "acpclient exit" }
+        )
+        if M.backend == client then
+          M.backend = nil
+        end
+      end)
+
+    M.backend = client:start()
+    return M.backend
+  end
+
   local client = transport.new(M.config)
   client
     :on_notification(function(message)
@@ -330,6 +410,11 @@ function M.connect()
 end
 
 function M.disconnect()
+  if M.backend then
+    M.backend:close()
+    M.backend = nil
+  end
+
   if M.transport then
     M.transport:close()
     M.transport = nil

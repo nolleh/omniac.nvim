@@ -2,6 +2,9 @@ local M = {}
 
 M.defaults = {
   debug = false,
+  backend = {
+    kind = "auto",
+  },
   agent = {
     cmd = { "codex", "app-server" },
     args = {},
@@ -15,7 +18,13 @@ M.defaults = {
     title = "acpclient.nvim",
     version = "0.1.0",
     protocol_version = 1,
-    capabilities = {},
+    capabilities = {
+      fs = {
+        readTextFile = false,
+        writeTextFile = false,
+      },
+      terminal = false,
+    },
   },
   ui = {
     diff_title = "ACP Diff",

@@ -40,3 +40,7 @@ The agent can then stream updates, request permissions, and ask for filesystem o
 ## Dev
 
 Start Neovim with `scripts/dev.lua` to load this plugin with the default Codex command already configured.
+
+## Protocol TODO
+
+See [docs/PROTOCOL_TODO.md](docs/PROTOCOL_TODO.md) for the current ACP implementation scope and remaining work.
