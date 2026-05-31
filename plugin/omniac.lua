@@ -5,3 +5,4 @@ end
 vim.g.loaded_omniac = 1
 
 require("omniac").setup()
+

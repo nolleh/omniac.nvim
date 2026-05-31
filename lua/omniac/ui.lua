@@ -410,6 +410,7 @@ local function configure_window(win)
   vim.wo[win].foldcolumn = "0"
   vim.wo[win].wrap = true
   vim.wo[win].winfixwidth = true
+  vim.wo[win].winfixheight = true
   vim.wo[win].list = false
 end
 

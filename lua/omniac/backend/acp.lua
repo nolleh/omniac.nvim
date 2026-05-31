@@ -83,6 +83,126 @@ local function json_null()
   return nil
 end
 
+local function echomsg(text)
+  vim.schedule(function()
+    vim.api.nvim_echo({ { text, "Comment" } }, true, {})
+  end)
+end
+
+local function inspect_short(value)
+  local text = vim.inspect(value)
+  text = text:gsub("%s+", " ")
+  if #text > 900 then
+    return text:sub(1, 900) .. "..."
+  end
+  return text
+end
+
+local function sorted_keys(value)
+  if type(value) ~= "table" then
+    return {}
+  end
+
+  local keys = {}
+  for key, _ in pairs(value) do
+    table.insert(keys, tostring(key))
+  end
+  table.sort(keys)
+  return keys
+end
+
+local function value_brief(value)
+  if type(value) == "string" then
+    local text = value:gsub("%s+", " ")
+    if #text > 80 then
+      return string.format("<string len=%d %q...>", #value, text:sub(1, 80))
+    end
+    return string.format("%q", text)
+  end
+
+  if type(value) == "table" then
+    return "{" .. table.concat(sorted_keys(value), ",") .. "}"
+  end
+
+  return tostring(value)
+end
+
+local function update_summary(update)
+  if type(update) ~= "table" then
+    return value_brief(update)
+  end
+
+  local parts = {
+    "type=" .. tostring(update.sessionUpdate or update.type),
+    "kind=" .. tostring(update.kind),
+    "status=" .. tostring(update.status),
+    "title=" .. value_brief(update.title),
+    "toolCallId=" .. tostring(update.toolCallId),
+    "keys=" .. table.concat(sorted_keys(update), ","),
+  }
+
+  local content = update.content
+  if type(content) == "table" then
+    for index, item in ipairs(content) do
+      local item_parts = {
+        string.format("content[%d].keys=%s", index, table.concat(sorted_keys(item), ",")),
+      }
+
+      if type(item._meta) == "table" then
+        table.insert(item_parts, "meta.keys=" .. table.concat(sorted_keys(item._meta), ","))
+        table.insert(item_parts, "meta.kind=" .. tostring(item._meta.kind))
+      end
+
+      for _, key in ipairs({
+        "path",
+        "filePath",
+        "file_path",
+        "uri",
+        "oldText",
+        "newText",
+        "old_text",
+        "new_text",
+      }) do
+        if item[key] ~= nil then
+          table.insert(item_parts, key .. "=" .. value_brief(item[key]))
+        end
+      end
+
+      table.insert(parts, table.concat(item_parts, " "))
+    end
+  end
+
+  for _, key in ipairs({
+    "locations",
+    "rawInput",
+    "rawOutput",
+    "_meta",
+  }) do
+    if update[key] ~= nil then
+      table.insert(parts, key .. "=" .. value_brief(update[key]))
+    end
+  end
+
+  return table.concat(parts, " | ")
+end
+
+local function update_content_items(update)
+  if type(update) ~= "table" or type(update.content) ~= "table" then
+    return {}
+  end
+
+  return update.content
+end
+
+local function is_file_update_item(item)
+  return type(item) == "table"
+    and type(item._meta) == "table"
+    and item._meta.kind == "update"
+    and type(item.path) == "string"
+    and type(item.oldText) == "string"
+    and type(item.newText) == "string"
+end
+
 function M.new(config)
   local state = {
     config = config or {},
@@ -150,6 +270,14 @@ function M.new(config)
         params = entry,
       })
     end
+
+    if self.config.protocol_trace ~= false and (event == "request" or event == "notification") then
+      local method = payload and payload.method or "?"
+      local params = payload and payload.params or {}
+      if method ~= "session/update" then
+        echomsg(string.format("[omniac acp %s] %s %s", event, tostring(method), inspect_short(params)))
+      end
+    end
   end
 
   function state:get_debug_log()
@@ -189,6 +317,7 @@ function M.new(config)
     end
 
     if method == "session/request_permission" then
+      echomsg("[omniac acp fallback] session/request_permission handled by backend fallback")
       local option_id = first_option_id(params)
       reply({
         outcome = option_id and {
@@ -201,6 +330,7 @@ function M.new(config)
       return
     end
 
+    echomsg("[omniac acp fallback] unhandled request " .. tostring(method) .. " -> {}")
     reply({})
   end
 
@@ -211,6 +341,28 @@ function M.new(config)
     if method == "session/update" then
       local update = params.update or params
       local update_type = update and (update.sessionUpdate or update.type)
+      if self.config.protocol_trace ~= false and update_type ~= "agent_message_chunk" and update_type ~= "agentMessageChunk" then
+        echomsg("[omniac acp session/update] " .. update_summary(update))
+      end
+
+      if update_type == "tool_call" and update and update.kind == "edit" then
+        for _, item in ipairs(update_content_items(update)) do
+          if is_file_update_item(item) then
+            echomsg("[omniac acp edit] file update detected " .. item.path)
+            self:_notify({
+              method = "omniac/file_update",
+              params = {
+                path = item.path,
+                oldText = item.oldText,
+                newText = item.newText,
+                toolCallId = update.toolCallId,
+                title = update.title,
+              },
+            })
+          end
+        end
+        return
+      end
 
       if update_type == "agent_message_chunk" or update_type == "agentMessageChunk" then
         local text = extract_text(update.content or update.delta or update)
@@ -281,6 +433,20 @@ function M.new(config)
     self.transport:request("session/new", {
       cwd = agent.cwd or vim.loop.cwd(),
       mcpServers = self.config.mcpServers or {},
+    }, callback)
+  end
+
+  function state:_set_session_mode(callback)
+    local agent = self.config.agent or {}
+    local mode_id = agent.mode_id
+    if not mode_id or mode_id == "" or not self.session_id then
+      callback(nil, nil)
+      return
+    end
+
+    self.transport:request("session/set_mode", {
+      sessionId = self.session_id,
+      modeId = mode_id,
     }, callback)
   end
 
@@ -374,8 +540,6 @@ function M.new(config)
         })
       end
 
-      self.transport:notify("initialized", {})
-
       self:_create_session(function(session_err, session_result)
         if session_err then
           self:_notify({
@@ -394,12 +558,25 @@ function M.new(config)
           or session_result.id
         ) or self.session_id
 
-        self:_notify({
-          method = "omniac/session_started",
-          params = session_result,
-        })
+        self:_set_session_mode(function(mode_err)
+          if mode_err then
+            self:_notify({
+              method = "omniac/error",
+              params = {
+                message = "session/set_mode failed",
+                error = mode_err,
+              },
+            })
+            return
+          end
 
-        self:_flush_pending_prompt()
+          self:_notify({
+            method = "omniac/session_started",
+            params = session_result,
+          })
+
+          self:_flush_pending_prompt()
+        end)
       end)
     end)
 

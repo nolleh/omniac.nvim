@@ -2,16 +2,54 @@ local diff = require("omniac.diff")
 
 local M = {}
 
+local function is_omniac_buffer(name)
+  return name:match("Omniac Chat$") or name:match("Omniac Input$") or name:match("Omniac Status$")
+end
+
+local function is_review_candidate(win)
+  local buf = vim.api.nvim_win_get_buf(win)
+  local name = vim.api.nvim_buf_get_name(buf)
+  local buftype = vim.bo[buf].buftype
+  local filetype = vim.bo[buf].filetype
+
+  if is_omniac_buffer(name) then
+    return false
+  end
+
+  if buftype ~= "" then
+    return false
+  end
+
+  if filetype == "NvimTree" or filetype == "neo-tree" or filetype == "qf" then
+    return false
+  end
+
+  return true
+end
+
 local function review_window()
+  local current = vim.api.nvim_get_current_win()
+  if vim.api.nvim_win_is_valid(current) and is_review_candidate(current) then
+    return current
+  end
+
+  local best_win = nil
+  local best_width = -1
   for _, win in ipairs(vim.api.nvim_list_wins()) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    local name = vim.api.nvim_buf_get_name(buf)
-    if not name:match("Omniac Chat$") and not name:match("Omniac Input$") and not name:match("Omniac Status$") then
-      return win
+    if is_review_candidate(win) then
+      local width = vim.api.nvim_win_get_width(win)
+      if width > best_width then
+        best_win = win
+        best_width = width
+      end
     end
   end
 
-  return vim.api.nvim_get_current_win()
+  if best_win and vim.api.nvim_win_is_valid(best_win) then
+    return best_win
+  end
+
+  return nil
 end
 
 local function as_lines(value)
@@ -159,7 +197,70 @@ local function first_option_id(request)
   return nil
 end
 
+local function write_lines(path, lines)
+  if type(path) ~= "string" or path == "" then
+    return
+  end
+
+  vim.fn.writefile(lines or {}, path)
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf) == path then
+      local was_modifiable = vim.bo[buf].modifiable
+      if not was_modifiable then
+        vim.bo[buf].modifiable = true
+      end
+
+      local ok = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines or {})
+      if ok then
+        vim.bo[buf].modified = false
+      end
+
+      if not was_modifiable and vim.api.nvim_buf_is_valid(buf) then
+        vim.bo[buf].modifiable = false
+      end
+    end
+  end
+end
+
 function M.review_request(method, params, reply, resolve)
+  local tool_call = params and params.toolCall
+  if method == "session/request_permission" and type(tool_call) == "table" and tool_call.kind == "edit" then
+    local option_id = first_option_id(params)
+    local review = {
+      "ACP edit permission request",
+      "",
+      "The agent is asking for permission to edit files.",
+      "The exact file diff is not included in this permission request.",
+      "If Omniac receives the diff payload later, it can still open a concrete review.",
+      "",
+      "toolCallId: " .. tostring(tool_call.toolCallId),
+    }
+
+    diff.open_review("ACP edit permission", review, review, {
+      title = "Omniac permission: edit",
+      origin_win = review_window(),
+      separate_tab = true,
+    }, function(accepted)
+      reply(resolve and resolve(accepted) or {
+        outcome = accepted and option_id and {
+          outcome = "selected",
+          optionId = option_id,
+        } or {
+          outcome = "cancelled",
+        },
+      })
+      vim.api.nvim_echo({
+        {
+          accepted and "[omniac approval] edit permission accepted"
+            or "[omniac approval] edit permission denied",
+          "Comment",
+        },
+      }, true, {})
+    end)
+    return
+  end
+
   local change = find_change(params)
   local patch = first_string(change, { "patch", "diff", "unifiedDiff", "unified_diff" })
     or first_string(params, { "patch", "diff", "unifiedDiff", "unified_diff" })
@@ -211,6 +312,36 @@ function M.review_request(method, params, reply, resolve)
   }, function(accepted)
     reply(resolve and resolve(accepted) or approval_payload(method, accepted))
   end)
+end
+
+function M.review_file_update(params)
+  local path = params and params.path
+  local before = as_lines(params and params.oldText) or {}
+  local after = as_lines(params and params.newText) or {}
+
+  if type(path) ~= "string" or path == "" then
+    vim.api.nvim_echo({ { "[omniac approval] file update ignored: missing path", "WarningMsg" } }, true, {})
+    return false
+  end
+
+  vim.api.nvim_echo({ { "[omniac approval] opening file update review " .. path, "Comment" }, }, true, {})
+  write_lines(path, before)
+
+  diff.open_review(path, before, after, {
+    title = "Omniac file update: " .. path,
+    origin_win = review_window(),
+    separate_tab = true,
+  }, function(accepted, accepted_lines)
+    write_lines(path, accepted and (accepted_lines or after) or before)
+    vim.api.nvim_echo({
+      {
+        accepted and ("[omniac approval] accepted " .. path) or ("[omniac approval] denied " .. path),
+        "Comment",
+      },
+    }, true, {})
+  end)
+
+  return true
 end
 
 function M.review_acp_permission(params, reply)

@@ -2,6 +2,7 @@ local M = {}
 
 M.defaults = {
   debug = false,
+  protocol_trace = true,
   backend = {
     kind = "auto",
   },
@@ -10,6 +11,7 @@ M.defaults = {
     args = {},
     env = {},
     cwd = nil,
+    mode_id = "read-only",
     auto_initialize = true,
     pty = false,
   },

@@ -123,6 +123,19 @@ local function register_command(name, fn, opts)
   vim.api.nvim_create_user_command(name, fn, opts or {})
 end
 
+local function echomsg(text)
+  vim.api.nvim_echo({ { text, "Comment" } }, true, {})
+end
+
+local function inspect_short(value)
+  local text = vim.inspect(value)
+  text = text:gsub("%s+", " ")
+  if #text > 900 then
+    return text:sub(1, 900) .. "..."
+  end
+  return text
+end
+
 function M.setup(opts)
   M.config = config.merge(opts)
   M.config.backend = M.config.backend or {}
@@ -132,6 +145,8 @@ function M.setup(opts)
   end
   if M.config.backend.kind == "acp" then
     M.config.agent.auto_initialize = false
+    M.config.agent.env = M.config.agent.env or {}
+    M.config.agent.env.INITIAL_AGENT_MODE = M.config.agent.env.INITIAL_AGENT_MODE or M.config.agent.mode_id or "read-only"
   end
   M.response_buffer = ""
 
@@ -280,19 +295,37 @@ function M.connect()
       :on_request(function(message, reply)
         local method = message and message.method
         local params = message and message.params or {}
+        echomsg("[omniac acp request handler] " .. tostring(method) .. " " .. inspect_short(params))
+
+        local function logged_reply(result, err)
+          local payload = err or result or {}
+          echomsg("[omniac acp reply] " .. tostring(method) .. " " .. inspect_short(payload))
+          return reply(result, err)
+        end
 
         if method == "session/request_permission" then
-          approval.review_acp_permission(params, reply)
+          approval.review_acp_permission(params, logged_reply)
           return
         end
 
-        reply({})
+        echomsg("[omniac acp request handler] unhandled " .. tostring(method) .. " -> {}")
+        logged_reply({})
       end)
       :on_notification(function(message)
         local method = message and message.method
         local params = message and message.params or {}
+        if method == "omniac/file_update" then
+          echomsg("[omniac acp notification] omniac/file_update " .. tostring(params.path))
+        elseif method ~= "session/update" then
+          echomsg("[omniac acp notification] " .. tostring(method) .. " " .. inspect_short(params))
+        end
 
         ui.handle_notification(message, M.config)
+
+        if method == "omniac/file_update" then
+          approval.review_file_update(params)
+          return
+        end
 
         if M.config.debug then
           vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
