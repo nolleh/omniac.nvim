@@ -33,9 +33,11 @@ The agent can then stream updates, request permissions, and ask for filesystem o
 ## What works now
 
 - `:OmniacConnect` starts the configured subprocess
-- `:OmniacAsk` sends the built prompt through the transport when connected
-- incoming JSONL messages are parsed and shown with `vim.notify`
-- request messages from the agent are surfaced to Neovim and currently auto-rejected unless a custom handler is added
+- `:Omniac` opens a Neovim chat/input/status UI
+- `:OmniacAsk` sends the built prompt through the active backend when connected
+- incoming JSONL messages are parsed, streamed into the UI, and shown with `vim.notify`
+- ACP permission requests and known file-change approval requests open a native diff review UI
+- some non-file request types still use conservative placeholder responses until richer UI support exists
 
 ## Dev
 

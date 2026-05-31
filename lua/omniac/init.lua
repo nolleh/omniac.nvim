@@ -3,6 +3,8 @@ local selection = require("omniac.selection")
 local mentions = require("omniac.mentions")
 local transport = require("omniac.transport")
 local acp_backend = require("omniac.backend.acp")
+local ui = require("omniac.ui")
+local approval = require("omniac.approval")
 
 local M = {
   config = config.defaults,
@@ -176,12 +178,43 @@ function M.setup(opts)
     M.open_file_diff(path, nil, { title = M.config.ui.diff_title })
   end
 
+  local function open_chat()
+    M.open_chat()
+  end
+
+  register_command("Omniac", open_chat, {})
   register_command("OmniacConnect", connect, {})
   register_command("OmniacDisconnect", disconnect, {})
   register_command("OmniacAsk", ask, { nargs = "?" })
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
+  register_command("OmniacDiffAccept", function()
+    require("omniac.diff").accept_current_review()
+  end, {})
+  register_command("OmniacDiffDeny", function()
+    require("omniac.diff").deny_current_review()
+  end, {})
+end
+
+function M.open_chat()
+  ui.open(M.config, function(text)
+    ui.submit(text, M.config)
+    if not M.backend and not M.transport then
+      ui.set_status("connecting", M.config)
+      local ok, err = pcall(M.connect)
+      if not ok then
+        ui.add_message("Error", err, M.config)
+        ui.set_status("error", M.config)
+        return
+      end
+    end
+    local ok, err = pcall(M.ask, text)
+    if not ok then
+      ui.add_message("Error", err, M.config)
+      ui.set_status("error", M.config)
+    end
+  end)
 end
 
 function M.ask(extra)
@@ -244,9 +277,22 @@ function M.connect()
   if M.config.backend and M.config.backend.kind == "acp" then
     local client = acp_backend.new(M.config)
     client
+      :on_request(function(message, reply)
+        local method = message and message.method
+        local params = message and message.params or {}
+
+        if method == "session/request_permission" then
+          approval.review_acp_permission(params, reply)
+          return
+        end
+
+        reply({})
+      end)
       :on_notification(function(message)
         local method = message and message.method
         local params = message and message.params or {}
+
+        ui.handle_notification(message, M.config)
 
         if M.config.debug then
           vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
@@ -266,6 +312,7 @@ function M.connect()
         end
       end)
       :on_exit(function(code, signal)
+        ui.set_status("closed", M.config)
         vim.notify(string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)), vim.log.levels.WARN, { title = "omniac exit" })
         if M.backend == client then
           M.backend = nil
@@ -281,6 +328,8 @@ function M.connect()
     :on_notification(function(message)
       local method = message and message.method
       local params = message and message.params or {}
+
+      ui.handle_notification(message, M.config)
 
       if M.config.debug then
         vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
@@ -305,12 +354,14 @@ function M.connect()
         M.response_buffer = ""
 
         if text and text ~= "" then
+          ui.add_message("Omniac", text, M.config)
           vim.notify(text, vim.log.levels.INFO, { title = "omniac response" })
           return
         end
 
         local summary = extract_text(params)
         if summary and summary ~= "" then
+          ui.add_message("Omniac", summary, M.config)
           vim.notify(summary, vim.log.levels.INFO, { title = "omniac response" })
         end
         return
@@ -328,17 +379,13 @@ function M.connect()
       local method = message and message.method
       local params = message and message.params or {}
 
-      if method == "item/commandExecution/requestApproval" or method == "item/fileChange/requestApproval" then
-        reply({
-          decision = "acceptForSession",
-        })
+      if method == "item/fileChange/requestApproval" or method == "applyPatchApproval" then
+        approval.review_request(method, params, reply)
         return
       end
 
-      if method == "applyPatchApproval" then
-        reply({
-          decision = "approved_for_session",
-        })
+      if method == "item/commandExecution/requestApproval" then
+        approval.review_request(method, params, reply)
         return
       end
 
@@ -390,6 +437,7 @@ function M.connect()
       })
     end)
     :on_exit(function(code, signal)
+      ui.set_status("closed", M.config)
       vim.notify(string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)), vim.log.levels.WARN, { title = "omniac exit" })
       if M.transport == client then
         M.transport = nil

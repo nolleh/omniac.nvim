@@ -183,6 +183,11 @@ function M.new(config)
       self.transport:respond(response.id, response.result, response.error)
     end
 
+    if self.request_handler then
+      self:_emit(self.request_handler, message, reply)
+      return
+    end
+
     if method == "session/request_permission" then
       local option_id = first_option_id(params)
       reply({
@@ -193,11 +198,6 @@ function M.new(config)
           outcome = "cancelled",
         },
       })
-      return
-    end
-
-    if self.request_handler then
-      self:_emit(self.request_handler, message, reply)
       return
     end
 
@@ -394,12 +394,10 @@ function M.new(config)
           or session_result.id
         ) or self.session_id
 
-        if self.config.debug then
-          self:_notify({
-            method = "omniac/session_started",
-            params = session_result,
-          })
-        end
+        self:_notify({
+          method = "omniac/session_started",
+          params = session_result,
+        })
 
         self:_flush_pending_prompt()
       end)
@@ -421,6 +419,12 @@ function M.new(config)
     local function send_prompt()
       self.response_buffer = ""
       self.response_emitted = false
+      self:_notify({
+        method = "omniac/prompt_started",
+        params = {
+          sessionId = self.session_id,
+        },
+      })
       self.transport:request("session/prompt", request_params, function(err, result)
         if err then
           if callback then
