@@ -1,4 +1,4 @@
-local transport = require("acpclient.transport")
+local transport = require("omniac.transport")
 
 local M = {}
 
@@ -241,7 +241,7 @@ function M.new(config)
 
     if method == "session/error" then
       self:_notify({
-        method = "acpclient/error",
+        method = "omniac/error",
         params = params,
       })
       return
@@ -268,8 +268,8 @@ function M.new(config)
     self.transport:request("initialize", {
       protocolVersion = client.protocol_version or 1,
       clientInfo = {
-        name = client.name or "acpclient.nvim",
-        title = client.title or "acpclient.nvim",
+        name = client.name or "omniac.nvim",
+        title = client.title or "omniac.nvim",
         version = client.version or "0.1.0",
       },
       clientCapabilities = capabilities,
@@ -310,7 +310,7 @@ function M.new(config)
 
     if text and text ~= "" then
       self:_notify({
-        method = "acpclient/response",
+        method = "omniac/response",
         params = {
           text = text,
           sessionId = self.session_id,
@@ -358,7 +358,7 @@ function M.new(config)
     self:_initialize(function(err, result)
       if err then
         self:_notify({
-          method = "acpclient/error",
+          method = "omniac/error",
           params = {
             message = "initialize failed",
             error = err,
@@ -369,7 +369,7 @@ function M.new(config)
 
       if self.config.debug then
         self:_notify({
-          method = "acpclient/initialize",
+          method = "omniac/initialize",
           params = result,
         })
       end
@@ -379,7 +379,7 @@ function M.new(config)
       self:_create_session(function(session_err, session_result)
         if session_err then
           self:_notify({
-            method = "acpclient/error",
+            method = "omniac/error",
             params = {
               message = "session/new failed",
               error = session_err,
@@ -396,7 +396,7 @@ function M.new(config)
 
         if self.config.debug then
           self:_notify({
-            method = "acpclient/session_started",
+            method = "omniac/session_started",
             params = session_result,
           })
         end
@@ -438,7 +438,7 @@ function M.new(config)
     end
 
     if not self.transport or not self.running then
-      error("acpclient: ACP transport is not running")
+      error("omniac: ACP transport is not running")
     end
 
     if self.session_id then

@@ -1,8 +1,8 @@
-local config = require("acpclient.config")
-local selection = require("acpclient.selection")
-local mentions = require("acpclient.mentions")
-local transport = require("acpclient.transport")
-local acp_backend = require("acpclient.backend.acp")
+local config = require("omniac.config")
+local selection = require("omniac.selection")
+local mentions = require("omniac.mentions")
+local transport = require("omniac.transport")
+local acp_backend = require("omniac.backend.acp")
 
 local M = {
   config = config.defaults,
@@ -26,15 +26,7 @@ local function extract_text(value, seen)
   end
   seen[value] = true
 
-  local preferred_keys = {
-    "text",
-    "delta",
-    "message",
-    "content",
-    "value",
-  }
-
-  for _, key in ipairs(preferred_keys) do
+  for _, key in ipairs({ "text", "delta", "message", "content", "value" }) do
     local found = extract_text(value[key], seen)
     if found and found ~= "" then
       return found
@@ -125,6 +117,10 @@ local function resolve_backend_kind(kind)
   return "codex"
 end
 
+local function register_command(name, fn, opts)
+  vim.api.nvim_create_user_command(name, fn, opts or {})
+end
+
 function M.setup(opts)
   M.config = config.merge(opts)
   M.config.backend = M.config.backend or {}
@@ -137,48 +133,55 @@ function M.setup(opts)
   end
   M.response_buffer = ""
 
-  vim.api.nvim_create_user_command("AcpClientConnect", function()
+  local function connect()
     M.connect()
-  end, {})
+  end
 
-  vim.api.nvim_create_user_command("AcpClientDisconnect", function()
+  local function disconnect()
     M.disconnect()
-  end, {})
+  end
 
-  vim.api.nvim_create_user_command("AcpClientAsk", function(cmd)
+  local function ask(cmd)
     M.ask(cmd.args)
-  end, { nargs = "?" })
+  end
 
-  vim.api.nvim_create_user_command("AcpClientDebug", function()
+  local function debug()
     if not M.config.debug then
-      vim.notify("debug is disabled", vim.log.levels.WARN, { title = "acpclient debug" })
+      vim.notify("debug is disabled", vim.log.levels.WARN, { title = "omniac debug" })
       return
     end
 
     local active = M.backend or M.transport
     if active and active.get_debug_log then
-      vim.notify(vim.inspect(active:get_debug_log()), vim.log.levels.INFO, { title = "acpclient debug" })
+      vim.notify(vim.inspect(active:get_debug_log()), vim.log.levels.INFO, { title = "omniac debug" })
     else
-      vim.notify("no active transport", vim.log.levels.WARN, { title = "acpclient debug" })
+      vim.notify("no active transport", vim.log.levels.WARN, { title = "omniac debug" })
     end
-  end, {})
+  end
 
-  vim.api.nvim_create_user_command("AcpClientAskFiles", function(cmd)
+  local function ask_files(cmd)
     local paths = {}
     for path in string.gmatch(cmd.args, "[^,%s]+") do
       table.insert(paths, path)
     end
     M.ask_with_files("", paths)
-  end, { nargs = "?" })
+  end
 
-  vim.api.nvim_create_user_command("AcpClientDiff", function(cmd)
+  local function diff(cmd)
     local path = vim.fn.expand(cmd.args)
     if path == "" then
-      error("AcpClientDiff requires a file path")
+      error("OmniacDiff requires a file path")
     end
 
     M.open_file_diff(path, nil, { title = M.config.ui.diff_title })
-  end, { nargs = 1, complete = "file" })
+  end
+
+  register_command("OmniacConnect", connect, {})
+  register_command("OmniacDisconnect", disconnect, {})
+  register_command("OmniacAsk", ask, { nargs = "?" })
+  register_command("OmniacDebug", debug, {})
+  register_command("OmniacAskFiles", ask_files, { nargs = "?" })
+  register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
 end
 
 function M.ask(extra)
@@ -186,12 +189,12 @@ function M.ask(extra)
   if M.config.backend and M.config.backend.kind == "acp" and M.backend then
     M.backend:prompt(prompt, nil, function(err, result)
       if err then
-        vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "acpclient response" })
+        vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "omniac response" })
         return
       end
 
       if result and M.config.debug then
-        vim.notify(vim.inspect(result), vim.log.levels.INFO, { title = "acpclient response" })
+        vim.notify(vim.inspect(result), vim.log.levels.INFO, { title = "omniac response" })
       end
     end)
     return prompt
@@ -200,18 +203,18 @@ function M.ask(extra)
   if M.transport then
     M.transport:prompt(prompt, nil, function(err, result)
       if err then
-        vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "acpclient response" })
+        vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "omniac response" })
         return
       end
 
       if result and M.config.debug then
-        vim.notify(vim.inspect(result), vim.log.levels.INFO, { title = "acpclient response" })
+        vim.notify(vim.inspect(result), vim.log.levels.INFO, { title = "omniac response" })
       end
     end)
     return prompt
   end
 
-  vim.notify(prompt, vim.log.levels.INFO, { title = "acpclient prompt" })
+  vim.notify(prompt, vim.log.levels.INFO, { title = "omniac prompt" })
   return prompt
 end
 
@@ -223,17 +226,17 @@ function M.ask_with_files(extra, paths)
     prompt = prompt .. "\n\nFiles:\n" .. table.concat(file_mentions, "\n")
   end
 
-  vim.notify(prompt, vim.log.levels.INFO, { title = "acpclient prompt" })
+  vim.notify(prompt, vim.log.levels.INFO, { title = "omniac prompt" })
   return prompt
 end
 
 function M.open_diff(before_lines, after_lines, opts)
-  local diff = require("acpclient.diff")
+  local diff = require("omniac.diff")
   return diff.open(before_lines, after_lines, opts)
 end
 
 function M.open_file_diff(path, proposed_lines, opts)
-  local diff = require("acpclient.diff")
+  local diff = require("omniac.diff")
   return diff.open_file(path, proposed_lines, opts)
 end
 
@@ -246,28 +249,24 @@ function M.connect()
         local params = message and message.params or {}
 
         if M.config.debug then
-          vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "acpclient event" })
+          vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
           return
         end
 
-        if method == "acpclient/response" then
+        if method == "omniac/response" then
           local text = params.text
           if text and text ~= "" then
-            vim.notify(text, vim.log.levels.INFO, { title = "acpclient response" })
+            vim.notify(text, vim.log.levels.INFO, { title = "omniac response" })
           end
           return
         end
 
-        if method == "acpclient/error" then
-          vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "acpclient error" })
+        if method == "omniac/error" then
+          vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "omniac error" })
         end
       end)
       :on_exit(function(code, signal)
-        vim.notify(
-          string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
-          vim.log.levels.WARN,
-          { title = "acpclient exit" }
-        )
+        vim.notify(string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)), vim.log.levels.WARN, { title = "omniac exit" })
         if M.backend == client then
           M.backend = nil
         end
@@ -284,7 +283,7 @@ function M.connect()
       local params = message and message.params or {}
 
       if M.config.debug then
-        vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "acpclient event" })
+        vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
         return
       end
 
@@ -306,24 +305,24 @@ function M.connect()
         M.response_buffer = ""
 
         if text and text ~= "" then
-          vim.notify(text, vim.log.levels.INFO, { title = "acpclient response" })
+          vim.notify(text, vim.log.levels.INFO, { title = "omniac response" })
           return
         end
 
         local summary = extract_text(params)
         if summary and summary ~= "" then
-          vim.notify(summary, vim.log.levels.INFO, { title = "acpclient response" })
+          vim.notify(summary, vim.log.levels.INFO, { title = "omniac response" })
         end
         return
       end
 
       if method == "turn/error" or method == "_transport/error" then
-        vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "acpclient error" })
+        vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "omniac error" })
       end
     end)
     :on_request(function(message, reply)
       if M.config.debug then
-        vim.notify(vim.inspect(message), vim.log.levels.WARN, { title = "acpclient request" })
+        vim.notify(vim.inspect(message), vim.log.levels.WARN, { title = "omniac request" })
       end
 
       local method = message and message.method
@@ -369,7 +368,7 @@ function M.connect()
           contentItems = {
             {
               type = "inputText",
-              text = "tool call not implemented by acpclient.nvim yet",
+              text = "tool call not implemented by omniac.nvim yet",
             },
           },
         })
@@ -384,22 +383,14 @@ function M.connect()
       end
 
       if M.config.debug then
-        vim.notify(
-          "Unhandled server request method: " .. tostring(method),
-          vim.log.levels.WARN,
-          { title = "acpclient request" }
-        )
+        vim.notify("Unhandled server request method: " .. tostring(method), vim.log.levels.WARN, { title = "omniac request" })
       end
       reply({
         decision = "acceptForSession",
       })
     end)
     :on_exit(function(code, signal)
-      vim.notify(
-        string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
-        vim.log.levels.WARN,
-        { title = "acpclient exit" }
-      )
+      vim.notify(string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)), vim.log.levels.WARN, { title = "omniac exit" })
       if M.transport == client then
         M.transport = nil
       end

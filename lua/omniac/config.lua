@@ -14,8 +14,8 @@ M.defaults = {
     pty = false,
   },
   client = {
-    name = "acpclient.nvim",
-    title = "acpclient.nvim",
+    name = "omniac.nvim",
+    title = "omniac.nvim",
     version = "0.1.0",
     protocol_version = 1,
     capabilities = {

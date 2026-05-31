@@ -7,7 +7,7 @@ if vim.env.ACPCLIENT_AGENT_CMD and vim.env.ACPCLIENT_AGENT_CMD ~= "" then
   agent_cmd = vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })
 end
 
-require("acpclient").setup({
+require("omniac").setup({
   agent = {
     cmd = agent_cmd,
     cwd = root,
@@ -15,6 +15,5 @@ require("acpclient").setup({
 })
 
 vim.schedule(function()
-  vim.cmd("AcpClientConnect")
+  vim.cmd("OmniacConnect")
 end)
-

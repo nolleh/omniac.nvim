@@ -104,7 +104,7 @@ function M.new(config)
 
   function state:_send_raw(payload)
     if not self.running or not self.jobid then
-      error("acpclient: transport is not running")
+      error("omniac: transport is not running")
     end
 
     local line = type(payload) == "string" and payload or encode_json(payload)
@@ -205,7 +205,7 @@ function M.new(config)
 
     local agent = self.config.agent or {}
     if not agent.cmd then
-      error("acpclient: agent.cmd is not configured")
+      error("omniac: agent.cmd is not configured")
     end
 
     local cmd = agent.cmd
@@ -275,7 +275,7 @@ function M.new(config)
 
     if not self.jobid or self.jobid <= 0 then
       self.jobid = nil
-      error("acpclient: failed to start agent subprocess")
+      error("omniac: failed to start agent subprocess")
     end
 
     self.running = true
@@ -364,8 +364,8 @@ function M.new(config)
     local client = self.config.client or {}
     local params = {
       clientInfo = {
-        name = client.name or "acpclient.nvim",
-        title = client.title or "acpclient.nvim",
+        name = client.name or "omniac.nvim",
+        title = client.title or "omniac.nvim",
         version = client.version or "0.1.0",
       },
       capabilities = vim.tbl_deep_extend("force", {
@@ -411,7 +411,7 @@ function M.new(config)
     local function send_turn()
       local active_thread_id = payload.threadId or self.thread_id
       if not active_thread_id then
-        error("acpclient: no thread id available; thread/start must complete first")
+        error("omniac: no thread id available; thread/start must complete first")
       end
 
       payload.threadId = active_thread_id

@@ -1,6 +1,6 @@
-# acpclient.nvim
+# omniac.nvim
 
-Temporary working title for a Neovim plugin that talks to ACP-compatible agents.
+Neovim plugin for ACP-compatible agents and agentic coding workflows.
 
 ## Scope
 
@@ -14,10 +14,10 @@ This repository starts with the smallest useful slice:
 
 ## Architecture
 
-- `lua/acpclient/selection.lua` collects selection text and range metadata
-- `lua/acpclient/mentions.lua` formats file mentions for prompts
-- `lua/acpclient/diff.lua` manages diff buffers and accepts user edits
-- `lua/acpclient/transport/` isolates ACP process communication
+- `lua/omniac/selection.lua` collects the active visual range and text
+- `lua/omniac/mentions.lua` formats file references for prompts
+- `lua/omniac/diff.lua` manages buffers and accepts user edits
+- `lua/omniac/transport/` isolates ACP process communication
 
 ## ACP model
 
@@ -26,14 +26,14 @@ That means the editor is the UI, not the agent.
 
 For local agents, the flow is typically:
 
-`nvim -> ACP client code -> agent subprocess`
+`nvim -> omniac code -> agent subprocess`
 
 The agent can then stream updates, request permissions, and ask for filesystem or terminal access through the protocol.
 
 ## What works now
 
-- `:AcpClientConnect` starts the configured subprocess
-- `:AcpClientAsk` sends the built prompt through the transport when connected
+- `:OmniacConnect` starts the configured subprocess
+- `:OmniacAsk` sends the built prompt through the transport when connected
 - incoming JSONL messages are parsed and shown with `vim.notify`
 - request messages from the agent are surfaced to Neovim and currently auto-rejected unless a custom handler is added
 

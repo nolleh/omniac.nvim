@@ -31,7 +31,6 @@ This file tracks what is already working and what still needs to be implemented 
 
 ## Backend split to keep
 
-- `transport/` should remain transport-only
-- `backend/acp.lua` should own ACP session flow
+- `lua/omniac/transport/` should remain transport-only
+- `lua/omniac/backend/acp.lua` should own ACP session flow
 - future agent-specific behavior should live in separate backend modules, not in the transport layer
-

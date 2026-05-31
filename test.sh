@@ -5,7 +5,7 @@
 cd "$(dirname "$0")"
 
 echo "=========================================="
-echo " Testing acpclient.nvim in clean environment"
+echo " Testing omniac.nvim in clean environment"
 echo "=========================================="
 echo ""
 echo "This simulates a fresh user installation"
@@ -13,4 +13,3 @@ echo "without your personal Neovim configuration."
 echo ""
 
 nvim -u test-init.lua
-
