@@ -83,6 +83,37 @@ local function json_null()
   return nil
 end
 
+local function log_path(config)
+  local log_config = (config or {}).logs or {}
+  if log_config.enabled == false then
+    return nil
+  end
+
+  local dir = log_config.dir or "logs"
+  if not dir:match("^/") then
+    dir = (vim.loop.cwd() or ".") .. "/" .. dir
+  end
+  pcall(vim.fn.mkdir, dir, "p")
+  return string.format("%s/acp-%s.jsonl", dir, os.date("%Y%m%d"))
+end
+
+local function append_protocol_log(config, event, payload)
+  local path = log_path(config)
+  if not path then
+    return
+  end
+
+  local entry = {
+    time = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    event = event,
+    payload = payload,
+  }
+  local ok, encoded = pcall(vim.json.encode, entry)
+  if ok then
+    pcall(vim.fn.writefile, { encoded }, path, "a")
+  end
+end
+
 local function echomsg(text)
   vim.schedule(function()
     vim.api.nvim_echo({ { text, "Comment" } }, true, {})
@@ -216,6 +247,7 @@ function M.new(config)
     response_buffer = "",
     response_emitted = false,
     pending_prompt = nil,
+    edit_tool_calls = {},
     debug_log = {},
   }
 
@@ -255,6 +287,7 @@ function M.new(config)
   end
 
   function state:_debug(event, payload)
+    append_protocol_log(self.config, event, payload)
     local entry = {
       event = event,
       payload = payload,
@@ -308,6 +341,7 @@ function M.new(config)
       else
         response.result = result
       end
+      append_protocol_log(self.config, "response", response)
       self.transport:respond(response.id, response.result, response.error)
     end
 
@@ -317,13 +351,9 @@ function M.new(config)
     end
 
     if method == "session/request_permission" then
-      echomsg("[omniac acp fallback] session/request_permission handled by backend fallback")
-      local option_id = first_option_id(params)
+      echomsg("[omniac acp fallback] session/request_permission cancelled by backend fallback")
       reply({
-        outcome = option_id and {
-          outcome = "selected",
-          optionId = option_id,
-        } or {
+        outcome = {
           outcome = "cancelled",
         },
       })
@@ -345,21 +375,61 @@ function M.new(config)
         echomsg("[omniac acp session/update] " .. update_summary(update))
       end
 
-      if update_type == "tool_call" and update and update.kind == "edit" then
+      if update_type == "tool_call" and update and update.kind == "edit" and update.toolCallId then
+        self.edit_tool_calls[update.toolCallId] = true
+      end
+
+      local is_edit_update = update
+        and update.toolCallId
+        and (update.kind == "edit" or self.edit_tool_calls[update.toolCallId])
+
+      if (update_type == "tool_call" or update_type == "tool_call_update") and is_edit_update then
+        local emitted_file_update = false
         for _, item in ipairs(update_content_items(update)) do
           if is_file_update_item(item) then
-            echomsg("[omniac acp edit] file update detected " .. item.path)
-            self:_notify({
-              method = "omniac/file_update",
-              params = {
-                path = item.path,
-                oldText = item.oldText,
-                newText = item.newText,
-                toolCallId = update.toolCallId,
-                title = update.title,
-              },
-            })
+            emitted_file_update = true
+            if update.status == "completed" then
+              echomsg("[omniac acp edit] file update completed " .. item.path)
+              self:_notify({
+                method = "omniac/file_update",
+                params = {
+                  path = item.path,
+                  oldText = item.oldText,
+                  newText = item.newText,
+                  toolCallId = update.toolCallId,
+                  title = update.title,
+                  status = update.status,
+                  error = update.error or update.rawOutput,
+                },
+              })
+            elseif update.status ~= "failed" then
+              self:_notify({
+                method = "omniac/permission_diff",
+                params = {
+                  path = item.path,
+                  oldText = item.oldText,
+                  newText = item.newText,
+                  toolCallId = update.toolCallId,
+                  title = update.title,
+                  status = update.status,
+                },
+              })
+            end
           end
+        end
+        if update.status == "failed" and not emitted_file_update then
+          echomsg("[omniac acp edit] edit failed " .. tostring(update.toolCallId))
+          self:_notify({
+            method = "omniac/edit_failed",
+            params = {
+              toolCallId = update.toolCallId,
+              title = update.title,
+              error = update.error or update.rawOutput,
+            },
+          })
+        end
+        if update.status == "completed" or update.status == "failed" then
+          self.edit_tool_calls[update.toolCallId] = nil
         end
         return
       end
@@ -511,6 +581,7 @@ function M.new(config)
         self.session_id = nil
         self.response_buffer = ""
         self.pending_prompt = nil
+        self.edit_tool_calls = {}
         self:_emit(self.exit_handler, code, signal)
       end)
 
@@ -643,6 +714,7 @@ function M.new(config)
     self.session_id = nil
     self.response_buffer = ""
     self.response_emitted = false
+    self.edit_tool_calls = {}
     self.pending_prompt = nil
   end
 

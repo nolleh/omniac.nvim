@@ -1,4 +1,6 @@
+logs
 .nvimlog
+
 # OS / editor files
 .DS_Store
 Thumbs.db

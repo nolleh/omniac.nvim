@@ -316,14 +316,28 @@ function M.connect()
         local params = message and message.params or {}
         if method == "omniac/file_update" then
           echomsg("[omniac acp notification] omniac/file_update " .. tostring(params.path))
+        elseif method == "omniac/permission_diff" then
+          echomsg("[omniac acp notification] omniac/permission_diff " .. tostring(params.path))
+        elseif method == "omniac/edit_failed" then
+          echomsg("[omniac acp notification] omniac/edit_failed " .. tostring(params.toolCallId))
         elseif method ~= "session/update" then
           echomsg("[omniac acp notification] " .. tostring(method) .. " " .. inspect_short(params))
         end
 
         ui.handle_notification(message, M.config)
 
+        if method == "omniac/permission_diff" then
+          approval.attach_acp_permission_diff(params)
+          return
+        end
+
         if method == "omniac/file_update" then
-          approval.review_file_update(params, M.config)
+          approval.apply_file_update(params)
+          return
+        end
+
+        if method == "omniac/edit_failed" then
+          vim.notify(vim.inspect(params), vim.log.levels.WARN, { title = "omniac edit failed" })
           return
         end
 

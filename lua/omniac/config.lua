@@ -33,6 +33,10 @@ M.defaults = {
     diff_separate_tab = false,
     chat_width = 58,
   },
+  logs = {
+    enabled = true,
+    dir = "logs",
+  },
 }
 
 function M.merge(user_opts)

@@ -1,6 +1,7 @@
 local diff = require("omniac.diff")
 
 local M = {}
+local pending_acp_permissions = {}
 
 local function diff_separate_tab(config)
   local ui = config and config.ui or {}
@@ -202,6 +203,131 @@ local function first_option_id(request)
   return nil
 end
 
+local function content_items(value)
+  if type(value) ~= "table" then
+    return {}
+  end
+
+  if type(value.content) == "table" then
+    return value.content
+  end
+  if type(value.contentItems) == "table" then
+    return value.contentItems
+  end
+  if type(value.content_items) == "table" then
+    return value.content_items
+  end
+
+  return {}
+end
+
+local function diff_payload(value)
+  for _, item in ipairs(content_items(value)) do
+    if
+      type(item) == "table"
+      and (item.type == "diff" or (type(item._meta) == "table" and item._meta.kind == "update"))
+      and type(item.path) == "string"
+      and type(item.newText) == "string"
+    then
+      return {
+        path = item.path,
+        oldText = item.oldText,
+        newText = item.newText,
+      }
+    end
+  end
+
+  if type(value) == "table" and type(value.path) == "string" and type(value.newText) == "string" then
+    return {
+      path = value.path,
+      oldText = value.oldText,
+      newText = value.newText,
+    }
+  end
+
+  return nil
+end
+
+local function permission_response(request, accepted)
+  local option_id = first_option_id(request)
+  return {
+    outcome = accepted and option_id and {
+      outcome = "selected",
+      optionId = option_id,
+    } or {
+      outcome = "cancelled",
+    },
+  }
+end
+
+local function open_permission_placeholder(pending)
+  if pending.opened or pending.replied then
+    return
+  end
+  pending.opened = true
+
+  local tool_call = pending.params and pending.params.toolCall or {}
+  local review = {
+    "ACP edit permission request",
+    "",
+    "The agent is asking for permission to edit files.",
+    "The exact file diff is not included in this permission request.",
+    "If Omniac receives the diff payload later, it can still open a concrete review.",
+    "",
+    "toolCallId: " .. tostring(tool_call.toolCallId),
+  }
+
+  diff.open_review("ACP edit permission", review, review, {
+    title = "Omniac permission: edit",
+    origin_win = review_window(),
+    separate_tab = diff_separate_tab(pending.config),
+  }, function(accepted)
+    if pending.replied then
+      return
+    end
+    pending.replied = true
+    pending_acp_permissions[pending.tool_call_id] = nil
+    pending.reply(permission_response(pending.params, accepted))
+    vim.api.nvim_echo({
+      {
+        accepted and "[omniac approval] edit permission accepted"
+          or "[omniac approval] edit permission denied",
+        "Comment",
+      },
+    }, true, {})
+  end)
+end
+
+local function open_permission_diff(pending, payload)
+  if pending.opened or pending.replied then
+    return false
+  end
+  pending.opened = true
+
+  local before = as_lines(payload.oldText) or {}
+  local after = as_lines(payload.newText) or {}
+  diff.open_review(payload.path, before, after, {
+    title = "Omniac permission: " .. payload.path,
+    origin_win = review_window(),
+    separate_tab = diff_separate_tab(pending.config),
+  }, function(accepted)
+    if pending.replied then
+      return
+    end
+    pending.replied = true
+    pending_acp_permissions[pending.tool_call_id] = nil
+    pending.reply(permission_response(pending.params, accepted))
+    vim.api.nvim_echo({
+      {
+        accepted and "[omniac approval] edit permission accepted"
+          or "[omniac approval] edit permission denied",
+        "Comment",
+      },
+    }, true, {})
+  end)
+  return true
+end
+
 local function write_lines(path, lines)
   if type(path) ~= "string" or path == "" then
     return
@@ -236,38 +362,29 @@ function M.review_request(method, params, reply, resolve, config)
 
   local tool_call = params and params.toolCall
   if method == "session/request_permission" and type(tool_call) == "table" and tool_call.kind == "edit" then
-    local option_id = first_option_id(params)
-    local review = {
-      "ACP edit permission request",
-      "",
-      "The agent is asking for permission to edit files.",
-      "The exact file diff is not included in this permission request.",
-      "If Omniac receives the diff payload later, it can still open a concrete review.",
-      "",
-      "toolCallId: " .. tostring(tool_call.toolCallId),
+    local tool_call_id = tool_call.toolCallId or tostring(vim.loop.now())
+    local pending = {
+      tool_call_id = tool_call_id,
+      params = params,
+      reply = function(result)
+        reply(resolve and resolve(result and result.outcome and result.outcome.outcome == "selected") or result)
+      end,
+      config = config,
+      opened = false,
+      replied = false,
     }
+    pending_acp_permissions[pending.tool_call_id] = pending
 
-    diff.open_review("ACP edit permission", review, review, {
-      title = "Omniac permission: edit",
-      origin_win = review_window(),
-      separate_tab = diff_separate_tab(config),
-    }, function(accepted)
-      reply(resolve and resolve(accepted) or {
-        outcome = accepted and option_id and {
-          outcome = "selected",
-          optionId = option_id,
-        } or {
-          outcome = "cancelled",
-        },
-      })
-      vim.api.nvim_echo({
-        {
-          accepted and "[omniac approval] edit permission accepted"
-            or "[omniac approval] edit permission denied",
-          "Comment",
-        },
-      }, true, {})
-    end)
+    local payload = diff_payload(tool_call)
+    if payload then
+      open_permission_diff(pending, payload)
+    else
+      vim.defer_fn(function()
+        if pending_acp_permissions[pending.tool_call_id] == pending then
+          open_permission_placeholder(pending)
+        end
+      end, 500)
+    end
     return
   end
 
@@ -325,6 +442,21 @@ function M.review_request(method, params, reply, resolve, config)
   end)
 end
 
+function M.attach_acp_permission_diff(params)
+  local tool_call_id = params and params.toolCallId
+  local pending = tool_call_id and pending_acp_permissions[tool_call_id]
+  if not pending then
+    return false
+  end
+
+  local payload = diff_payload(params)
+  if not payload then
+    return false
+  end
+
+  return open_permission_diff(pending, payload)
+end
+
 function M.review_file_update(params, config)
   local path = params and params.path
   local before = as_lines(params and params.oldText) or {}
@@ -352,6 +484,37 @@ function M.review_file_update(params, config)
     }, true, {})
   end)
 
+  return true
+end
+
+function M.apply_file_update(params)
+  local path = params and params.path
+  local status = params and params.status
+
+  if type(path) ~= "string" or path == "" then
+    vim.api.nvim_echo({ { "[omniac approval] file update ignored: missing path", "WarningMsg" } }, true, {})
+    return false
+  end
+
+  if status == "failed" then
+    vim.api.nvim_echo({
+      { "[omniac approval] edit failed " .. path, "WarningMsg" },
+    }, true, {})
+    return false
+  end
+
+  local after = as_lines(params and params.newText)
+  if not after then
+    vim.api.nvim_echo({
+      { "[omniac approval] completed edit has no file contents " .. path, "WarningMsg" },
+    }, true, {})
+    return false
+  end
+
+  write_lines(path, after)
+  vim.api.nvim_echo({
+    { "[omniac approval] applied completed edit " .. path, "Comment" },
+  }, true, {})
   return true
 end
 
