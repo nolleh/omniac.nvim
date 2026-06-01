@@ -246,6 +246,7 @@ function M.new(config)
     session_id = nil,
     response_buffer = "",
     response_emitted = false,
+    response_streamed = false,
     pending_prompt = nil,
     edit_tool_calls = {},
     debug_log = {},
@@ -282,7 +283,7 @@ function M.new(config)
     end)
   end
 
-  function state:_notify(message)
+  function state:_emit_notification(message)
     self:_emit(self.notification_handler, message)
   end
 
@@ -298,7 +299,7 @@ function M.new(config)
       table.remove(self.debug_log, 1)
     end
     if self.config.debug then
-      self:_notify({
+      self:_emit_notification({
         method = "_transport/debug",
         params = entry,
       })
@@ -390,7 +391,7 @@ function M.new(config)
             emitted_file_update = true
             if update.status == "completed" then
               echomsg("[omniac acp edit] file update completed " .. item.path)
-              self:_notify({
+              self:_emit_notification({
                 method = "omniac/file_update",
                 params = {
                   path = item.path,
@@ -403,7 +404,7 @@ function M.new(config)
                 },
               })
             elseif update.status ~= "failed" then
-              self:_notify({
+              self:_emit_notification({
                 method = "omniac/permission_diff",
                 params = {
                   path = item.path,
@@ -419,7 +420,7 @@ function M.new(config)
         end
         if update.status == "failed" and not emitted_file_update then
           echomsg("[omniac acp edit] edit failed " .. tostring(update.toolCallId))
-          self:_notify({
+          self:_emit_notification({
             method = "omniac/edit_failed",
             params = {
               toolCallId = update.toolCallId,
@@ -438,6 +439,14 @@ function M.new(config)
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then
           self.response_buffer = self.response_buffer .. text
+          self.response_streamed = true
+          self:_emit_notification({
+            method = "omniac/response_chunk",
+            params = {
+              text = text,
+              sessionId = self.session_id,
+            },
+          })
         end
         return
       end
@@ -446,6 +455,14 @@ function M.new(config)
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then
           self.response_buffer = self.response_buffer .. text
+          self.response_streamed = true
+          self:_emit_notification({
+            method = "omniac/response_chunk",
+            params = {
+              text = text,
+              sessionId = self.session_id,
+            },
+          })
         end
         return
       end
@@ -462,7 +479,15 @@ function M.new(config)
     end
 
     if method == "session/error" then
-      self:_notify({
+      self:_emit_notification({
+        method = "omniac/error",
+        params = params,
+      })
+      return
+    end
+
+    if method == "_transport/error" then
+      self:_emit_notification({
         method = "omniac/error",
         params = params,
       })
@@ -470,7 +495,7 @@ function M.new(config)
     end
 
     if self.config.debug then
-      self:_notify(message)
+      self:_emit_notification(message)
     end
   end
 
@@ -545,14 +570,24 @@ function M.new(config)
     end
 
     if text and text ~= "" then
-      self:_notify({
-        method = "omniac/response",
-        params = {
-          text = text,
-          sessionId = self.session_id,
-          result = result,
-        },
-      })
+      if self.response_streamed then
+        self:_emit_notification({
+          method = "omniac/response_completed",
+          params = {
+            sessionId = self.session_id,
+            result = result,
+          },
+        })
+      else
+        self:_emit_notification({
+          method = "omniac/response",
+          params = {
+            text = text,
+            sessionId = self.session_id,
+            result = result,
+          },
+        })
+      end
     end
   end
 
@@ -580,6 +615,7 @@ function M.new(config)
         self.transport = nil
         self.session_id = nil
         self.response_buffer = ""
+        self.response_streamed = false
         self.pending_prompt = nil
         self.edit_tool_calls = {}
         self:_emit(self.exit_handler, code, signal)
@@ -594,7 +630,7 @@ function M.new(config)
 
     self:_initialize(function(err, result)
       if err then
-        self:_notify({
+        self:_emit_notification({
           method = "omniac/error",
           params = {
             message = "initialize failed",
@@ -605,7 +641,7 @@ function M.new(config)
       end
 
       if self.config.debug then
-        self:_notify({
+        self:_emit_notification({
           method = "omniac/initialize",
           params = result,
         })
@@ -613,7 +649,7 @@ function M.new(config)
 
       self:_create_session(function(session_err, session_result)
         if session_err then
-          self:_notify({
+          self:_emit_notification({
             method = "omniac/error",
             params = {
               message = "session/new failed",
@@ -631,7 +667,7 @@ function M.new(config)
 
         self:_set_session_mode(function(mode_err)
           if mode_err then
-            self:_notify({
+            self:_emit_notification({
               method = "omniac/error",
               params = {
                 message = "session/set_mode failed",
@@ -641,7 +677,7 @@ function M.new(config)
             return
           end
 
-          self:_notify({
+          self:_emit_notification({
             method = "omniac/session_started",
             params = session_result,
           })
@@ -667,7 +703,8 @@ function M.new(config)
     local function send_prompt()
       self.response_buffer = ""
       self.response_emitted = false
-      self:_notify({
+      self.response_streamed = false
+      self:_emit_notification({
         method = "omniac/prompt_started",
         params = {
           sessionId = self.session_id,
@@ -714,6 +751,7 @@ function M.new(config)
     self.session_id = nil
     self.response_buffer = ""
     self.response_emitted = false
+    self.response_streamed = false
     self.edit_tool_calls = {}
     self.pending_prompt = nil
   end

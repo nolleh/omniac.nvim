@@ -320,7 +320,7 @@ function M.connect()
           echomsg("[omniac acp notification] omniac/permission_diff " .. tostring(params.path))
         elseif method == "omniac/edit_failed" then
           echomsg("[omniac acp notification] omniac/edit_failed " .. tostring(params.toolCallId))
-        elseif method ~= "session/update" then
+        elseif method ~= "session/update" and method ~= "omniac/response_chunk" then
           echomsg("[omniac acp notification] " .. tostring(method) .. " " .. inspect_short(params))
         end
 
@@ -337,25 +337,15 @@ function M.connect()
         end
 
         if method == "omniac/edit_failed" then
-          vim.notify(vim.inspect(params), vim.log.levels.WARN, { title = "omniac edit failed" })
-          return
-        end
-
-        if M.config.debug then
-          vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
           return
         end
 
         if method == "omniac/response" then
-          local text = params.text
-          if text and text ~= "" then
-            vim.notify(text, vim.log.levels.INFO, { title = "omniac response" })
-          end
           return
         end
 
         if method == "omniac/error" then
-          vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "omniac error" })
+          vim.notify(tostring(params.message or params.error or "omniac error"), vim.log.levels.ERROR, { title = "omniac error" })
         end
       end)
       :on_exit(function(code, signal)
@@ -378,11 +368,6 @@ function M.connect()
 
       ui.handle_notification(message, M.config)
 
-      if M.config.debug then
-        vim.notify(vim.inspect(message), vim.log.levels.INFO, { title = "omniac event" })
-        return
-      end
-
       if method == "thread/started" or method == "turn/started" then
         M.response_buffer = ""
         return
@@ -402,29 +387,27 @@ function M.connect()
 
         if text and text ~= "" then
           ui.add_message("Omniac", text, M.config)
-          vim.notify(text, vim.log.levels.INFO, { title = "omniac response" })
           return
         end
 
         local summary = extract_text(params)
         if summary and summary ~= "" then
           ui.add_message("Omniac", summary, M.config)
-          vim.notify(summary, vim.log.levels.INFO, { title = "omniac response" })
         end
         return
       end
 
       if method == "turn/error" or method == "_transport/error" then
-        vim.notify(vim.inspect(message), vim.log.levels.ERROR, { title = "omniac error" })
+        vim.notify(tostring(params.message or params.error or "omniac error"), vim.log.levels.ERROR, { title = "omniac error" })
       end
     end)
     :on_request(function(message, reply)
-      if M.config.debug then
-        vim.notify(vim.inspect(message), vim.log.levels.WARN, { title = "omniac request" })
-      end
-
       local method = message and message.method
       local params = message and message.params or {}
+
+      if M.config.debug then
+        vim.notify("server request: " .. tostring(method), vim.log.levels.WARN, { title = "omniac request" })
+      end
 
       if method == "item/fileChange/requestApproval" or method == "applyPatchApproval" then
         approval.review_request(method, params, reply, nil, M.config)

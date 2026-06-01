@@ -16,6 +16,7 @@ local state = {
   activity_timer = nil,
   activity_frame = 1,
   messages = {},
+  streaming_message_index = nil,
   config = nil,
   submit = nil,
   rendering_input = false,
@@ -222,8 +223,8 @@ local function render_chat(config)
           add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
       else
-        for line in (tostring(message.text or "") .. "\n"):gmatch("(.-)\n") do
-          add_line(lines, marks, "  " .. line, group)
+        for _, line in ipairs(wrapped(message.text, text_width)) do
+          add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
       end
       add_line(lines, marks, "", nil)
@@ -238,6 +239,10 @@ local function render_chat(config)
 
   for _, mark in ipairs(marks) do
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
+  end
+
+  if valid_win(state.chat_win) and #lines > 0 then
+    pcall(vim.api.nvim_win_set_cursor, state.chat_win, { #lines, 0 })
   end
 end
 
@@ -779,8 +784,30 @@ function M.add_message(role, text, config)
     role = role,
     text = text or "",
   })
+  if role ~= "Omniac" then
+    state.streaming_message_index = nil
+  end
   render_chat(config)
   focus_input()
+end
+
+function M.append_response_chunk(text, config)
+  if not text or text == "" then
+    return
+  end
+
+  local index = state.streaming_message_index
+  if not index or not state.messages[index] or state.messages[index].role ~= "Omniac" then
+    table.insert(state.messages, {
+      role = "Omniac",
+      text = "",
+    })
+    index = #state.messages
+    state.streaming_message_index = index
+  end
+
+  state.messages[index].text = (state.messages[index].text or "") .. text
+  render_chat(config)
 end
 
 function M.submit(text, config)
@@ -798,6 +825,7 @@ function M.handle_notification(message, config)
   end
 
   if method == "thread/started" or method == "turn/started" or method == "omniac/prompt_started" then
+    state.streaming_message_index = nil
     M.set_status("working", config)
     return
   end
@@ -809,6 +837,18 @@ function M.handle_notification(message, config)
 
   if method == "omniac/response" then
     M.add_message("Omniac", params.text or "", config)
+    state.streaming_message_index = nil
+    M.set_status("ready", config)
+    return
+  end
+
+  if method == "omniac/response_chunk" then
+    M.append_response_chunk(params.text or "", config)
+    return
+  end
+
+  if method == "omniac/response_completed" then
+    state.streaming_message_index = nil
     M.set_status("ready", config)
     return
   end

@@ -172,29 +172,42 @@ function M.new(config)
     self:_debug("stdout_chunk", {
       lines = deepcopy(lines),
     })
-    for _, chunk in ipairs(lines or {}) do
-      if chunk ~= nil and chunk ~= "" then
-        local line = chunk:gsub("\r$", "")
-        if line ~= "" then
-          if #self.sent_echoes > 0 and line == self.sent_echoes[1] then
-            table.remove(self.sent_echoes, 1)
-            self:_debug("ignored_echo", line)
-          else
-          local ok, message = pcall(decode_json, line)
-          if ok and type(message) == "table" then
-            self:_dispatch_message(message)
-          else
-            self:_emit(self.notification_handler, {
-              method = "_transport/error",
-              params = {
-                message = "Failed to decode JSONL frame",
-                line = line,
-              },
-            })
-          end
-          end
-        end
+
+    local data = lines or {}
+    if #data == 0 then
+      return
+    end
+
+    local function handle_line(line)
+      line = (line or ""):gsub("\r$", "")
+      if line == "" then
+        return
       end
+
+      if #self.sent_echoes > 0 and line == self.sent_echoes[1] then
+        table.remove(self.sent_echoes, 1)
+        self:_debug("ignored_echo", line)
+        return
+      end
+
+      local ok, message = pcall(decode_json, line)
+      if ok and type(message) == "table" then
+        self:_dispatch_message(message)
+      else
+        self:_emit(self.notification_handler, {
+          method = "_transport/error",
+          params = {
+            message = "Failed to decode JSONL frame",
+            line = line,
+          },
+        })
+      end
+    end
+
+    self.buffer = self.buffer .. (data[1] or "")
+    for index = 2, #data do
+      handle_line(self.buffer)
+      self.buffer = data[index] or ""
     end
   end
 
