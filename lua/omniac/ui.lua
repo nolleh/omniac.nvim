@@ -103,7 +103,10 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacStatusMode", { fg = "#11111b", bg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatus", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsule", { fg = "#11111b", bg = "#94e2d5", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusCapsuleEdge", { fg = "#94e2d5", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusModeEdge", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAlt", { fg = "#cdd6f4", bg = "#45475a", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAltEdge", { fg = "#45475a", bold = true })
 end
 
 local function add_hl(buf, line, start_col, end_col, group)
@@ -159,6 +162,21 @@ local function wrapped(text, max_width)
     table.remove(result)
   end
   return result
+end
+
+local function wrapped_blocks(text, max_width)
+  local blocks = {}
+  for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+    local block = wrapped(raw, max_width)
+    if #block == 0 then
+      block = { "" }
+    end
+    table.insert(blocks, block)
+  end
+  if #blocks > 0 and #blocks[#blocks] == 1 and blocks[#blocks][1] == "" then
+    table.remove(blocks)
+  end
+  return blocks
 end
 
 local function header(lines, marks, size)
@@ -223,8 +241,14 @@ local function render_chat(config)
           add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
       else
-        for _, line in ipairs(wrapped(message.text, text_width)) do
-          add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
+        local blocks = wrapped_blocks(message.text, text_width)
+        for block_index, block in ipairs(blocks) do
+          for _, line in ipairs(block) do
+            add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
+          end
+          if block_index < #blocks then
+            add_line(lines, marks, fit("", win_width), nil)
+          end
         end
       end
       add_line(lines, marks, "", nil)
@@ -263,9 +287,22 @@ local function render_status()
   vim.api.nvim_buf_set_lines(state.status_buf, 0, -1, false, { fit(line, win_width) })
   vim.bo[state.status_buf].modifiable = false
   vim.bo[state.status_buf].modified = false
-  add_hl(state.status_buf, 1, 0, #left, "OmniacStatusCapsule")
-  add_hl(state.status_buf, 1, #left, #left + #middle, "OmniacStatusMode")
-  add_hl(state.status_buf, 1, #left + #middle + #spacer, -1, "OmniacStatusCapsuleAlt")
+
+  local col = 0
+  local function add_capsule(text, fill_group, edge_group)
+    add_hl(state.status_buf, 1, col, col + #"", edge_group)
+    col = col + #""
+    add_hl(state.status_buf, 1, col, col + #text, fill_group)
+    col = col + #text
+    add_hl(state.status_buf, 1, col, col + #"", edge_group)
+    col = col + #""
+  end
+
+  add_capsule(" Omniac ", "OmniacStatusCapsule", "OmniacStatusCapsuleEdge")
+  col = col + #" "
+  add_capsule(" " .. state.status .. " ", "OmniacStatusMode", "OmniacStatusModeEdge")
+  col = col + #spacer + #" "
+  add_capsule(" " .. agent_name(state.config) .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
 end
 
 local function render_activity()
@@ -372,10 +409,29 @@ local function strip_input_prefix(line, index)
   if line:sub(1, #prefix) == prefix then
     return line:sub(#prefix + 1)
   end
+  if prefix:sub(1, #line) == line then
+    return ""
+  end
   if line:sub(1, #"│") == "│" then
     return (line:gsub("^│%s*", "", 1))
   end
   return line
+end
+
+local function previous_char_start(text, col)
+  local last_start = 0
+  local byte_col = 0
+
+  for char in chars(text) do
+    local next_col = byte_col + #char
+    if next_col >= col then
+      return byte_col
+    end
+    last_start = byte_col
+    byte_col = next_col
+  end
+
+  return last_start
 end
 
 local function raw_input_lines()
@@ -600,6 +656,34 @@ local function insert_input_newline()
   end
 end
 
+local function delete_input_backwards()
+  if not valid_win(state.input_win) then
+    return ""
+  end
+
+  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
+  local lines = raw_input_lines()
+  local input_cursor = logical_cursor_from_display(cursor)
+  local input_line = math.min(math.max(input_cursor.line, 1), #lines)
+  local text = lines[input_line] or ""
+  local col = math.min(math.max(input_cursor.col, 0), #text)
+
+  if col > 0 then
+    local start_col = previous_char_start(text, col)
+    lines[input_line] = text:sub(1, start_col) .. text:sub(col + 1)
+    render_input(lines, { line = input_line, col = start_col })
+  elseif input_line > 1 then
+    local previous = lines[input_line - 1] or ""
+    lines[input_line - 1] = previous .. text
+    table.remove(lines, input_line)
+    render_input(lines, { line = input_line - 1, col = #previous })
+  else
+    render_input(lines, { line = 1, col = 0 })
+  end
+
+  return ""
+end
+
 local function configure_window(win)
   vim.w[win].omniac_ui = true
   vim.wo[win].number = false
@@ -733,6 +817,11 @@ function M.open(config, submit)
     buffer = state.input_buf,
     nowait = true,
     desc = "Insert newline in Omniac prompt",
+  })
+  vim.keymap.set("i", "<BS>", delete_input_backwards, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Delete Omniac input character",
   })
 
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do

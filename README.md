@@ -28,6 +28,3 @@ Start Neovim with `scripts/dev.lua` to load this plugin with the default Codex c
 
 See [docs/PROTOCOL_TODO.md](docs/PROTOCOL_TODO.md) for the current ACP implementation scope and remaining work.
 
-
-
-
