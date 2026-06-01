@@ -2,6 +2,11 @@ local diff = require("omniac.diff")
 
 local M = {}
 
+local function diff_separate_tab(config)
+  local ui = config and config.ui or {}
+  return ui.diff_separate_tab == true
+end
+
 local function is_omniac_buffer(name)
   return name:match("Omniac Chat$") or name:match("Omniac Input$") or name:match("Omniac Status$")
 end
@@ -223,7 +228,12 @@ local function write_lines(path, lines)
   end
 end
 
-function M.review_request(method, params, reply, resolve)
+function M.review_request(method, params, reply, resolve, config)
+  if type(resolve) == "table" and config == nil then
+    config = resolve
+    resolve = nil
+  end
+
   local tool_call = params and params.toolCall
   if method == "session/request_permission" and type(tool_call) == "table" and tool_call.kind == "edit" then
     local option_id = first_option_id(params)
@@ -240,7 +250,7 @@ function M.review_request(method, params, reply, resolve)
     diff.open_review("ACP edit permission", review, review, {
       title = "Omniac permission: edit",
       origin_win = review_window(),
-      separate_tab = true,
+      separate_tab = diff_separate_tab(config),
     }, function(accepted)
       reply(resolve and resolve(accepted) or {
         outcome = accepted and option_id and {
@@ -309,12 +319,13 @@ function M.review_request(method, params, reply, resolve)
   diff.open_review(path, before, after, {
     title = "Omniac approval: " .. path,
     origin_win = review_window(),
+    separate_tab = diff_separate_tab(config),
   }, function(accepted)
     reply(resolve and resolve(accepted) or approval_payload(method, accepted))
   end)
 end
 
-function M.review_file_update(params)
+function M.review_file_update(params, config)
   local path = params and params.path
   local before = as_lines(params and params.oldText) or {}
   local after = as_lines(params and params.newText) or {}
@@ -330,7 +341,7 @@ function M.review_file_update(params)
   diff.open_review(path, before, after, {
     title = "Omniac file update: " .. path,
     origin_win = review_window(),
-    separate_tab = true,
+    separate_tab = diff_separate_tab(config),
   }, function(accepted, accepted_lines)
     write_lines(path, accepted and (accepted_lines or after) or before)
     vim.api.nvim_echo({
@@ -344,7 +355,7 @@ function M.review_file_update(params)
   return true
 end
 
-function M.review_acp_permission(params, reply)
+function M.review_acp_permission(params, reply, config)
   local option_id = first_option_id(params)
   M.review_request("session/request_permission", params, reply, function(accepted)
     return {
@@ -355,7 +366,7 @@ function M.review_acp_permission(params, reply)
         outcome = "cancelled",
       },
     }
-  end)
+  end, config)
 end
 
 return M

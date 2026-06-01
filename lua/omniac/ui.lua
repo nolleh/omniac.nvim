@@ -404,6 +404,7 @@ local function enforce_input()
 end
 
 local function configure_window(win)
+  vim.w[win].omniac_ui = true
   vim.wo[win].number = false
   vim.wo[win].relativenumber = false
   vim.wo[win].signcolumn = "no"
@@ -415,13 +416,20 @@ local function configure_window(win)
 end
 
 local function resize_aux_windows()
+  local target_width = width(state.config)
+  if valid_win(state.chat_win) then
+    pcall(vim.api.nvim_win_set_width, state.chat_win, target_width)
+  end
   if valid_win(state.status_win) then
+    pcall(vim.api.nvim_win_set_width, state.status_win, target_width)
     pcall(vim.api.nvim_win_set_height, state.status_win, 1)
   end
   if valid_win(state.input_win) then
+    pcall(vim.api.nvim_win_set_width, state.input_win, target_width)
     pcall(vim.api.nvim_win_set_height, state.input_win, 3)
   end
   if valid_win(state.activity_win) then
+    pcall(vim.api.nvim_win_set_width, state.activity_win, target_width)
     pcall(vim.api.nvim_win_set_height, state.activity_win, 1)
   end
 end
@@ -477,12 +485,14 @@ function M.open(config, submit)
   state.chat_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(state.chat_win, state.chat_buf)
   configure_window(state.chat_win)
+  vim.wo[state.chat_win].winfixwidth = true
   vim.wo[state.chat_win].statusline = "%!v:lua.require'omniac.ui'.statusline()"
 
   vim.cmd("belowright 1new")
   state.activity_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(state.activity_win, state.activity_buf)
   configure_window(state.activity_win)
+  vim.wo[state.activity_win].winfixwidth = true
   vim.wo[state.activity_win].winfixheight = true
   vim.wo[state.activity_win].statusline = "%#OmniacStatus#%="
 
@@ -490,6 +500,7 @@ function M.open(config, submit)
   state.input_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(state.input_win, state.input_buf)
   configure_window(state.input_win)
+  vim.wo[state.input_win].winfixwidth = true
   vim.wo[state.input_win].winfixheight = true
   vim.wo[state.input_win].wrap = false
   vim.wo[state.input_win].statusline = "%#OmniacStatus#%="
@@ -498,6 +509,7 @@ function M.open(config, submit)
   state.status_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(state.status_win, state.status_buf)
   configure_window(state.status_win)
+  vim.wo[state.status_win].winfixwidth = true
   vim.wo[state.status_win].winfixheight = true
   vim.wo[state.status_win].statusline = "%#OmniacStatus#%="
   resize_aux_windows()

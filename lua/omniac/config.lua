@@ -30,6 +30,7 @@ M.defaults = {
   },
   ui = {
     diff_title = "ACP Diff",
+    diff_separate_tab = false,
     chat_width = 58,
   },
 }

@@ -304,7 +304,7 @@ function M.connect()
         end
 
         if method == "session/request_permission" then
-          approval.review_acp_permission(params, logged_reply)
+          approval.review_acp_permission(params, logged_reply, M.config)
           return
         end
 
@@ -323,7 +323,7 @@ function M.connect()
         ui.handle_notification(message, M.config)
 
         if method == "omniac/file_update" then
-          approval.review_file_update(params)
+          approval.review_file_update(params, M.config)
           return
         end
 
@@ -413,12 +413,12 @@ function M.connect()
       local params = message and message.params or {}
 
       if method == "item/fileChange/requestApproval" or method == "applyPatchApproval" then
-        approval.review_request(method, params, reply)
+        approval.review_request(method, params, reply, nil, M.config)
         return
       end
 
       if method == "item/commandExecution/requestApproval" then
-        approval.review_request(method, params, reply)
+        approval.review_request(method, params, reply, nil, M.config)
         return
       end
 
