@@ -18,7 +18,13 @@ local state = {
   messages = {},
   config = nil,
   submit = nil,
+  rendering_input = false,
+  input_chunks = nil,
 }
+
+local INPUT_MAX_DISPLAY_LINES = 10
+local INPUT_PROMPT = "│ > "
+local INPUT_CONTINUATION = "│ "
 
 local function valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf)
@@ -87,10 +93,10 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacAssistant", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacAssistantText", { fg = "#cdd6f4" })
   vim.api.nvim_set_hl(0, "OmniacError", { fg = "#f38ba8", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacThinking1", { fg = "#585b70", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacThinking2", { fg = "#7f849c", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacThinking3", { fg = "#cba6f7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacThinking4", { fg = "#f5c2e7", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacWorking1", { fg = "#585b70", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacWorking3", { fg = "#cba6f7", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacWorking4", { fg = "#f5c2e7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacInput", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputPrompt", { fg = "#89b4fa", bg = "#313244", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusMode", { fg = "#11111b", bg = "#f38ba8", bold = true })
@@ -264,19 +270,19 @@ local function render_activity()
 
   local win_width = valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win) or width(state.config)
   local frames = {
-    "Thinking",
-    "Thinking.",
-    "Thinking..",
-    "Thinking...",
+    "Working",
+    "Working.",
+    "Working..",
+    "Working...",
   }
   local groups = {
-    "OmniacThinking1",
-    "OmniacThinking2",
-    "OmniacThinking3",
-    "OmniacThinking4",
+    "OmniacWorking1",
+    "OmniacWorking2",
+    "OmniacWorking3",
+    "OmniacWorking4",
   }
   local text = ""
-  if state.status == "thinking" then
+  if state.status == "working" then
     text = frames[state.activity_frame]
   elseif state.status == "connecting" then
     text = "Connecting..."
@@ -303,7 +309,7 @@ local function stop_activity_timer()
 end
 
 local function sync_activity_timer()
-  if state.status ~= "thinking" then
+  if state.status ~= "working" then
     stop_activity_timer()
     state.activity_frame = 1
     render_activity()
@@ -327,11 +333,12 @@ local function reset_input()
     return
   end
 
-  vim.bo[state.input_buf].modifiable = true
   local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
+  state.rendering_input = true
+  vim.bo[state.input_buf].modifiable = true
   vim.api.nvim_buf_set_lines(state.input_buf, 0, -1, false, {
     box_line("╭", "─", "╮", win_width),
-    "│ > ",
+    INPUT_PROMPT,
     box_line("╰", "─", "╯", win_width),
   })
   vim.api.nvim_buf_clear_namespace(state.input_buf, ns, 0, -1)
@@ -345,22 +352,199 @@ local function reset_input()
     virt_text_win_col = win_width - 1,
   })
   add_hl(state.input_buf, 2, 0, #"│", "OmniacBorder")
-  add_hl(state.input_buf, 2, #"│", #"│ > ", "OmniacInputPrompt")
+  add_hl(state.input_buf, 2, #"│", #INPUT_PROMPT, "OmniacInputPrompt")
   add_hl(state.input_buf, 3, 0, -1, "OmniacBorder")
   vim.bo[state.input_buf].modified = false
+  state.rendering_input = false
+  state.input_chunks = { { source_line = 1, start_col = 0, end_col = 0 } }
+  if valid_win(state.input_win) then
+    pcall(vim.api.nvim_win_set_height, state.input_win, 3)
+  end
+end
+
+local function strip_input_prefix(line, index)
+  local prefix = index == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+  if line:sub(1, #prefix) == prefix then
+    return line:sub(#prefix + 1)
+  end
+  if line:sub(1, #"│") == "│" then
+    return (line:gsub("^│%s*", "", 1))
+  end
+  return line
+end
+
+local function raw_input_lines()
+  if not valid_buf(state.input_buf) then
+    return { "" }
+  end
+
+  local buffer_lines = vim.api.nvim_buf_get_lines(state.input_buf, 1, -1, false)
+  if #buffer_lines > 0 then
+    table.remove(buffer_lines)
+  end
+  if #buffer_lines == 0 then
+    return { "" }
+  end
+
+  if state.input_chunks and #state.input_chunks == #buffer_lines then
+    local result = {}
+    for index, line in ipairs(buffer_lines) do
+      local source_line = state.input_chunks[index].source_line
+      result[source_line] = (result[source_line] or "") .. strip_input_prefix(line, index)
+    end
+    return result
+  end
+
+  local result = {}
+  for index, line in ipairs(buffer_lines) do
+    table.insert(result, strip_input_prefix(line, index))
+  end
+  return result
 end
 
 local function raw_input_text()
-  if not valid_buf(state.input_buf) then
-    return ""
-  end
-
-  local line = vim.api.nvim_buf_get_lines(state.input_buf, 1, 2, false)[1] or ""
-  return (line:gsub("^│%s*>%s*", ""))
+  return table.concat(raw_input_lines(), "\n")
 end
 
 local function input_text()
   return (raw_input_text():gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function input_content_width(win_width, prefix)
+  return math.max(1, win_width - vim.fn.strdisplaywidth(prefix or INPUT_PROMPT) - 3)
+end
+
+local function input_display_height(lines, win_width)
+  return math.min(INPUT_MAX_DISPLAY_LINES, math.max(1, #lines)) + 2
+end
+
+local function wrap_input_lines(lines, cursor, win_width)
+  local wrapped_lines = {}
+  local chunks = {}
+
+  for line_index, line in ipairs(lines) do
+    if line == "" then
+      table.insert(wrapped_lines, "")
+      table.insert(chunks, { source_line = line_index, start_col = 0, end_col = 0 })
+    else
+      local current = ""
+      local current_width = 0
+      local current_start = 0
+      local byte_col = 0
+
+      for char in chars(line) do
+        local prefix = #wrapped_lines == 0 and INPUT_PROMPT or INPUT_CONTINUATION
+        local max_width = input_content_width(win_width, prefix)
+        local char_width = vim.fn.strdisplaywidth(char)
+        if current ~= "" and current_width + char_width > max_width then
+          table.insert(wrapped_lines, current)
+          table.insert(chunks, { source_line = line_index, start_col = current_start, end_col = byte_col })
+          current = char
+          current_width = char_width
+          current_start = byte_col
+        else
+          current = current .. char
+          current_width = current_width + char_width
+        end
+        byte_col = byte_col + #char
+      end
+
+      table.insert(wrapped_lines, current)
+      table.insert(chunks, { source_line = line_index, start_col = current_start, end_col = #line })
+    end
+  end
+
+  local wrapped_cursor
+  if cursor then
+    for index, chunk in ipairs(chunks) do
+      if cursor.line == chunk.source_line and cursor.col >= chunk.start_col and cursor.col <= chunk.end_col then
+        wrapped_cursor = {
+          line = index,
+          col = cursor.col - chunk.start_col,
+        }
+        break
+      end
+    end
+  end
+
+  return wrapped_lines, wrapped_cursor or cursor, chunks
+end
+
+local function render_input(lines, cursor)
+  if not valid_buf(state.input_buf) then
+    return
+  end
+
+  if type(lines) == "string" then
+    lines = vim.split(lines, "\n", { plain = true })
+  end
+  if not lines or #lines == 0 then
+    lines = { "" }
+  end
+
+  local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
+  local chunks
+  lines, cursor, chunks = wrap_input_lines(lines, cursor, win_width)
+  local buffer_lines = { box_line("╭", "─", "╮", win_width) }
+  for index, line in ipairs(lines) do
+    table.insert(buffer_lines, (index == 1 and INPUT_PROMPT or INPUT_CONTINUATION) .. line)
+  end
+  table.insert(buffer_lines, box_line("╰", "─", "╯", win_width))
+
+  state.rendering_input = true
+  vim.bo[state.input_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.input_buf, 0, -1, false, buffer_lines)
+  vim.api.nvim_buf_clear_namespace(state.input_buf, ns, 0, -1)
+  add_hl(state.input_buf, 1, 0, -1, "OmniacBorder")
+  for index = 1, #lines do
+    local line_number = index + 1
+    local prefix = index == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+    vim.api.nvim_buf_set_extmark(state.input_buf, ns, line_number - 1, 0, {
+      line_hl_group = "OmniacInput",
+    })
+    vim.api.nvim_buf_set_extmark(state.input_buf, ns, line_number - 1, 0, {
+      virt_text = { { "│", "OmniacBorder" } },
+      virt_text_pos = "overlay",
+      virt_text_win_col = win_width - 1,
+    })
+    add_hl(state.input_buf, line_number, 0, #"│", "OmniacBorder")
+    if index == 1 then
+      add_hl(state.input_buf, line_number, #"│", #prefix, "OmniacInputPrompt")
+    end
+  end
+  add_hl(state.input_buf, #buffer_lines, 0, -1, "OmniacBorder")
+  vim.bo[state.input_buf].modified = false
+  state.rendering_input = false
+  state.input_chunks = chunks
+
+  if valid_win(state.input_win) then
+    pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(lines, win_width))
+    if cursor and vim.api.nvim_get_current_buf() == state.input_buf then
+      local cursor_line = math.min(math.max(cursor.line or 1, 1), #lines)
+      local prefix = cursor_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+      local cursor_col = math.min(math.max(cursor.col or 0, 0), #(lines[cursor_line] or ""))
+      pcall(vim.api.nvim_win_set_cursor, state.input_win, { cursor_line + 1, #prefix + cursor_col })
+    end
+  end
+end
+
+local function logical_cursor_from_display(cursor)
+  local input_line = math.max(cursor[1] - 1, 1)
+  local chunks = state.input_chunks
+  if chunks and chunks[input_line] then
+    local chunk = chunks[input_line]
+    local prefix = input_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+    return {
+      line = chunk.source_line,
+      col = math.max(0, cursor[2] - #prefix) + chunk.start_col,
+    }
+  end
+
+  local prefix = input_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+  return {
+    line = input_line,
+    col = math.max(0, cursor[2] - #prefix),
+  }
 end
 
 local function focus_input()
@@ -369,37 +553,45 @@ local function focus_input()
   end
 
   vim.api.nvim_set_current_win(state.input_win)
-  vim.api.nvim_win_set_cursor(state.input_win, { 2, #"│ > " })
-  vim.cmd("startinsert")
+  local lines = raw_input_lines()
+  local line = #lines
+  local prefix = line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+  vim.api.nvim_win_set_cursor(state.input_win, { line + 1, #prefix + #(lines[line] or "") })
+  vim.cmd("startinsert!")
 end
 
 local function enforce_input()
-  if not valid_buf(state.input_buf) then
+  if state.rendering_input or not valid_buf(state.input_buf) then
     return
   end
 
-  local text = raw_input_text()
-  local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
-  vim.api.nvim_buf_set_lines(state.input_buf, 0, -1, false, {
-    box_line("╭", "─", "╮", win_width),
-    "│ > " .. text,
-    box_line("╰", "─", "╯", win_width),
+  local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
+  local lines = raw_input_lines()
+  local input_cursor = logical_cursor_from_display(cursor)
+  render_input(lines, {
+    line = math.min(math.max(input_cursor.line, 1), #lines),
+    col = input_cursor.col,
   })
-  vim.api.nvim_buf_clear_namespace(state.input_buf, ns, 0, -1)
-  add_hl(state.input_buf, 1, 0, -1, "OmniacBorder")
-  vim.api.nvim_buf_set_extmark(state.input_buf, ns, 1, 0, {
-    line_hl_group = "OmniacInput",
-  })
-  vim.api.nvim_buf_set_extmark(state.input_buf, ns, 1, 0, {
-    virt_text = { { "│", "OmniacBorder" } },
-    virt_text_pos = "overlay",
-    virt_text_win_col = win_width - 1,
-  })
-  add_hl(state.input_buf, 2, 0, #"│", "OmniacBorder")
-  add_hl(state.input_buf, 2, #"│", #"│ > ", "OmniacInputPrompt")
-  add_hl(state.input_buf, 3, 0, -1, "OmniacBorder")
-  if valid_win(state.input_win) and vim.api.nvim_get_current_buf() == state.input_buf then
-    vim.api.nvim_win_set_cursor(state.input_win, { 2, #("│ > " .. text) })
+end
+
+local function insert_input_newline()
+  if not valid_win(state.input_win) then
+    return
+  end
+
+  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
+  local lines = raw_input_lines()
+  local input_cursor = logical_cursor_from_display(cursor)
+  local input_line = math.min(math.max(input_cursor.line, 1), #lines)
+  local text = lines[input_line] or ""
+  local col = math.min(math.max(input_cursor.col, 0), #text)
+  lines[input_line] = text:sub(1, col)
+  table.insert(lines, input_line + 1, text:sub(col + 1))
+  render_input(lines, { line = input_line + 1, col = 0 })
+  if lines[input_line + 1] == "" then
+    vim.cmd("startinsert!")
+  else
+    vim.cmd("startinsert")
   end
 end
 
@@ -426,7 +618,7 @@ local function resize_aux_windows()
   end
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_set_width, state.input_win, target_width)
-    pcall(vim.api.nvim_win_set_height, state.input_win, 3)
+    pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(raw_input_lines(), target_width))
   end
   if valid_win(state.activity_win) then
     pcall(vim.api.nvim_win_set_width, state.activity_win, target_width)
@@ -527,6 +719,21 @@ function M.open(config, submit)
     end
   end, { buffer = state.input_buf, nowait = true, desc = "Send Omniac prompt" })
 
+  vim.keymap.set({ "n", "i" }, "<S-CR>", insert_input_newline, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Insert newline in Omniac prompt",
+  })
+  vim.keymap.set({ "n", "i" }, "<S-Enter>", insert_input_newline, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Insert newline in Omniac prompt",
+  })
+
+  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
+    vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
+  end
+
   vim.keymap.set("n", "q", function()
     stop_activity_timer()
     if valid_win(state.input_win) then
@@ -544,7 +751,7 @@ function M.open(config, submit)
   end, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
 
   vim.api.nvim_clear_autocmds({ group = augroup, buffer = state.input_buf })
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave" }, {
     group = augroup,
     buffer = state.input_buf,
     callback = enforce_input,
@@ -578,7 +785,7 @@ end
 
 function M.submit(text, config)
   M.add_message("You", text, config)
-  M.set_status("thinking", config)
+  M.set_status("working", config)
 end
 
 function M.handle_notification(message, config)
@@ -591,7 +798,7 @@ function M.handle_notification(message, config)
   end
 
   if method == "thread/started" or method == "turn/started" or method == "omniac/prompt_started" then
-    M.set_status("thinking", config)
+    M.set_status("working", config)
     return
   end
 
