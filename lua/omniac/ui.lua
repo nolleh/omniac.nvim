@@ -15,6 +15,7 @@ local state = {
   status = "idle",
   activity_timer = nil,
   activity_frame = 1,
+  tool_activity = nil,
   messages = {},
   streaming_message_index = nil,
   config = nil,
@@ -138,6 +139,14 @@ local function add_boxed_line(lines, marks, text, size, group)
   end
 end
 
+local function start_chat_treesitter()
+  if not valid_buf(state.chat_buf) or not (vim.treesitter and vim.treesitter.start) then
+    return
+  end
+
+  pcall(vim.treesitter.start, state.chat_buf, "markdown")
+end
+
 local function wrapped(text, max_width)
   local result = {}
   for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
@@ -164,16 +173,26 @@ local function wrapped(text, max_width)
   return result
 end
 
-local function wrapped_blocks(text, max_width)
+local function wrapped_blocks(text, max_width, keep_trailing_empty)
   local blocks = {}
+  local in_code = false
   for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+    local is_fence = raw:match("^%s*```") or raw:match("^%s*~~~")
+    local code = in_code or is_fence
     local block = wrapped(raw, max_width)
     if #block == 0 then
       block = { "" }
     end
-    table.insert(blocks, block)
+    table.insert(blocks, {
+      lines = block,
+      code = code,
+      empty = #block == 1 and block[1] == "",
+    })
+    if is_fence then
+      in_code = not in_code
+    end
   end
-  if #blocks > 0 and #blocks[#blocks] == 1 and blocks[#blocks][1] == "" then
+  if not keep_trailing_empty and #blocks > 0 and blocks[#blocks].empty then
     table.remove(blocks)
   end
   return blocks
@@ -231,7 +250,7 @@ local function render_chat(config)
     add_line(lines, marks, box_line("╰", "─", "╯", win_width), "OmniacBorder")
   else
     for _, message in ipairs(state.messages) do
-      local group = message.role == "You" and "OmniacUserBubble" or "OmniacAssistantText"
+      local group = message.role == "You" and "OmniacUserBubble" or nil
       if message.role == "Error" then
         group = "OmniacError"
       end
@@ -241,14 +260,15 @@ local function render_chat(config)
           add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
       else
-        local blocks = wrapped_blocks(message.text, text_width)
+        local blocks = wrapped_blocks(message.text, text_width, message.complete)
         for block_index, block in ipairs(blocks) do
-          for _, line in ipairs(block) do
-            add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
+          local block_group = block.code and nil or group
+          for _, line in ipairs(block.lines) do
+            add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", block_group)
           end
-          if block_index < #blocks then
-            add_line(lines, marks, fit("", win_width), nil)
-          end
+        end
+        if message.complete then
+          add_line(lines, marks, "  " .. fit(string.rep("─", math.max(0, win_width - 4)), win_width - 4) .. "  ", "OmniacMuted")
         end
       end
       add_line(lines, marks, "", nil)
@@ -260,6 +280,7 @@ local function render_chat(config)
   vim.api.nvim_buf_set_lines(state.chat_buf, 0, -1, false, lines)
   vim.bo[state.chat_buf].modifiable = false
   vim.bo[state.chat_buf].modified = false
+  start_chat_treesitter()
 
   for _, mark in ipairs(marks) do
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
@@ -324,12 +345,18 @@ local function render_activity()
     "OmniacWorking4",
   }
   local text = ""
-  if state.status == "working" then
+  if state.status == "working" and state.tool_activity then
+    text = state.tool_activity
+  elseif state.status == "working" then
     text = frames[state.activity_frame]
   elseif state.status == "connecting" then
     text = "Connecting..."
   end
-  local line = text == "" and "" or center(text, win_width)
+  local line = ""
+  if text ~= "" then
+    local display = fit(text, win_width)
+    line = vim.fn.strdisplaywidth(text) > win_width and display or center(display, win_width)
+  end
 
   vim.bo[state.activity_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.activity_buf, ns, 0, -1)
@@ -732,6 +759,7 @@ function M.open(config, submit)
     vim.bo[state.chat_buf].bufhidden = "hide"
     vim.bo[state.chat_buf].swapfile = false
     vim.bo[state.chat_buf].filetype = "omniac"
+    vim.bo[state.chat_buf].syntax = "markdown"
     vim.api.nvim_buf_set_name(state.chat_buf, "Omniac Chat")
   end
 
@@ -862,10 +890,35 @@ end
 
 function M.set_status(status, config)
   state.status = status or "idle"
+  if state.status ~= "working" then
+    state.tool_activity = nil
+  end
   render_chat(config)
   render_activity()
   render_status()
   sync_activity_timer()
+end
+
+function M.set_tool_activity(params, config)
+  params = params or {}
+  local status = params.status or "running"
+  local kind = params.kind or "tool"
+  local title = params.title or kind
+  local prefix = "Running"
+
+  if status == "completed" then
+    prefix = "Completed"
+  elseif status == "failed" then
+    prefix = "Failed"
+  elseif status == "pending" then
+    prefix = "Pending"
+  elseif status == "in_progress" then
+    prefix = "Running"
+  end
+
+  local exit = params.exitCode ~= nil and (" exit " .. tostring(params.exitCode)) or ""
+  state.tool_activity = string.format("%s %s: %s%s", prefix, kind, title, exit)
+  render_activity()
 end
 
 function M.add_message(role, text, config)
@@ -890,13 +943,24 @@ function M.append_response_chunk(text, config)
     table.insert(state.messages, {
       role = "Omniac",
       text = "",
+      complete = false,
     })
     index = #state.messages
     state.streaming_message_index = index
   end
 
+  state.messages[index].complete = false
   state.messages[index].text = (state.messages[index].text or "") .. text
   render_chat(config)
+end
+
+function M.complete_response(config)
+  local index = state.streaming_message_index
+  if index and state.messages[index] and state.messages[index].role == "Omniac" then
+    state.messages[index].complete = true
+    render_chat(config)
+  end
+  state.streaming_message_index = nil
 end
 
 function M.submit(text, config)
@@ -915,6 +979,7 @@ function M.handle_notification(message, config)
 
   if method == "thread/started" or method == "turn/started" or method == "omniac/prompt_started" then
     state.streaming_message_index = nil
+    state.tool_activity = nil
     M.set_status("working", config)
     return
   end
@@ -936,8 +1001,13 @@ function M.handle_notification(message, config)
     return
   end
 
+  if method == "omniac/tool_activity" then
+    M.set_tool_activity(params, config)
+    return
+  end
+
   if method == "omniac/response_completed" then
-    state.streaming_message_index = nil
+    M.complete_response(config)
     M.set_status("ready", config)
     return
   end

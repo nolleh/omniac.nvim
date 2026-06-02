@@ -84,9 +84,14 @@ local function json_null()
 end
 
 local function log_path(config)
-  local log_config = (config or {}).logs or {}
+  config = config or {}
+  config.logs = config.logs or {}
+  local log_config = config.logs
   if log_config.enabled == false then
     return nil
+  end
+  if log_config._path then
+    return log_config._path
   end
 
   local dir = log_config.dir or "logs"
@@ -94,7 +99,8 @@ local function log_path(config)
     dir = (vim.loop.cwd() or ".") .. "/" .. dir
   end
   pcall(vim.fn.mkdir, dir, "p")
-  return string.format("%s/acp-%s.jsonl", dir, os.date("%Y%m%d"))
+  log_config._path = string.format("%s/acp-%s.jsonl", dir, os.date("%Y%m%d-%H%M%S"))
+  return log_config._path
 end
 
 local function append_protocol_log(config, event, payload)
@@ -215,6 +221,26 @@ local function update_summary(update)
   end
 
   return table.concat(parts, " | ")
+end
+
+local function tool_activity(update)
+  if type(update) ~= "table" then
+    return nil
+  end
+
+  local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
+  local raw_output = type(update.rawOutput) == "table" and update.rawOutput or {}
+  local meta = type(update._meta) == "table" and update._meta or {}
+  local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
+  local title = update.title or raw_input.command or update.kind or update.toolCallId
+
+  return {
+    toolCallId = update.toolCallId,
+    kind = update.kind,
+    status = update.status,
+    title = title,
+    exitCode = raw_output.exit_code or raw_output.exitCode or terminal_exit.exit_code or terminal_exit.exitCode,
+  }
 end
 
 local function update_content_items(update)
@@ -374,6 +400,13 @@ function M.new(config)
       local update_type = update and (update.sessionUpdate or update.type)
       if self.config.protocol_trace ~= false and update_type ~= "agent_message_chunk" and update_type ~= "agentMessageChunk" then
         echomsg("[omniac acp session/update] " .. update_summary(update))
+      end
+
+      if update_type == "tool_call" or update_type == "tool_call_update" then
+        self:_emit_notification({
+          method = "omniac/tool_activity",
+          params = tool_activity(update),
+        })
       end
 
       if update_type == "tool_call" and update and update.kind == "edit" and update.toolCallId then
