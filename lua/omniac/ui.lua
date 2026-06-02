@@ -558,6 +558,8 @@ local function wrap_input_lines(lines, cursor, win_width)
   return wrapped_lines, wrapped_cursor or cursor, chunks
 end
 
+local reset_leftcol
+
 local function render_input(lines, cursor)
   if not valid_buf(state.input_buf) then
     return
@@ -613,6 +615,7 @@ local function render_input(lines, cursor)
       local cursor_col = math.min(math.max(cursor.col or 0, 0), #(lines[cursor_line] or ""))
       pcall(vim.api.nvim_win_set_cursor, state.input_win, { cursor_line + 1, #prefix + cursor_col })
     end
+    reset_leftcol(state.input_win)
   end
 end
 
@@ -642,9 +645,11 @@ local function focus_input()
 
   vim.api.nvim_set_current_win(state.input_win)
   local lines = raw_input_lines()
-  local line = #lines
-  local prefix = line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
-  vim.api.nvim_win_set_cursor(state.input_win, { line + 1, #prefix + #(lines[line] or "") })
+  local line = math.max(1, #lines)
+  render_input(lines, {
+    line = line,
+    col = #(lines[line] or ""),
+  })
   vim.cmd("startinsert!")
 end
 
@@ -723,6 +728,16 @@ local function configure_window(win)
   vim.wo[win].list = false
 end
 
+reset_leftcol = function(win)
+  if not valid_win(win) then
+    return
+  end
+
+  pcall(vim.api.nvim_win_call, win, function()
+    vim.fn.winrestview({ leftcol = 0 })
+  end)
+end
+
 local function resize_aux_windows()
   local target_width = width(state.config)
   if valid_win(state.chat_win) then
@@ -735,6 +750,7 @@ local function resize_aux_windows()
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_set_width, state.input_win, target_width)
     pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(raw_input_lines(), target_width))
+    reset_leftcol(state.input_win)
   end
   if valid_win(state.activity_win) then
     pcall(vim.api.nvim_win_set_width, state.activity_win, target_width)
@@ -811,7 +827,7 @@ function M.open(config, submit)
   configure_window(state.input_win)
   vim.wo[state.input_win].winfixwidth = true
   vim.wo[state.input_win].winfixheight = true
-  vim.wo[state.input_win].wrap = false
+  vim.wo[state.input_win].wrap = true
   vim.wo[state.input_win].statusline = "%#OmniacStatus#%="
 
   vim.cmd("belowright 1new")
