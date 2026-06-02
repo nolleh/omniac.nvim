@@ -376,8 +376,10 @@ local function render_activity()
   end
   local line = ""
   if text ~= "" then
-    local display = fit(text, win_width)
-    line = vim.fn.strdisplaywidth(text) > win_width and display or center(display, win_width)
+    local inner_width = math.max(1, win_width - 4)
+    local display = fit(text, inner_width)
+    local padded = vim.fn.strdisplaywidth(text) > inner_width and display or center(display, inner_width)
+    line = "  " .. padded .. "  "
   end
 
   vim.bo[state.activity_buf].modifiable = true
@@ -664,6 +666,24 @@ local function logical_cursor_from_display(cursor)
   }
 end
 
+local function clamp_input_cursor()
+  if state.rendering_input or not valid_win(state.input_win) or not valid_buf(state.input_buf) then
+    return
+  end
+
+  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
+  local buffer_line_count = vim.api.nvim_buf_line_count(state.input_buf)
+  local input_line_count = math.max(1, buffer_line_count - 2)
+  local input_line = math.min(math.max(cursor[1] - 1, 1), input_line_count)
+  local prefix = input_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+  local row = input_line + 1
+  local col = math.max(cursor[2], #prefix)
+
+  if cursor[1] ~= row or cursor[2] ~= col then
+    pcall(vim.api.nvim_win_set_cursor, state.input_win, { row, col })
+  end
+end
+
 local function focus_input()
   if not valid_win(state.input_win) then
     return
@@ -684,6 +704,7 @@ local function enforce_input()
     return
   end
 
+  clamp_input_cursor()
   local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
   local lines = raw_input_lines()
   local input_cursor = logical_cursor_from_display(cursor)
@@ -932,6 +953,11 @@ function M.open(config, submit)
     group = augroup,
     buffer = state.input_buf,
     callback = enforce_input,
+  })
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "InsertEnter", "InsertCharPre" }, {
+    group = augroup,
+    buffer = state.input_buf,
+    callback = clamp_input_cursor,
   })
 
   render_chat(state.config)

@@ -140,6 +140,99 @@ run("input focus returns to end of wrapped message", function()
   vim.cmd("stopinsert")
 end)
 
+run("input cursor is clamped away from prompt marker", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  vim.cmd("startinsert")
+  vim.api.nvim_win_set_cursor(0, { 2, 3 })
+  vim.cmd("doautocmd CursorMovedI")
+  vim.cmd("redraw")
+
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  assert_true(cursor[2] >= #"│ > ", "cursor should be moved to the content column")
+  vim.cmd("stopinsert")
+end)
+
+run("input allows greater-than as user text", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  vim.cmd("stopinsert")
+  vim.api.nvim_win_set_cursor(0, { 2, #"│ > " })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local line = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 1, 2, false)[1]
+  assert_equal(line, "│ > >", "greater-than should be kept as input text")
+end)
+
+run("normal i inside input prompt starts at content column", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  vim.cmd("stopinsert")
+  vim.api.nvim_win_set_cursor(0, { 2, 3 })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("ix<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local line = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 1, 2, false)[1]
+  assert_equal(line, "│ > x", "typed text should be inserted after the input prompt")
+end)
+
+run("activity text keeps horizontal padding when truncated", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 42 } })
+  ui.handle_notification({
+    method = "omniac/tool_activity",
+    params = {
+      kind = "execute",
+      status = "completed",
+      title = string.rep("very-long-command ", 10),
+      exitCode = 0,
+    },
+  }, { ui = { chat_width = 42 } })
+
+  local activity_buf
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(buf):match("omniac://activity") then
+      activity_buf = buf
+      break
+    end
+  end
+
+  assert_true(activity_buf ~= nil, "activity buffer should exist")
+  local line = vim.api.nvim_buf_get_lines(activity_buf, 0, 1, false)[1]
+  assert_true(line:match("^  "), "activity line should keep left padding")
+  assert_true(line:match("  $"), "activity line should keep right padding")
+end)
+
 run("omniac ui buffers are named and unlisted", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

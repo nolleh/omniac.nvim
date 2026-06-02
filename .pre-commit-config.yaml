@@ -14,3 +14,11 @@ repos:
     rev: v0.16.1
     hooks:
       - id: stylua
+  - repo: local
+    hooks:
+      - id: omniac-headless-tests
+        name: omniac headless tests
+        entry: ./test.sh
+        language: system
+        pass_filenames: false
+        always_run: true
