@@ -9,7 +9,9 @@ vim.opt.runtimepath:append(plugin_path)
 require("omniac").setup({
   debug = false,
   agent = {
-    cmd = vim.env.ACPCLIENT_AGENT_CMD and vim.env.ACPCLIENT_AGENT_CMD ~= "" and vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })
+    cmd = vim.env.ACPCLIENT_AGENT_CMD
+        and vim.env.ACPCLIENT_AGENT_CMD ~= ""
+        and vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })
       or { "codex", "app-server" },
   },
 })

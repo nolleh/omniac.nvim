@@ -203,7 +203,11 @@ local function header(lines, marks, size)
   local inner = box_width - 2
   local user = vim.env.USER or "there"
   local title = "Omniac Code"
-  local top = "╭─ " .. title .. " " .. string.rep("─", math.max(0, box_width - vim.fn.strdisplaywidth(title) - 5)) .. "╮"
+  local top = "╭─ "
+    .. title
+    .. " "
+    .. string.rep("─", math.max(0, box_width - vim.fn.strdisplaywidth(title) - 5))
+    .. "╮"
   local bottom = box_line("╰", "─", "╯", box_width)
 
   add_line(lines, marks, top, "OmniacBorder")
@@ -225,7 +229,13 @@ local function header(lines, marks, size)
   end
 
   add_boxed_line(lines, marks, "", box_width, nil)
-  add_boxed_line(lines, marks, agent_name(state.config) .. " / " .. vim.fn.fnamemodify(vim.loop.cwd() or "", ":~"), box_width, "OmniacMuted")
+  add_boxed_line(
+    lines,
+    marks,
+    agent_name(state.config) .. " / " .. vim.fn.fnamemodify(vim.loop.cwd() or "", ":~"),
+    box_width,
+    "OmniacMuted"
+  )
   add_line(lines, marks, bottom, "OmniacBorder")
 end
 
@@ -245,7 +255,13 @@ local function render_chat(config)
 
   if #state.messages == 0 then
     add_line(lines, marks, box_line("╭", "─", "╮", win_width), "OmniacBorder")
-    add_boxed_line(lines, marks, "Agent: " .. agent_name(state.config) .. "  •  Status: " .. state.status, win_width, "OmniacAccent")
+    add_boxed_line(
+      lines,
+      marks,
+      "Agent: " .. agent_name(state.config) .. "  •  Status: " .. state.status,
+      win_width,
+      "OmniacAccent"
+    )
     add_boxed_line(lines, marks, "cwd: " .. vim.fn.fnamemodify(vim.loop.cwd() or "", ":~"), win_width, "OmniacMuted")
     add_line(lines, marks, box_line("╰", "─", "╯", win_width), "OmniacBorder")
   else
@@ -268,7 +284,12 @@ local function render_chat(config)
           end
         end
         if message.complete then
-          add_line(lines, marks, "  " .. fit(string.rep("─", math.max(0, win_width - 4)), win_width - 4) .. "  ", "OmniacMuted")
+          add_line(
+            lines,
+            marks,
+            "  " .. fit(string.rep("─", math.max(0, win_width - 4)), win_width - 4) .. "  ",
+            "OmniacMuted"
+          )
         end
       end
       add_line(lines, marks, "", nil)
@@ -331,7 +352,8 @@ local function render_activity()
     return
   end
 
-  local win_width = valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win) or width(state.config)
+  local win_width = valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win)
+    or width(state.config)
   local frames = {
     "Working",
     "Working.",
@@ -391,10 +413,14 @@ local function sync_activity_timer()
 
   local uv = vim.uv or vim.loop
   state.activity_timer = uv.new_timer()
-  state.activity_timer:start(0, 180, vim.schedule_wrap(function()
-    state.activity_frame = (state.activity_frame % 4) + 1
-    render_activity()
-  end))
+  state.activity_timer:start(
+    0,
+    180,
+    vim.schedule_wrap(function()
+      state.activity_frame = (state.activity_frame % 4) + 1
+      render_activity()
+    end)
+  )
 end
 
 local function reset_input()
@@ -763,7 +789,12 @@ function M.open(config, submit)
   state.config = config or state.config
   state.submit = submit or state.submit
 
-  if valid_win(state.chat_win) and valid_win(state.activity_win) and valid_win(state.input_win) and valid_win(state.status_win) then
+  if
+    valid_win(state.chat_win)
+    and valid_win(state.activity_win)
+    and valid_win(state.input_win)
+    and valid_win(state.status_win)
+  then
     resize_aux_windows()
     focus_input()
     return state
@@ -1035,7 +1066,10 @@ function M.handle_notification(message, config)
 end
 
 function M.is_open()
-  return valid_win(state.chat_win) and valid_win(state.activity_win) and valid_win(state.input_win) and valid_win(state.status_win)
+  return valid_win(state.chat_win)
+    and valid_win(state.activity_win)
+    and valid_win(state.input_win)
+    and valid_win(state.status_win)
 end
 
 function M.statusline()

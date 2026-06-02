@@ -20,4 +20,3 @@ function M.collect(paths)
 end
 
 return M
-

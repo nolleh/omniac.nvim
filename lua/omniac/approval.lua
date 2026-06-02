@@ -379,8 +379,7 @@ local function open_permission_diff(pending, payload)
     pending.reply(permission_response(pending.params, accepted))
     vim.api.nvim_echo({
       {
-        accepted and "[omniac approval] edit permission accepted"
-          or "[omniac approval] edit permission denied",
+        accepted and "[omniac approval] edit permission accepted" or "[omniac approval] edit permission denied",
         "Comment",
       },
     }, true, {})
@@ -535,7 +534,7 @@ function M.review_file_update(params, config)
     return false
   end
 
-  vim.api.nvim_echo({ { "[omniac approval] opening file update review " .. path, "Comment" }, }, true, {})
+  vim.api.nvim_echo({ { "[omniac approval] opening file update review " .. path, "Comment" } }, true, {})
   write_lines(path, before)
 
   diff.open_review(path, before, after, {

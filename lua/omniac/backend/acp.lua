@@ -398,7 +398,11 @@ function M.new(config)
     if method == "session/update" then
       local update = params.update or params
       local update_type = update and (update.sessionUpdate or update.type)
-      if self.config.protocol_trace ~= false and update_type ~= "agent_message_chunk" and update_type ~= "agentMessageChunk" then
+      if
+        self.config.protocol_trace ~= false
+        and update_type ~= "agent_message_chunk"
+        and update_type ~= "agentMessageChunk"
+      then
         echomsg("[omniac acp session/update] " .. update_summary(update))
       end
 
@@ -692,11 +696,9 @@ function M.new(config)
           return
         end
 
-        self.session_id = session_result and (
-          session_result.sessionId
-          or (session_result.session and (session_result.session.id or session_result.session.sessionId))
-          or session_result.id
-        ) or self.session_id
+        self.session_id = session_result
+            and (session_result.sessionId or (session_result.session and (session_result.session.id or session_result.session.sessionId)) or session_result.id)
+          or self.session_id
 
         self:_set_session_mode(function(mode_err)
           if mode_err then
@@ -726,12 +728,13 @@ function M.new(config)
   function state:prompt(text, params, callback)
     local request_params = deepcopy(params or {})
     request_params.sessionId = request_params.sessionId or self.session_id
-    request_params.prompt = request_params.prompt or {
-      {
-        type = "text",
-        text = text,
-      },
-    }
+    request_params.prompt = request_params.prompt
+      or {
+        {
+          type = "text",
+          text = text,
+        },
+      }
 
     local function send_prompt()
       self.response_buffer = ""

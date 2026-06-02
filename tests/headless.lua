@@ -21,7 +21,9 @@ end
 
 local function assert_equal(actual, expected, message)
   if actual ~= expected then
-    fail(string.format("%s: expected %s, got %s", message or "assert_equal", vim.inspect(expected), vim.inspect(actual)))
+    fail(
+      string.format("%s: expected %s, got %s", message or "assert_equal", vim.inspect(expected), vim.inspect(actual))
+    )
   end
 end
 

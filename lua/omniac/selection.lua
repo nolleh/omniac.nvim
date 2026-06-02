@@ -42,4 +42,3 @@ function M.get_context()
 end
 
 return M
-

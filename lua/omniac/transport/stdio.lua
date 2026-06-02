@@ -401,14 +401,16 @@ function M.new(config)
     payload.config = payload.config ~= nil and payload.config or json_null()
     payload.serviceName = payload.serviceName ~= nil and payload.serviceName or json_null()
     payload.baseInstructions = payload.baseInstructions ~= nil and payload.baseInstructions or json_null()
-    payload.developerInstructions = payload.developerInstructions ~= nil and payload.developerInstructions or json_null()
+    payload.developerInstructions = payload.developerInstructions ~= nil and payload.developerInstructions
+      or json_null()
     payload.personality = payload.personality ~= nil and payload.personality or json_null()
     payload.ephemeral = payload.ephemeral ~= nil and payload.ephemeral or json_null()
     payload.sessionStartSource = payload.sessionStartSource ~= nil and payload.sessionStartSource or json_null()
     payload.threadSource = payload.threadSource ~= nil and payload.threadSource or json_null()
     payload.environments = payload.environments ~= nil and payload.environments or json_null()
     payload.dynamicTools = payload.dynamicTools ~= nil and payload.dynamicTools or json_null()
-    payload.mockExperimentalField = payload.mockExperimentalField ~= nil and payload.mockExperimentalField or json_null()
+    payload.mockExperimentalField = payload.mockExperimentalField ~= nil and payload.mockExperimentalField
+      or json_null()
     payload.experimentalRawEvents = payload.experimentalRawEvents ~= nil and payload.experimentalRawEvents or false
     payload.persistExtendedHistory = payload.persistExtendedHistory ~= nil and payload.persistExtendedHistory or false
     payload.serviceTier = payload.serviceTier ~= nil and payload.serviceTier or json_null()
@@ -428,14 +430,17 @@ function M.new(config)
       end
 
       payload.threadId = active_thread_id
-      payload.input = payload.input or {
-        {
-          type = "text",
-          text = text,
-          text_elements = {},
-        },
-      }
-      payload.responsesapiClientMetadata = payload.responsesapiClientMetadata ~= nil and payload.responsesapiClientMetadata or json_null()
+      payload.input = payload.input
+        or {
+          {
+            type = "text",
+            text = text,
+            text_elements = {},
+          },
+        }
+      payload.responsesapiClientMetadata = payload.responsesapiClientMetadata ~= nil
+          and payload.responsesapiClientMetadata
+        or json_null()
       payload.environments = payload.environments ~= nil and payload.environments or json_null()
       payload.cwd = payload.cwd ~= nil and payload.cwd or json_null()
       payload.approvalPolicy = payload.approvalPolicy ~= nil and payload.approvalPolicy or json_null()

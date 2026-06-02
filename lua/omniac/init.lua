@@ -146,7 +146,9 @@ function M.setup(opts)
   if M.config.backend.kind == "acp" then
     M.config.agent.auto_initialize = false
     M.config.agent.env = M.config.agent.env or {}
-    M.config.agent.env.INITIAL_AGENT_MODE = M.config.agent.env.INITIAL_AGENT_MODE or M.config.agent.mode_id or "read-only"
+    M.config.agent.env.INITIAL_AGENT_MODE = M.config.agent.env.INITIAL_AGENT_MODE
+      or M.config.agent.mode_id
+      or "read-only"
   end
   M.response_buffer = ""
 
@@ -345,12 +347,20 @@ function M.connect()
         end
 
         if method == "omniac/error" then
-          vim.notify(tostring(params.message or params.error or "omniac error"), vim.log.levels.ERROR, { title = "omniac error" })
+          vim.notify(
+            tostring(params.message or params.error or "omniac error"),
+            vim.log.levels.ERROR,
+            { title = "omniac error" }
+          )
         end
       end)
       :on_exit(function(code, signal)
         ui.set_status("closed", M.config)
-        vim.notify(string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)), vim.log.levels.WARN, { title = "omniac exit" })
+        vim.notify(
+          string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
+          vim.log.levels.WARN,
+          { title = "omniac exit" }
+        )
         if M.backend == client then
           M.backend = nil
         end
@@ -373,7 +383,11 @@ function M.connect()
         return
       end
 
-      if method == "item/agentMessage/delta" or method == "item/agentMessage/final" or method == "item/agentMessage/completed" then
+      if
+        method == "item/agentMessage/delta"
+        or method == "item/agentMessage/final"
+        or method == "item/agentMessage/completed"
+      then
         local text = extract_text(params)
         if text and text ~= "" then
           M.response_buffer = M.response_buffer .. text
@@ -398,7 +412,11 @@ function M.connect()
       end
 
       if method == "turn/error" or method == "_transport/error" then
-        vim.notify(tostring(params.message or params.error or "omniac error"), vim.log.levels.ERROR, { title = "omniac error" })
+        vim.notify(
+          tostring(params.message or params.error or "omniac error"),
+          vim.log.levels.ERROR,
+          { title = "omniac error" }
+        )
       end
     end)
     :on_request(function(message, reply)
@@ -460,7 +478,11 @@ function M.connect()
       end
 
       if M.config.debug then
-        vim.notify("Unhandled server request method: " .. tostring(method), vim.log.levels.WARN, { title = "omniac request" })
+        vim.notify(
+          "Unhandled server request method: " .. tostring(method),
+          vim.log.levels.WARN,
+          { title = "omniac request" }
+        )
       end
       reply({
         decision = "acceptForSession",
@@ -468,7 +490,11 @@ function M.connect()
     end)
     :on_exit(function(code, signal)
       ui.set_status("closed", M.config)
-      vim.notify(string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)), vim.log.levels.WARN, { title = "omniac exit" })
+      vim.notify(
+        string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
+        vim.log.levels.WARN,
+        { title = "omniac exit" }
+      )
       if M.transport == client then
         M.transport = nil
       end
