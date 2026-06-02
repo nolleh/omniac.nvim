@@ -1,6 +1,7 @@
 local M = {}
 local active_reviews = {}
 local next_review_id = 1
+local augroup = vim.api.nvim_create_augroup("omniac.diff", { clear = false })
 
 local fixed_width_filetypes = {
   ["omniac"] = true,
@@ -183,6 +184,11 @@ local function close_review_windows(review)
 end
 
 local function close_review(review, accepted)
+  if not review or review.closed then
+    return
+  end
+  review.closed = true
+
   local accepted_lines = nil
   if accepted and vim.api.nvim_buf_is_valid(review.after_buf) then
     accepted_lines = vim.api.nvim_buf_get_lines(review.after_buf, 0, -1, false)
@@ -345,8 +351,44 @@ function M.open_review(path, before_lines, after_lines, opts, callback)
     callback = callback,
   }
 
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = augroup,
+    buffer = handles.after_buf,
+    callback = function()
+      local review = active_reviews[review_id]
+      if not review then
+        return
+      end
+      vim.bo[handles.after_buf].modified = false
+      close_review(review, true)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = augroup,
+    buffer = handles.after_buf,
+    callback = function()
+      if vim.api.nvim_buf_is_valid(handles.after_buf) then
+        vim.bo[handles.after_buf].modified = false
+      end
+    end,
+  })
+
+  for _, buf in ipairs({ handles.before_buf, handles.after_buf }) do
+    vim.api.nvim_create_autocmd("QuitPre", {
+      group = augroup,
+      buffer = buf,
+      callback = function()
+        local review = active_reviews[review_id]
+        if review then
+          close_review(review, false)
+        end
+      end,
+    })
+  end
+
   vim.api.nvim_echo({
-    { "[omniac approval] review changes, then run :OmniacDiffAccept or :OmniacDiffDeny", "Comment" },
+    { "[omniac approval] review changes, then run :w to accept or :q to deny", "Comment" },
   }, true, {})
 
   return handles

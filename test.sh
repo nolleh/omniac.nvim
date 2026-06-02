@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 
-# Test with clean environment
+# Run headless unit tests
 
 cd "$(dirname "$0")"
 
 echo "=========================================="
-echo " Testing omniac.nvim in clean environment"
+echo " Running omniac.nvim headless tests"
 echo "=========================================="
-echo ""
-echo "This simulates a fresh user installation"
-echo "without your personal Neovim configuration."
-echo ""
 
-nvim -u test-init.lua
+nvim --headless -u NONE -i NONE -l tests/headless.lua
