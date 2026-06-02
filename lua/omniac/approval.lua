@@ -10,7 +10,7 @@ local function diff_separate_tab(config)
 end
 
 local function is_omniac_buffer(name)
-  return name:match("Omniac Chat$") or name:match("Omniac Input$") or name:match("Omniac Status$")
+  return name:match("omniac$") or name:match("omniac://")
 end
 
 local function is_review_candidate(win)

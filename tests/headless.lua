@@ -44,6 +44,16 @@ local function run(name, fn)
   end
 end
 
+local function cleanup_omniac_buffers()
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(buf)
+    local basename = vim.fn.fnamemodify(name, ":t")
+    if basename == "omniac" or name:match("omniac://") then
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
+  end
+end
+
 run("diff review accepts with :w", function()
   package.loaded["omniac.diff"] = nil
   local diff = require("omniac.diff")
@@ -104,6 +114,7 @@ run("diff review can deny edited proposed buffer with :q", function()
 end)
 
 run("input focus returns to end of wrapped message", function()
+  cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
 
@@ -127,6 +138,38 @@ run("input focus returns to end of wrapped message", function()
   assert_equal(cursor[1], #lines - 1, "cursor should return to final input display line")
   assert_true(cursor[2] > 0, "cursor should be past the input prefix")
   vim.cmd("stopinsert")
+end)
+
+run("omniac ui buffers are named and unlisted", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  local expected = {
+    ["omniac"] = false,
+    ["omniac://input"] = false,
+    ["omniac://activity"] = false,
+    ["omniac://status"] = false,
+  }
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(buf)
+    local basename = vim.fn.fnamemodify(name, ":t")
+    local key = expected[name] ~= nil and name or basename
+    if expected[key] ~= nil then
+      expected[key] = true
+      assert_equal(vim.bo[buf].buflisted, false, key .. " should be hidden from buffer list")
+    end
+  end
+
+  for name, seen in pairs(expected) do
+    assert_true(seen, name .. " buffer should exist")
+  end
 end)
 
 if failures > 0 then

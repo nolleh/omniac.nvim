@@ -764,6 +764,14 @@ reset_leftcol = function(win)
   end)
 end
 
+local function open_split_with_buffer(command, buf)
+  vim.cmd(command .. " sbuffer " .. buf)
+  local win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(win, buf)
+  vim.bo[buf].buflisted = false
+  return win
+end
+
 local function resize_aux_windows()
   local target_width = width(state.config)
   if valid_win(state.chat_win) then
@@ -805,9 +813,10 @@ function M.open(config, submit)
     vim.bo[state.chat_buf].buftype = "nofile"
     vim.bo[state.chat_buf].bufhidden = "hide"
     vim.bo[state.chat_buf].swapfile = false
+    vim.bo[state.chat_buf].buflisted = false
     vim.bo[state.chat_buf].filetype = "omniac"
     vim.bo[state.chat_buf].syntax = "markdown"
-    vim.api.nvim_buf_set_name(state.chat_buf, "Omniac Chat")
+    vim.api.nvim_buf_set_name(state.chat_buf, "omniac")
   end
 
   if not valid_buf(state.input_buf) then
@@ -815,8 +824,9 @@ function M.open(config, submit)
     vim.bo[state.input_buf].buftype = "nofile"
     vim.bo[state.input_buf].bufhidden = "hide"
     vim.bo[state.input_buf].swapfile = false
+    vim.bo[state.input_buf].buflisted = false
     vim.bo[state.input_buf].filetype = "omniac-input"
-    vim.api.nvim_buf_set_name(state.input_buf, "Omniac Input")
+    vim.api.nvim_buf_set_name(state.input_buf, "omniac://input")
   end
 
   if not valid_buf(state.activity_buf) then
@@ -824,8 +834,9 @@ function M.open(config, submit)
     vim.bo[state.activity_buf].buftype = "nofile"
     vim.bo[state.activity_buf].bufhidden = "hide"
     vim.bo[state.activity_buf].swapfile = false
+    vim.bo[state.activity_buf].buflisted = false
     vim.bo[state.activity_buf].filetype = "omniac-activity"
-    vim.api.nvim_buf_set_name(state.activity_buf, "Omniac Activity")
+    vim.api.nvim_buf_set_name(state.activity_buf, "omniac://activity")
   end
 
   if not valid_buf(state.status_buf) then
@@ -833,40 +844,37 @@ function M.open(config, submit)
     vim.bo[state.status_buf].buftype = "nofile"
     vim.bo[state.status_buf].bufhidden = "hide"
     vim.bo[state.status_buf].swapfile = false
+    vim.bo[state.status_buf].buflisted = false
     vim.bo[state.status_buf].filetype = "omniac-status"
-    vim.api.nvim_buf_set_name(state.status_buf, "Omniac Status")
+    vim.api.nvim_buf_set_name(state.status_buf, "omniac://status")
   end
 
-  vim.cmd("botright vertical " .. width(state.config) .. "new")
-  state.chat_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(state.chat_win, state.chat_buf)
+  state.chat_win = open_split_with_buffer("botright vertical", state.chat_buf)
   configure_window(state.chat_win)
+  pcall(vim.api.nvim_win_set_width, state.chat_win, width(state.config))
   vim.wo[state.chat_win].winfixwidth = true
   vim.wo[state.chat_win].statusline = "%!v:lua.require'omniac.ui'.statusline()"
 
-  vim.cmd("belowright 1new")
-  state.activity_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(state.activity_win, state.activity_buf)
+  state.activity_win = open_split_with_buffer("belowright", state.activity_buf)
   configure_window(state.activity_win)
   vim.wo[state.activity_win].winfixwidth = true
   vim.wo[state.activity_win].winfixheight = true
+  pcall(vim.api.nvim_win_set_height, state.activity_win, 1)
   vim.wo[state.activity_win].statusline = "%#OmniacStatus#%="
 
-  vim.cmd("belowright 3new")
-  state.input_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(state.input_win, state.input_buf)
+  state.input_win = open_split_with_buffer("belowright", state.input_buf)
   configure_window(state.input_win)
   vim.wo[state.input_win].winfixwidth = true
   vim.wo[state.input_win].winfixheight = true
   vim.wo[state.input_win].wrap = true
+  pcall(vim.api.nvim_win_set_height, state.input_win, 3)
   vim.wo[state.input_win].statusline = "%#OmniacStatus#%="
 
-  vim.cmd("belowright 1new")
-  state.status_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(state.status_win, state.status_buf)
+  state.status_win = open_split_with_buffer("belowright", state.status_buf)
   configure_window(state.status_win)
   vim.wo[state.status_win].winfixwidth = true
   vim.wo[state.status_win].winfixheight = true
+  pcall(vim.api.nvim_win_set_height, state.status_win, 1)
   vim.wo[state.status_win].statusline = "%#OmniacStatus#%="
   resize_aux_windows()
 
