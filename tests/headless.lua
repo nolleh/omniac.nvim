@@ -279,6 +279,58 @@ run("activity text keeps horizontal padding when truncated", function()
   assert_true(line:match("  $"), "activity line should keep right padding")
 end)
 
+run("ACP fs/read_text_file prefers unsaved buffer content", function()
+  package.loaded["omniac.filesystem"] = nil
+  local filesystem = require("omniac.filesystem")
+  local path = "/private/tmp/omniac-fs-read-" .. tostring(vim.loop.now()) .. ".txt"
+  vim.fn.writefile({ "disk" }, path)
+
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, path)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "buffer", "changed" })
+  vim.bo[buf].modified = true
+
+  local result, err = filesystem.handle_request("fs/read_text_file", {
+    sessionId = "session",
+    path = path,
+    line = 2,
+    limit = 1,
+  })
+
+  assert_equal(err, nil, "read_text_file should not return an error")
+  assert_equal(result.content, "changed\n", "read_text_file should read from the loaded buffer")
+  pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end)
+
+run("ACP fs/write_text_file writes disk and updates loaded buffer", function()
+  package.loaded["omniac.filesystem"] = nil
+  local filesystem = require("omniac.filesystem")
+  local path = "/private/tmp/omniac-fs-write-" .. tostring(vim.loop.now()) .. ".txt"
+  vim.fn.writefile({ "old" }, path)
+
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, path)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "old" })
+  vim.bo[buf].modified = true
+
+  local result, err = filesystem.handle_request("fs/write_text_file", {
+    sessionId = "session",
+    path = path,
+    content = "new\nvalue\n",
+  })
+
+  assert_equal(err, nil, "write_text_file should not return an error")
+  assert_equal(result, vim.NIL, "write_text_file should return JSON null")
+  assert_equal(table.concat(vim.fn.readfile(path), "\n"), "new\nvalue", "file should be written to disk")
+  assert_equal(
+    table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"),
+    "new\nvalue",
+    "loaded buffer should be updated"
+  )
+  assert_equal(vim.bo[buf].modified, false, "loaded buffer should be marked unmodified after write")
+  pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end)
+
 run("omniac ui buffers are named and unlisted", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

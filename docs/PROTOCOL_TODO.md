@@ -34,13 +34,15 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Pass `cwd` and configured MCP servers to `session/new`.
 - [x] Store the returned `sessionId` for later requests.
 - [x] Queue a prompt while startup is still creating the session, then flush it after the session is ready.
-- [ ] Support `session/load` for resuming an existing session when advertised.
-- [ ] Support richer lifecycle operations such as restart, resume, or fork if agents require them.
+- [x] Support `session/load` for loading an existing session when advertised.
+- [x] Support `session/resume` for reconnecting without history replay when advertised.
+- [x] Support `session/list` for discovering existing sessions when advertised.
+- [ ] Support richer lifecycle operations such as restart or fork if agents require them.
 
 ## Session List
 
-- [ ] Support listing available sessions if the protocol / agent exposes it.
-- [ ] Add UI affordances for selecting and loading an existing session.
+- [x] Support listing available sessions if the protocol / agent exposes it.
+- [x] Add a custom selector for choosing new, load, or resume startup behavior.
 
 ## Prompt Turn
 
@@ -78,8 +80,8 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Apply completed file updates back to disk and loaded buffers.
 - [x] Support save-back from `:OmniacDiff` buffers into the target file.
 - [x] Complete async approval through `:OmniacDiffAccept` and `:OmniacDiffDeny`.
-- [ ] Support ACP-native `fs/read_text_file`.
-- [ ] Support ACP-native `fs/write_text_file`.
+- [x] Support ACP-native `fs/read_text_file`.
+- [x] Support ACP-native `fs/write_text_file`.
 - [ ] Support multi-file approval reviews instead of showing only the first recognized change.
 - [ ] Replace the lightweight unified-diff preview parser with a real patch parser or ACP-native edit representation.
 

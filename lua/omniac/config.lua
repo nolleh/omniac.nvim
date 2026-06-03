@@ -14,7 +14,12 @@ M.defaults = {
     mode_id = "read-only",
     auto_initialize = true,
     pty = false,
+    session = {
+      action = "new",
+      id = nil,
+    },
   },
+  session_selector = nil,
   client = {
     name = "omniac.nvim",
     title = "omniac.nvim",
@@ -22,8 +27,8 @@ M.defaults = {
     protocol_version = 1,
     capabilities = {
       fs = {
-        readTextFile = false,
-        writeTextFile = false,
+        readTextFile = true,
+        writeTextFile = true,
       },
       terminal = false,
     },

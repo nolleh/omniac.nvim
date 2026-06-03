@@ -148,6 +148,38 @@ local function sorted_keys(value)
   return keys
 end
 
+local function agent_capabilities(result)
+  return (result and (result.agentCapabilities or result.agent_capabilities)) or {}
+end
+
+local function has_load_session(capabilities)
+  return capabilities.loadSession == true or capabilities.load_session == true
+end
+
+local function session_capability(capabilities, name)
+  local session_capabilities = capabilities.sessionCapabilities or capabilities.session_capabilities or {}
+  return session_capabilities[name] ~= nil
+end
+
+local function session_id_from_result(result)
+  if type(result) ~= "table" then
+    return nil
+  end
+
+  return result.sessionId
+    or result.session_id
+    or (result.session and (result.session.id or result.session.sessionId or result.session.session_id))
+    or result.id
+end
+
+local function result_table(result)
+  if type(result) == "table" then
+    return result
+  end
+
+  return {}
+end
+
 local function value_brief(value)
   if type(value) == "string" then
     local text = value:gsub("%s+", " ")
@@ -276,6 +308,7 @@ function M.new(config)
     pending_prompt = nil,
     edit_tool_calls = {},
     debug_log = {},
+    agent_capabilities = {},
   }
 
   function state:on_request(handler)
@@ -342,6 +375,10 @@ function M.new(config)
 
   function state:get_debug_log()
     return deepcopy(self.debug_log)
+  end
+
+  function state:supports_session_capability(name)
+    return session_capability(self.agent_capabilities, name)
   end
 
   function state:_transport_config()
@@ -542,8 +579,8 @@ function M.new(config)
     if vim.tbl_isempty(capabilities) then
       capabilities = {
         fs = {
-          readTextFile = false,
-          writeTextFile = false,
+          readTextFile = true,
+          writeTextFile = true,
         },
         terminal = false,
       }
@@ -560,12 +597,174 @@ function M.new(config)
     }, callback)
   end
 
-  function state:_create_session(callback)
+  function state:_session_params()
     local agent = self.config.agent or {}
-    self.transport:request("session/new", {
+    local params = {
       cwd = agent.cwd or vim.loop.cwd(),
       mcpServers = self.config.mcpServers or {},
-    }, callback)
+    }
+
+    if self.config.additionalDirectories and session_capability(self.agent_capabilities, "additionalDirectories") then
+      params.additionalDirectories = self.config.additionalDirectories
+    end
+
+    return params
+  end
+
+  function state:_session_selection()
+    local agent = self.config.agent or {}
+    local session = agent.session or {}
+    local action = session.action or agent.session_action or "new"
+    local session_id = session.id or agent.session_id
+
+    if action ~= "new" and action ~= "load" and action ~= "resume" and action ~= "select" then
+      action = "new"
+    end
+
+    return action, session_id
+  end
+
+  function state:_list_sessions(callback, cursor, collected)
+    collected = collected or {}
+    local params = {
+      cwd = ((self.config.agent or {}).cwd or vim.loop.cwd()),
+    }
+    if cursor then
+      params.cursor = cursor
+    end
+
+    self.transport:request("session/list", params, function(err, result)
+      if err then
+        callback(err, nil)
+        return
+      end
+
+      for _, session in ipairs((result and result.sessions) or {}) do
+        table.insert(collected, session)
+      end
+
+      local next_cursor = result and (result.nextCursor or result.next_cursor)
+      if next_cursor and next_cursor ~= "" then
+        self:_list_sessions(callback, next_cursor, collected)
+        return
+      end
+
+      callback(nil, collected)
+    end)
+  end
+
+  function state:list_sessions(callback)
+    if not session_capability(self.agent_capabilities, "list") then
+      callback({
+        message = "agent does not advertise sessionCapabilities.list",
+      }, nil)
+      return
+    end
+
+    self:_list_sessions(callback)
+  end
+
+  function state:_create_session(callback)
+    self.transport:request("session/new", self:_session_params(), callback)
+  end
+
+  function state:_load_session(session_id, callback)
+    local params = self:_session_params()
+    params.sessionId = session_id
+    self.transport:request("session/load", params, callback)
+  end
+
+  function state:_resume_session(session_id, callback)
+    local params = self:_session_params()
+    params.sessionId = session_id
+    self.transport:request("session/resume", params, callback)
+  end
+
+  function state:_setup_session(callback)
+    local action, session_id = self:_session_selection()
+    if action == "select" then
+      local selector = self.config.session_selector
+      if not selector then
+        action = "new"
+      elseif not session_capability(self.agent_capabilities, "list") then
+        selector({}, {
+          list_supported = false,
+        }, function(selection)
+          if not selection then
+            callback({
+              message = "session selection cancelled",
+            }, nil, "session/select")
+            return
+          end
+          self.config.agent.session = selection
+          self:_setup_session(callback)
+        end)
+        return
+      else
+        self:_list_sessions(function(list_err, sessions)
+          if list_err then
+            callback(list_err, nil, "session/list")
+            return
+          end
+
+          selector(sessions or {}, {
+            list_supported = true,
+          }, function(selection)
+            if not selection then
+              callback({
+                message = "session selection cancelled",
+              }, nil, "session/select")
+              return
+            end
+            self.config.agent.session = selection
+            self:_setup_session(callback)
+          end)
+        end)
+        return
+      end
+    end
+
+    if action == "new" then
+      self:_create_session(function(err, result)
+        if not err then
+          self.session_id = session_id_from_result(result) or self.session_id
+        end
+        callback(err, result, "session/new")
+      end)
+      return
+    end
+
+    if not session_id or session_id == "" then
+      callback({
+        message = "session id is required for " .. action,
+      }, nil, "session/" .. action)
+      return
+    end
+
+    if action == "load" then
+      if not has_load_session(self.agent_capabilities) then
+        callback({
+          message = "agent does not advertise loadSession",
+        }, nil, "session/load")
+        return
+      end
+      self.session_id = session_id
+      self:_load_session(session_id, function(err, result)
+        callback(err, result, "session/load")
+      end)
+      return
+    end
+
+    if not session_capability(self.agent_capabilities, "resume") then
+      callback({
+        message = "agent does not advertise sessionCapabilities.resume",
+      }, nil, "session/resume")
+      return
+    end
+    self.session_id = session_id
+    self:_resume_session(session_id, function(err, result)
+      callback(err, result, "session/resume")
+    end)
   end
 
   function state:_set_session_mode(callback)
@@ -684,21 +883,21 @@ function M.new(config)
         })
       end
 
-      self:_create_session(function(session_err, session_result)
+      self.agent_capabilities = agent_capabilities(result)
+
+      self:_setup_session(function(session_err, session_result, session_method)
         if session_err then
           self:_emit_notification({
             method = "omniac/error",
             params = {
-              message = "session/new failed",
+              message = (session_method or "session setup") .. " failed",
               error = session_err,
             },
           })
           return
         end
 
-        self.session_id = session_result
-            and (session_result.sessionId or (session_result.session and (session_result.session.id or session_result.session.sessionId)) or session_result.id)
-          or self.session_id
+        self.session_id = session_id_from_result(session_result) or self.session_id
 
         self:_set_session_mode(function(mode_err)
           if mode_err then
@@ -714,7 +913,10 @@ function M.new(config)
 
           self:_emit_notification({
             method = "omniac/session_started",
-            params = session_result,
+            params = vim.tbl_extend("force", result_table(session_result), {
+              sessionId = self.session_id,
+              method = session_method,
+            }),
           })
 
           self:_flush_pending_prompt()

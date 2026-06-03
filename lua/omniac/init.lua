@@ -5,6 +5,8 @@ local transport = require("omniac.transport")
 local acp_backend = require("omniac.backend.acp")
 local ui = require("omniac.ui")
 local approval = require("omniac.approval")
+local session_dialog = require("omniac.session_dialog")
+local filesystem = require("omniac.filesystem")
 
 local M = {
   config = config.defaults,
@@ -136,6 +138,26 @@ local function inspect_short(value)
   return text
 end
 
+local function slash_command(text)
+  local command = tostring(text or ""):match("^%s*/([%w_-]+)%s*$")
+  return command and command:lower() or nil
+end
+
+local function connect_session(action, session_id)
+  if M.backend or M.transport then
+    M.disconnect()
+  end
+  ui.set_status("connecting", M.config)
+  vim.defer_fn(function()
+    M.connect({
+      session = {
+        action = action,
+        id = session_id,
+      },
+    })
+  end, 80)
+end
+
 function M.setup(opts)
   M.config = config.merge(opts)
   M.config.backend = M.config.backend or {}
@@ -199,9 +221,23 @@ function M.setup(opts)
     M.open_chat()
   end
 
+  local function choose_session()
+    M.select_session()
+  end
+
   register_command("Omniac", open_chat, {})
   register_command("OmniacConnect", connect, {})
   register_command("OmniacDisconnect", disconnect, {})
+  register_command("OmniacSession", choose_session, {})
+  register_command("OmniacSessionNew", function()
+    connect_session("new", nil)
+  end, {})
+  register_command("OmniacSessionLoad", function(cmd)
+    connect_session("load", cmd.args)
+  end, { nargs = 1 })
+  register_command("OmniacSessionResume", function(cmd)
+    connect_session("resume", cmd.args)
+  end, { nargs = 1 })
   register_command("OmniacAsk", ask, { nargs = "?" })
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
@@ -216,6 +252,18 @@ end
 
 function M.open_chat()
   ui.open(M.config, function(text)
+    local command = slash_command(text)
+    if command == "resume" or command == "reumse" or command == "sessions" then
+      ui.add_message("Omniac", "Opening session list.", M.config)
+      ui.set_status("connecting", M.config)
+      local ok, err = pcall(M.select_session)
+      if not ok then
+        ui.add_message("Error", err, M.config)
+        ui.set_status("error", M.config)
+      end
+      return
+    end
+
     ui.submit(text, M.config)
     if not M.backend and not M.transport then
       ui.set_status("connecting", M.config)
@@ -232,6 +280,70 @@ function M.open_chat()
       ui.set_status("error", M.config)
     end
   end)
+end
+
+function M.select_session()
+  local function continue_with(selection)
+    if not selection then
+      ui.set_status("ready", M.config)
+      return
+    end
+
+    connect_session(selection.action or "new", selection.id)
+  end
+
+  if M.config.backend and M.config.backend.kind == "acp" and M.backend then
+    if not M.backend.supports_session_capability or not M.backend:supports_session_capability("list") then
+      session_dialog.open({}, {
+        list_supported = false,
+      }, continue_with)
+      return
+    end
+
+    local completed = false
+    local timer = vim.loop.new_timer()
+    timer:start(5000, 0, function()
+      vim.schedule(function()
+        if completed then
+          return
+        end
+        completed = true
+        timer:close()
+        ui.add_message("Error", "session/list did not respond within 5 seconds.", M.config)
+        ui.set_status("ready", M.config)
+        session_dialog.open({}, {
+          list_supported = false,
+          message = "session/list timed out; choose a fresh session or quit",
+        }, continue_with)
+      end)
+    end)
+
+    M.backend:list_sessions(function(err, sessions)
+      if completed then
+        return
+      end
+      completed = true
+      timer:stop()
+      timer:close()
+
+      if err then
+        ui.add_message("Error", tostring(err.message or err.error or err), M.config)
+        ui.set_status("error", M.config)
+        return
+      end
+
+      session_dialog.open(sessions or {}, {
+        list_supported = true,
+      }, continue_with)
+    end)
+    return
+  end
+
+  ui.set_status("ready", M.config)
+  session_dialog.open({}, {
+    list_supported = false,
+    message = "no active ACP session; choose new or enter a session id",
+  }, continue_with)
 end
 
 function M.ask(extra)
@@ -290,9 +402,20 @@ function M.open_file_diff(path, proposed_lines, opts)
   return diff.open_file(path, proposed_lines, opts)
 end
 
-function M.connect()
+function M.connect(opts)
+  opts = opts or {}
   if M.config.backend and M.config.backend.kind == "acp" then
-    local client = acp_backend.new(M.config)
+    local cfg = M.config
+    if opts.session then
+      cfg = vim.deepcopy(M.config)
+      cfg.agent = cfg.agent or {}
+      cfg.agent.session = vim.tbl_extend("force", cfg.agent.session or {}, opts.session)
+    end
+    cfg.session_selector = function(sessions, selector_opts, callback)
+      session_dialog.open(sessions, selector_opts, callback)
+    end
+
+    local client = acp_backend.new(cfg)
     client
       :on_request(function(message, reply)
         local method = message and message.method
@@ -306,7 +429,13 @@ function M.connect()
         end
 
         if method == "session/request_permission" then
-          approval.review_acp_permission(params, logged_reply, M.config)
+          approval.review_acp_permission(params, logged_reply, cfg)
+          return
+        end
+
+        if method == "fs/read_text_file" or method == "fs/write_text_file" then
+          local result, err = filesystem.handle_request(method, params)
+          logged_reply(result, err)
           return
         end
 
@@ -326,7 +455,7 @@ function M.connect()
           echomsg("[omniac acp notification] " .. tostring(method) .. " " .. inspect_short(params))
         end
 
-        ui.handle_notification(message, M.config)
+        ui.handle_notification(message, cfg)
 
         if method == "omniac/permission_diff" then
           approval.attach_acp_permission_diff(params)
@@ -355,7 +484,7 @@ function M.connect()
         end
       end)
       :on_exit(function(code, signal)
-        ui.set_status("closed", M.config)
+        ui.set_status("closed", cfg)
         vim.notify(
           string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
           vim.log.levels.WARN,
