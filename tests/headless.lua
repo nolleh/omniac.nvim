@@ -298,6 +298,193 @@ run("activity text keeps horizontal padding when truncated", function()
   assert_true(line:match("  $"), "activity line should keep right padding")
 end)
 
+run("status renders ACP session mode", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  ui.handle_notification({
+    method = "omniac/session_mode_update",
+    params = {
+      currentModeId = "code",
+      currentModeName = "Code",
+    },
+  }, {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  })
+
+  local status_buf = vim.fn.bufnr("omniac://status")
+  local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+  assert_true(line:match("Code") ~= nil, "status should include the current ACP mode")
+end)
+
+run("ACP mode config options cycle with set_config_option", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local requests = {}
+  local updates = {}
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      table.insert(requests, {
+        method = method,
+        params = params,
+      })
+      callback(nil, {
+        configOptions = {
+          {
+            id = "mode",
+            name = "Session Mode",
+            category = "mode",
+            type = "select",
+            currentValue = params.value,
+            options = {
+              { value = "plan", name = "Plan" },
+              { value = "agent", name = "Agent" },
+            },
+          },
+        },
+      })
+    end,
+  }
+  client:on_notification(function(message)
+    if message.method == "omniac/session_mode_update" then
+      table.insert(updates, message.params)
+    end
+  end)
+
+  client:_apply_session_state({
+    configOptions = {
+      {
+        id = "mode",
+        name = "Session Mode",
+        category = "mode",
+        type = "select",
+        currentValue = "plan",
+        options = {
+          { value = "plan", name = "Plan" },
+          { value = "agent", name = "Agent" },
+        },
+      },
+    },
+  })
+  client:cycle_session_mode(function(err)
+    assert_equal(err, nil, "cycling config-backed mode should succeed")
+  end)
+
+  assert_equal(requests[1].method, "session/set_config_option", "config-backed modes should use set_config_option")
+  assert_equal(requests[1].params.configId, "mode", "request should target the mode config option")
+  assert_equal(requests[1].params.value, "agent", "cycle should select the next mode")
+  vim.wait(50, function()
+    return #updates > 0 and updates[#updates].currentModeName == "Agent"
+  end)
+  assert_equal(updates[#updates].currentModeName, "Agent", "mode update should expose the selected mode name")
+end)
+
+run("ACP permission-like config modes are ignored", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local updates = {}
+
+  client:on_notification(function(message)
+    if message.method == "omniac/session_mode_update" then
+      table.insert(updates, message.params)
+    end
+  end)
+  client:_apply_session_state({
+    configOptions = {
+      {
+        id = "mode",
+        name = "Mode",
+        category = "mode",
+        type = "select",
+        currentValue = "agent",
+        options = {
+          { value = "agent", name = "Agent" },
+          { value = "full-access", name = "Full Access" },
+          { value = "read-only", name = "Read Only" },
+        },
+      },
+    },
+  })
+
+  vim.wait(20)
+  assert_equal(#updates, 0, "permission-like modes should not be treated as planning modes")
+end)
+
+run("ACP legacy planning modes cycle with set_mode", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local request
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      request = {
+        method = method,
+        params = params,
+      }
+      callback(nil, {})
+    end,
+  }
+  client:_apply_session_state({
+    modes = {
+      currentModeId = "plan",
+      availableModes = {
+        { id = "plan", name = "Plan" },
+        { id = "agent", name = "Agent" },
+      },
+    },
+  })
+  client:cycle_session_mode(function(err)
+    assert_equal(err, nil, "cycling legacy modes should succeed")
+  end)
+
+  assert_equal(request.method, "session/set_mode", "legacy modes should use set_mode")
+  assert_equal(request.params.modeId, "agent", "cycle should select the next legacy mode")
+end)
+
+run("ACP mode state can be nested in session result", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local updates = {}
+
+  client:on_notification(function(message)
+    if message.method == "omniac/session_mode_update" then
+      table.insert(updates, message.params)
+    end
+  end)
+  client:_apply_session_state({
+    session = {
+      modes = {
+        currentModeId = "plan",
+        availableModes = {
+          { id = "plan", name = "Plan" },
+          { id = "auto", name = "Auto" },
+        },
+      },
+    },
+  })
+
+  vim.wait(50, function()
+    return #updates > 0 and updates[#updates].currentModeName == "Plan"
+  end)
+  assert_equal(updates[#updates].currentModeName, "Plan", "nested session mode should be parsed")
+end)
+
 run("ACP fs/read_text_file prefers unsaved buffer content", function()
   package.loaded["omniac.filesystem"] = nil
   local filesystem = require("omniac.filesystem")
@@ -544,6 +731,26 @@ run("tab completes file mention without submitting", function()
   end)
   assert_true(lines:match("@README.md") ~= nil, "tab should complete the file mention in the input")
   assert_equal(submitted, nil, "tab completion should not submit")
+end)
+
+run("shift tab triggers session mode cycling", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local count = 0
+
+  ui.set_mode_cycle_handler(function()
+    count = count + 1
+  end)
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<S-Tab><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(count, 1, "shift-tab should call the mode cycle handler")
 end)
 
 run("command suggestions do not drift input window", function()

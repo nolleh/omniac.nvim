@@ -13,6 +13,7 @@ local M = {
   transport = nil,
   backend = nil,
   response_buffer = "",
+  pending_mode_cycle = false,
 }
 
 local function extract_text(value, seen)
@@ -251,6 +252,40 @@ function M.setup(opts)
 end
 
 function M.open_chat()
+  ui.set_mode_cycle_handler(function()
+    if not (M.config.backend and M.config.backend.kind == "acp") then
+      ui.set_activity("Session modes are not available.", M.config)
+      return
+    end
+
+    if not M.backend then
+      M.pending_mode_cycle = true
+      ui.set_status("connecting", M.config)
+      local ok, err = pcall(M.connect)
+      if not ok then
+        M.pending_mode_cycle = false
+        ui.set_activity(tostring(err), M.config)
+        ui.set_status("error", M.config)
+        return
+      end
+      ui.set_activity("Connecting before changing session mode.", M.config)
+      return
+    end
+
+    if not M.backend.cycle_session_mode then
+      ui.set_activity("Session modes are not available.", M.config)
+      return
+    end
+
+    M.backend:cycle_session_mode(function(err)
+      if err then
+        ui.set_activity(tostring(err.message or err.error or err), M.config)
+        return
+      end
+      ui.set_activity("Session mode changed.", M.config)
+    end)
+  end)
+
   ui.open(M.config, function(text)
     local command = slash_command(text)
     if command == "resume" or command == "reumse" or command == "sessions" then
@@ -456,6 +491,23 @@ function M.connect(opts)
         end
 
         ui.handle_notification(message, cfg)
+
+        if
+          method == "omniac/session_started"
+          and M.pending_mode_cycle
+          and M.backend
+          and M.backend.cycle_session_mode
+        then
+          M.pending_mode_cycle = false
+          M.backend:cycle_session_mode(function(err)
+            if err then
+              ui.set_activity(tostring(err.message or err.error or err), cfg)
+              return
+            end
+            ui.set_activity("Session mode changed.", cfg)
+          end)
+          return
+        end
 
         if method == "omniac/permission_diff" then
           approval.attach_acp_permission_diff(params)

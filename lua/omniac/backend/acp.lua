@@ -180,6 +180,104 @@ local function result_table(result)
   return {}
 end
 
+local function mode_state_from_config_options(config_options)
+  if type(config_options) ~= "table" then
+    return nil
+  end
+
+  local function looks_like_planning_modes(options)
+    for _, option in ipairs(options or {}) do
+      local value = type(option) == "table" and (option.value or option.id) or option
+      value = type(value) == "string" and value:lower() or ""
+      if value == "plan" or value == "planning" then
+        return true
+      end
+    end
+    return false
+  end
+
+  for _, option in ipairs(config_options) do
+    if
+      type(option) == "table"
+      and (option.category == "mode" or option.id == "mode")
+      and option.type == "select"
+      and type(option.options) == "table"
+      and looks_like_planning_modes(option.options)
+    then
+      local modes = {}
+      for _, value in ipairs(option.options) do
+        local id = type(value) == "table" and (value.value or value.id) or nil
+        if type(value) == "table" and type(id) == "string" and id ~= "" then
+          table.insert(modes, {
+            id = id,
+            name = value.name or id,
+            description = value.description,
+          })
+        end
+      end
+
+      return {
+        source = "config",
+        configId = option.id,
+        currentModeId = option.currentValue or option.current_value,
+        availableModes = modes,
+      }
+    end
+  end
+
+  return nil
+end
+
+local function mode_state_from_modes(modes)
+  if type(modes) ~= "table" then
+    return nil
+  end
+
+  local available = modes.availableModes or modes.available_modes or {}
+  if type(available) ~= "table" then
+    available = {}
+  end
+
+  local result = {}
+  local has_planning_mode = false
+  for _, mode in ipairs(available) do
+    if type(mode) == "table" and type(mode.id) == "string" and mode.id ~= "" then
+      local id = mode.id:lower()
+      if id == "plan" or id == "planning" then
+        has_planning_mode = true
+      end
+      table.insert(result, {
+        id = mode.id,
+        name = mode.name or mode.id,
+        description = mode.description,
+      })
+    end
+  end
+  if not has_planning_mode then
+    return nil
+  end
+
+  return {
+    source = "modes",
+    currentModeId = modes.currentModeId or modes.current_mode_id,
+    availableModes = result,
+  }
+end
+
+local function mode_name(mode_state)
+  if type(mode_state) ~= "table" then
+    return nil
+  end
+
+  local current = mode_state.currentModeId
+  for _, mode in ipairs(mode_state.availableModes or {}) do
+    if mode.id == current then
+      return mode.name or mode.id
+    end
+  end
+  return current
+end
+
 local function value_brief(value)
   if type(value) == "string" then
     local text = value:gsub("%s+", " ")
@@ -458,6 +556,27 @@ function M.new(config)
             availableCommands = update.availableCommands or update.available_commands or {},
           },
         })
+        return
+      end
+
+      if update_type == "config_option_update" or update_type == "configOptionUpdate" then
+        self:_apply_session_state({
+          configOptions = update.configOptions or update.config_options,
+        })
+        return
+      end
+
+      if update_type == "current_mode_update" or update_type == "currentModeUpdate" then
+        if self.session_mode then
+          self.session_mode.currentModeId = update.modeId or update.mode_id or self.session_mode.currentModeId
+        else
+          self.session_mode = {
+            source = "modes",
+            currentModeId = update.modeId or update.mode_id,
+            availableModes = {},
+          }
+        end
+        self:_emit_session_mode_update()
         return
       end
 
@@ -786,10 +905,124 @@ function M.new(config)
       return
     end
 
+    self:set_session_mode(mode_id, callback)
+  end
+
+  function state:_emit_session_mode_update()
+    if not self.session_mode then
+      return
+    end
+
+    self:_emit_notification({
+      method = "omniac/session_mode_update",
+      params = {
+        sessionId = self.session_id,
+        source = self.session_mode.source,
+        configId = self.session_mode.configId,
+        currentModeId = self.session_mode.currentModeId,
+        currentModeName = mode_name(self.session_mode),
+        availableModes = self.session_mode.availableModes or {},
+      },
+    })
+  end
+
+  function state:_apply_session_state(result)
+    if type(result) ~= "table" then
+      return
+    end
+
+    local session = type(result.session) == "table" and result.session or {}
+    local config_options = result.configOptions
+      or result.config_options
+      or session.configOptions
+      or session.config_options
+    local mode_state = mode_state_from_config_options(config_options)
+    if mode_state then
+      self.config_options = config_options
+      self.session_mode = mode_state
+      self:_emit_session_mode_update()
+      return
+    end
+
+    mode_state = mode_state_from_modes(result.modes or session.modes)
+    if mode_state then
+      self.session_mode = mode_state
+      self:_emit_session_mode_update()
+    end
+  end
+
+  function state:set_session_mode(mode_id, callback)
+    callback = callback or function() end
+    if not self.transport or not self.running then
+      callback({
+        message = "ACP transport is not running",
+      })
+      return
+    end
+    if not self.session_id then
+      callback({
+        message = "ACP session is not ready",
+      })
+      return
+    end
+    if not mode_id or mode_id == "" then
+      callback({
+        message = "mode id is required",
+      })
+      return
+    end
+
+    if self.session_mode and self.session_mode.source == "config" and self.session_mode.configId then
+      self.transport:request("session/set_config_option", {
+        sessionId = self.session_id,
+        configId = self.session_mode.configId,
+        value = mode_id,
+      }, function(err, result)
+        if not err then
+          self:_apply_session_state(result)
+        end
+        callback(err, result)
+      end)
+      return
+    end
+
     self.transport:request("session/set_mode", {
       sessionId = self.session_id,
       modeId = mode_id,
-    }, callback)
+    }, function(err, result)
+      if not err then
+        if self.session_mode then
+          self.session_mode.currentModeId = mode_id
+        end
+        self:_apply_session_state(result)
+        self:_emit_session_mode_update()
+      end
+      callback(err, result)
+    end)
+  end
+
+  function state:cycle_session_mode(callback)
+    callback = callback or function() end
+    local mode_state = self.session_mode
+    local modes = mode_state and mode_state.availableModes or {}
+    if #modes == 0 then
+      callback({
+        message = "agent did not advertise planning modes",
+      })
+      return
+    end
+
+    local current = mode_state.currentModeId
+    local index = 0
+    for mode_index, mode in ipairs(modes) do
+      if mode.id == current then
+        index = mode_index
+        break
+      end
+    end
+
+    local next_mode = modes[(index % #modes) + 1]
+    self:set_session_mode(next_mode.id, callback)
   end
 
   function state:_flush_pending_prompt()
@@ -909,6 +1142,7 @@ function M.new(config)
         end
 
         self.session_id = session_id_from_result(session_result) or self.session_id
+        self:_apply_session_state(session_result)
 
         self:_set_session_mode(function(mode_err)
           if mode_err then

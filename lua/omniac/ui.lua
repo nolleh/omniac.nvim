@@ -26,6 +26,8 @@ local state = {
   input_chunks = nil,
   transient_activity = nil,
   available_commands = {},
+  session_mode = nil,
+  mode_cycle_handler = nil,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -327,11 +329,14 @@ local function render_status()
   end
 
   local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or width(state.config)
+  local mode = state.session_mode and (state.session_mode.currentModeName or state.session_mode.currentModeId)
   local left = " Omniac "
   local middle = "  " .. state.status .. " "
+  local mode_capsule = mode and mode ~= "" and ("  " .. mode .. " ") or ""
   local right = "  " .. agent_name(state.config) .. " "
-  local spacer = string.rep(" ", math.max(1, win_width - vim.fn.strdisplaywidth(left .. middle .. right)))
-  local line = left .. middle .. spacer .. right
+  local spacer =
+    string.rep(" ", math.max(1, win_width - vim.fn.strdisplaywidth(left .. middle .. mode_capsule .. right)))
+  local line = left .. middle .. mode_capsule .. spacer .. right
 
   vim.bo[state.status_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.status_buf, ns, 0, -1)
@@ -352,6 +357,10 @@ local function render_status()
   add_capsule(" Omniac ", "OmniacStatusCapsule", "OmniacStatusCapsuleEdge")
   col = col + #" "
   add_capsule(" " .. state.status .. " ", "OmniacStatusMode", "OmniacStatusModeEdge")
+  if mode_capsule ~= "" then
+    col = col + #" "
+    add_capsule(" " .. mode .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  end
   col = col + #spacer + #" "
   add_capsule(" " .. agent_name(state.config) .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
 end
@@ -1279,6 +1288,17 @@ function M.open(config, submit)
     nowait = true,
     desc = "Complete Omniac suggestion",
   })
+  vim.keymap.set({ "n", "i" }, "<S-Tab>", function()
+    if state.mode_cycle_handler then
+      state.mode_cycle_handler()
+    else
+      focus_input()
+    end
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Cycle Omniac session mode",
+  })
 
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
@@ -1341,6 +1361,19 @@ function M.set_activity(text, config)
   render_activity()
   render_status()
   sync_activity_timer()
+end
+
+function M.set_mode_cycle_handler(handler)
+  state.mode_cycle_handler = handler
+end
+
+function M.set_session_mode(mode)
+  if type(mode) == "table" then
+    state.session_mode = mode
+  else
+    state.session_mode = nil
+  end
+  render_status()
 end
 
 function M.set_tool_activity(params, config)
@@ -1452,6 +1485,11 @@ function M.handle_notification(message, config)
 
   if method == "omniac/available_commands_update" then
     M.set_available_commands(params.availableCommands or params.available_commands or {})
+    return
+  end
+
+  if method == "omniac/session_mode_update" then
+    M.set_session_mode(params)
     return
   end
 
