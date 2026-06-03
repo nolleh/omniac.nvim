@@ -450,6 +450,17 @@ function M.new(config)
         })
       end
 
+      if update_type == "available_commands_update" or update_type == "availableCommandsUpdate" then
+        self:_emit_notification({
+          method = "omniac/available_commands_update",
+          params = {
+            sessionId = self.session_id,
+            availableCommands = update.availableCommands or update.available_commands or {},
+          },
+        })
+        return
+      end
+
       if update_type == "tool_call" and update and update.kind == "edit" and update.toolCallId then
         self.edit_tool_calls[update.toolCallId] = true
       end

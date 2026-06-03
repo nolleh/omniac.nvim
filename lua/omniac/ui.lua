@@ -10,6 +10,8 @@ local state = {
   activity_win = nil,
   input_buf = nil,
   input_win = nil,
+  command_buf = nil,
+  command_win = nil,
   status_buf = nil,
   status_win = nil,
   status = "idle",
@@ -22,6 +24,8 @@ local state = {
   submit = nil,
   rendering_input = false,
   input_chunks = nil,
+  transient_activity = nil,
+  available_commands = {},
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -110,6 +114,9 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacStatusModeEdge", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAlt", { fg = "#cdd6f4", bg = "#45475a", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAltEdge", { fg = "#45475a", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacCommandName", { fg = "#94e2d5", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacCommandText", { fg = "#cdd6f4" })
+  vim.api.nvim_set_hl(0, "OmniacCommandMuted", { fg = "#7f849c" })
 end
 
 local function add_hl(buf, line, start_col, end_col, group)
@@ -369,7 +376,9 @@ local function render_activity()
     "OmniacWorking4",
   }
   local text = ""
-  if state.status == "working" and state.tool_activity then
+  if state.transient_activity then
+    text = state.transient_activity
+  elseif state.status == "working" and state.tool_activity then
     text = state.tool_activity
   elseif state.status == "working" then
     text = frames[state.activity_frame]
@@ -542,6 +551,188 @@ local function input_text()
   return (raw_input_text():gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+local function local_commands()
+  return {
+    {
+      name = "resume",
+      description = "Open the ACP session selector",
+    },
+    {
+      name = "sessions",
+      description = "Open the ACP session selector",
+    },
+  }
+end
+
+local function normalized_commands()
+  local seen = {}
+  local result = {}
+  local function add(command, source)
+    if type(command) ~= "table" or type(command.name) ~= "string" or command.name == "" then
+      return
+    end
+    local name = command.name:gsub("^/", "")
+    if seen[name] then
+      return
+    end
+    seen[name] = true
+    local description = type(command.description) == "string" and command.description or ""
+    local input = type(command.input) == "table" and command.input or nil
+    table.insert(result, {
+      name = name,
+      description = description,
+      input = input,
+      source = source,
+    })
+  end
+
+  for _, command in ipairs(local_commands()) do
+    add(command, "omniac")
+  end
+  for _, command in ipairs(state.available_commands or {}) do
+    add(command, "agent")
+  end
+
+  table.sort(result, function(left, right)
+    if left.source ~= right.source then
+      return left.source == "omniac"
+    end
+    return left.name < right.name
+  end)
+  return result
+end
+
+local function slash_prefix()
+  local text = raw_input_text()
+  if text:find("\n", 1, true) then
+    return nil
+  end
+  return text:match("^%s*/([%w_-]*)$")
+end
+
+local function mention_prefix()
+  local text = raw_input_text()
+  if text:find("\n", 1, true) then
+    return nil
+  end
+  return text:match("^%s*@([^%s]*)$")
+end
+
+local function command_matches(prefix)
+  if prefix == nil then
+    return {}
+  end
+
+  local matches = {}
+  for _, command in ipairs(normalized_commands()) do
+    if command.name:sub(1, #prefix) == prefix then
+      table.insert(matches, command)
+    end
+  end
+  return matches
+end
+
+local function file_matches(prefix)
+  if prefix == nil then
+    return {}
+  end
+
+  local cwd = vim.loop.cwd() or "."
+  local pattern = prefix == "" and "*" or (prefix .. "*")
+  local paths = vim.fn.globpath(cwd, pattern, false, true)
+  local matches = {}
+  for _, path in ipairs(paths or {}) do
+    local relative = vim.fn.fnamemodify(path, ":.")
+    if relative ~= "." and relative ~= "" then
+      local is_dir = vim.fn.isdirectory(path) == 1
+      table.insert(matches, {
+        name = relative .. (is_dir and "/" or ""),
+        description = is_dir and "directory" or "file",
+        source = "file",
+      })
+    end
+  end
+  table.sort(matches, function(left, right)
+    if left.description ~= right.description then
+      return left.description == "directory"
+    end
+    return left.name < right.name
+  end)
+  return matches
+end
+
+local function current_suggestions()
+  local slash = slash_prefix()
+  if slash ~= nil then
+    return "command", command_matches(slash)
+  end
+
+  local mention = mention_prefix()
+  if mention ~= nil then
+    return "mention", file_matches(mention)
+  end
+
+  return nil, {}
+end
+
+local function completed_suggestion_text(text)
+  local prefix = slash_prefix()
+  if prefix ~= nil then
+    local matches = command_matches(prefix)
+    if #matches > 0 then
+      return "/" .. matches[1].name
+    end
+  end
+
+  prefix = mention_prefix()
+  if prefix ~= nil then
+    local matches = file_matches(prefix)
+    if #matches > 0 then
+      return "@" .. matches[1].name
+    end
+  end
+
+  return text
+end
+
+local function ensure_command_buffer()
+  if valid_buf(state.command_buf) then
+    return
+  end
+  state.command_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[state.command_buf].buftype = "nofile"
+  vim.bo[state.command_buf].bufhidden = "wipe"
+  vim.bo[state.command_buf].swapfile = false
+  vim.bo[state.command_buf].buflisted = false
+  vim.bo[state.command_buf].filetype = "omniac-commands"
+  vim.api.nvim_buf_set_name(state.command_buf, "omniac://commands")
+end
+
+local resize_aux_windows
+
+local function clear_command_window()
+  if valid_buf(state.command_buf) then
+    vim.bo[state.command_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(state.command_buf, 0, -1, false, { "", "", "", "", "" })
+    vim.api.nvim_buf_clear_namespace(state.command_buf, ns, 0, -1)
+    vim.bo[state.command_buf].modifiable = false
+    vim.bo[state.command_buf].modified = false
+  end
+end
+
+local function close_command_window()
+  if valid_win(state.command_win) then
+    pcall(vim.api.nvim_win_close, state.command_win, true)
+  end
+  state.command_win = nil
+  if resize_aux_windows then
+    resize_aux_windows()
+    vim.schedule(resize_aux_windows)
+  end
+end
+
+local update_command_window
+
 local function input_content_width(win_width, prefix)
   return math.max(1, win_width - vim.fn.strdisplaywidth(prefix or INPUT_PROMPT) - 3)
 end
@@ -667,6 +858,9 @@ local function render_input(lines, cursor)
     end
     reset_leftcol(state.input_win)
   end
+  if update_command_window then
+    update_command_window()
+  end
 end
 
 local function logical_cursor_from_display(cursor)
@@ -674,10 +868,18 @@ local function logical_cursor_from_display(cursor)
   local chunks = state.input_chunks
   if chunks and chunks[input_line] then
     local chunk = chunks[input_line]
+    if chunk.padding then
+      local lines = raw_input_lines()
+      local last_line = math.max(1, #lines)
+      return {
+        line = last_line,
+        col = #(lines[last_line] or ""),
+      }
+    end
     local prefix = input_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
     return {
       line = chunk.source_line,
-      col = math.max(0, cursor[2] - #prefix) + chunk.start_col,
+      col = math.max(0, cursor[2] - #prefix) + (chunk.start_col or 0),
     }
   end
 
@@ -815,10 +1017,74 @@ local function open_split_with_buffer(command, buf)
   return win
 end
 
-local function resize_aux_windows()
+update_command_window = function()
+  if not valid_win(state.input_win) or not valid_buf(state.input_buf) then
+    close_command_window()
+    return
+  end
+
+  local kind, matches = current_suggestions()
+  if kind == nil then
+    close_command_window()
+    return
+  end
+
+  if #matches == 0 then
+    close_command_window()
+    return
+  end
+
+  ensure_command_buffer()
+
+  if not valid_win(state.command_win) then
+    local previous_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_set_current_win(state.input_win)
+    state.command_win = open_split_with_buffer("aboveleft", state.command_buf)
+    configure_window(state.command_win)
+    vim.wo[state.command_win].winfixwidth = true
+    vim.wo[state.command_win].winfixheight = true
+    vim.wo[state.command_win].wrap = false
+    vim.wo[state.command_win].statusline = "%#OmniacStatus#%="
+    pcall(vim.api.nvim_set_current_win, previous_win)
+  end
+
+  local target_width = width(state.config)
+  local display_count = math.min(5, #matches)
+  pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
+  pcall(vim.api.nvim_win_set_height, state.command_win, display_count)
+
+  local lines = {}
+  local marks = {}
+  for index = 1, display_count do
+    local item = matches[index]
+    local trigger = kind == "mention" and "@" or "/"
+    local hint = item.input and item.input.hint and (" " .. item.input.hint) or ""
+    local description = item.description ~= "" and (" - " .. item.description) or ""
+    local source = item.source == "omniac" and " client" or ""
+    local line = fit(trigger .. item.name .. hint .. description .. source, target_width)
+    table.insert(lines, line)
+    table.insert(marks, {
+      line = index,
+      name_to = math.min(#item.name + 1, #line),
+    })
+  end
+  vim.bo[state.command_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.command_buf, 0, -1, false, lines)
+  vim.api.nvim_buf_clear_namespace(state.command_buf, ns, 0, -1)
+  for _, mark in ipairs(marks) do
+    add_hl(state.command_buf, mark.line, 0, 1, "OmniacCommandMuted")
+    add_hl(state.command_buf, mark.line, 1, mark.name_to + 1, "OmniacCommandName")
+    add_hl(state.command_buf, mark.line, mark.name_to + 1, -1, "OmniacCommandText")
+  end
+  vim.bo[state.command_buf].modifiable = false
+  vim.bo[state.command_buf].modified = false
+end
+
+resize_aux_windows = function()
   local target_width = width(state.config)
   if valid_win(state.chat_win) then
     pcall(vim.api.nvim_win_set_width, state.chat_win, target_width)
+    pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, vim.o.lines))
   end
   if valid_win(state.status_win) then
     pcall(vim.api.nvim_win_set_width, state.status_win, target_width)
@@ -828,6 +1094,10 @@ local function resize_aux_windows()
     pcall(vim.api.nvim_win_set_width, state.input_win, target_width)
     pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(raw_input_lines(), target_width))
     reset_leftcol(state.input_win)
+  end
+  if valid_win(state.command_win) then
+    pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
+    pcall(vim.api.nvim_win_set_height, state.command_win, 5)
   end
   if valid_win(state.activity_win) then
     pcall(vim.api.nvim_win_set_width, state.activity_win, target_width)
@@ -882,6 +1152,10 @@ function M.open(config, submit)
     vim.api.nvim_buf_set_name(state.activity_buf, "omniac://activity")
   end
 
+  if not valid_buf(state.command_buf) then
+    ensure_command_buffer()
+  end
+
   if not valid_buf(state.status_buf) then
     state.status_buf = vim.api.nvim_create_buf(false, true)
     vim.bo[state.status_buf].buftype = "nofile"
@@ -928,6 +1202,7 @@ function M.open(config, submit)
       focus_input()
       return
     end
+    text = completed_suggestion_text(text)
     reset_input()
     if state.submit then
       state.submit(text)
@@ -957,6 +1232,7 @@ function M.open(config, submit)
   vim.keymap.set("n", "q", function()
     stop_activity_timer()
     if valid_win(state.input_win) then
+      close_command_window()
       vim.api.nvim_win_close(state.input_win, true)
     end
     if valid_win(state.activity_win) then
@@ -996,7 +1272,17 @@ function M.set_status(status, config)
   if state.status ~= "working" then
     state.tool_activity = nil
   end
+  if state.status ~= "connecting" and state.status ~= "working" then
+    state.transient_activity = nil
+  end
   render_chat(config)
+  render_activity()
+  render_status()
+  sync_activity_timer()
+end
+
+function M.set_activity(text, config)
+  state.transient_activity = text and text ~= "" and text or nil
   render_activity()
   render_status()
   sync_activity_timer()
@@ -1109,6 +1395,11 @@ function M.handle_notification(message, config)
     return
   end
 
+  if method == "omniac/available_commands_update" then
+    M.set_available_commands(params.availableCommands or params.available_commands or {})
+    return
+  end
+
   if method == "omniac/response_completed" then
     M.complete_response(config)
     M.set_status("ready", config)
@@ -1118,6 +1409,13 @@ function M.handle_notification(message, config)
   if method == "omniac/error" or method == "turn/error" or method == "_transport/error" then
     M.add_message("Error", vim.inspect(params), config)
     M.set_status("error", config)
+  end
+end
+
+function M.set_available_commands(commands)
+  state.available_commands = type(commands) == "table" and commands or {}
+  if update_command_window then
+    update_command_window()
   end
 end
 

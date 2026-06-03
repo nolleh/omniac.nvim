@@ -118,9 +118,9 @@ This file tracks what is already working and what still needs to be implemented 
 
 ## Slash Commands
 
-- [ ] Handle available slash-command updates.
-- [ ] Render slash-command completion in the input UI.
-- [ ] Send selected slash commands through the appropriate ACP request shape.
+- [x] Handle available slash-command updates.
+- [x] Render slash-command completion in the input UI.
+- [x] Send slash-command text through the normal ACP `session/prompt` request shape.
 
 ## Extensibility
 

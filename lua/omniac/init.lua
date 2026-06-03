@@ -254,7 +254,7 @@ function M.open_chat()
   ui.open(M.config, function(text)
     local command = slash_command(text)
     if command == "resume" or command == "reumse" or command == "sessions" then
-      ui.add_message("Omniac", "Opening session list.", M.config)
+      ui.set_activity("Opening session list.", M.config)
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.select_session)
       if not ok then
@@ -309,8 +309,8 @@ function M.select_session()
         end
         completed = true
         timer:close()
-        ui.add_message("Error", "session/list did not respond within 5 seconds.", M.config)
         ui.set_status("ready", M.config)
+        ui.set_activity("session/list did not respond within 5 seconds.", M.config)
         session_dialog.open({}, {
           list_supported = false,
           message = "session/list timed out; choose a fresh session or quit",

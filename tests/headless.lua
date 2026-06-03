@@ -160,6 +160,25 @@ run("input cursor is clamped away from prompt marker", function()
   vim.cmd("stopinsert")
 end)
 
+run("input padding cursor is remapped safely", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  vim.cmd("stopinsert")
+  vim.api.nvim_win_set_cursor(0, { 3, #"│ " })
+  vim.cmd("doautocmd TextChangedI")
+  vim.cmd("redraw")
+
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  assert_equal(cursor[1], 2, "padding cursor should map back to the editable input line")
+end)
+
 run("input allows greater-than as user text", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -329,6 +348,172 @@ run("ACP fs/write_text_file writes disk and updates loaded buffer", function()
   )
   assert_equal(vim.bo[buf].modified, false, "loaded buffer should be marked unmodified after write")
   pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end)
+
+run("slash input opens command suggestions below chat", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.set_available_commands({
+    { name = "test", description = "Run project tests" },
+    { name = "plan", description = "Create a plan" },
+  })
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local command_buf
+  local command_win
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(buf) == "omniac://commands" then
+      command_buf = buf
+      break
+    end
+  end
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if command_buf and vim.api.nvim_win_get_buf(win) == command_buf then
+      command_win = win
+      break
+    end
+  end
+
+  assert_true(command_buf ~= nil, "commands buffer should be created")
+  assert_true(command_win ~= nil, "commands window should be visible")
+  assert_true(vim.api.nvim_win_get_height(command_win) <= 5, "commands window should show up to five rows")
+
+  local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
+  assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
+  assert_true(lines:match("/plan") ~= nil, "agent command should be listed")
+  assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("a<BS>hello<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(vim.api.nvim_win_is_valid(command_win), false, "commands window should close for non-slash input")
+end)
+
+run("slash command suggestions tolerate null input metadata", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.set_available_commands({
+    { name = "compact", description = vim.NIL, input = vim.NIL },
+  })
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/com<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local command_buf
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(buf) == "omniac://commands" then
+      command_buf = buf
+      break
+    end
+  end
+
+  assert_true(command_buf ~= nil, "commands buffer should be available")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
+  assert_true(lines:match("/compact") ~= nil, "command with null metadata should be listed")
+end)
+
+run("at input opens file mention suggestions", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local command_buf
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(buf) == "omniac://commands" then
+      command_buf = buf
+      break
+    end
+  end
+
+  assert_true(command_buf ~= nil, "mentions should reuse the suggestions buffer")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
+  assert_true(lines:match("@README.md") ~= nil, "file mention suggestions should use @")
+  assert_true(lines:match("/resume") == nil, "mention suggestions should not include slash commands")
+end)
+
+run("enter completes best slash command candidate", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/res<CR>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(submitted, "/resume", "enter should complete the best slash command candidate")
+end)
+
+run("enter completes best file mention candidate", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<CR>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(submitted, "@README.md", "enter should complete the best file mention candidate")
+end)
+
+run("command suggestions do not drift input window", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+
+  local input_win = vim.api.nvim_get_current_win()
+  local initial_row = vim.api.nvim_win_get_position(input_win)[1]
+
+  for _ = 1, 3 do
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/<Esc>", true, false, true), "xt", false)
+    vim.cmd("redraw")
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("a<BS><Esc>", true, false, true), "xt", false)
+    vim.cmd("redraw")
+  end
+
+  vim.wait(20)
+  vim.cmd("redraw")
+  assert_equal(vim.api.nvim_win_get_position(input_win)[1], initial_row, "input window row should not drift")
 end)
 
 run("omniac ui buffers are named and unlisted", function()
