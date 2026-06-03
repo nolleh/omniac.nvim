@@ -24,6 +24,7 @@ local state = {
   input_chunks = nil,
 }
 
+local INPUT_MIN_DISPLAY_LINES = 3
 local INPUT_MAX_DISPLAY_LINES = 10
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
@@ -99,7 +100,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking3", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking4", { fg = "#f5c2e7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacInput", { fg = "#cdd6f4", bg = "#313244" })
+  vim.api.nvim_set_hl(0, "OmniacInput", { bg = "#313244" })
+  vim.api.nvim_set_hl(0, "OmniacInputText", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputPrompt", { fg = "#89b4fa", bg = "#313244", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusMode", { fg = "#11111b", bg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatus", { fg = "#cdd6f4", bg = "#313244" })
@@ -433,29 +435,40 @@ local function reset_input()
   local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
   state.rendering_input = true
   vim.bo[state.input_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.input_buf, 0, -1, false, {
-    box_line("╭", "─", "╮", win_width),
-    INPUT_PROMPT,
-    box_line("╰", "─", "╯", win_width),
-  })
+  local buffer_lines = { box_line("╭", "─", "╮", win_width), INPUT_PROMPT }
+  for _ = 2, INPUT_MIN_DISPLAY_LINES do
+    table.insert(buffer_lines, INPUT_CONTINUATION)
+  end
+  table.insert(buffer_lines, box_line("╰", "─", "╯", win_width))
+  vim.api.nvim_buf_set_lines(state.input_buf, 0, -1, false, buffer_lines)
   vim.api.nvim_buf_clear_namespace(state.input_buf, ns, 0, -1)
   add_hl(state.input_buf, 1, 0, -1, "OmniacBorder")
-  vim.api.nvim_buf_set_extmark(state.input_buf, ns, 1, 0, {
-    line_hl_group = "OmniacInput",
-  })
-  vim.api.nvim_buf_set_extmark(state.input_buf, ns, 1, 0, {
-    virt_text = { { "│", "OmniacBorder" } },
-    virt_text_pos = "overlay",
-    virt_text_win_col = win_width - 1,
-  })
-  add_hl(state.input_buf, 2, 0, #"│", "OmniacBorder")
-  add_hl(state.input_buf, 2, #"│", #INPUT_PROMPT, "OmniacInputPrompt")
-  add_hl(state.input_buf, 3, 0, -1, "OmniacBorder")
+  for index = 1, INPUT_MIN_DISPLAY_LINES do
+    local line_number = index + 1
+    local prefix = index == 1 and INPUT_PROMPT or INPUT_CONTINUATION
+    vim.api.nvim_buf_set_extmark(state.input_buf, ns, line_number - 1, 0, {
+      line_hl_group = "OmniacInput",
+    })
+    vim.api.nvim_buf_set_extmark(state.input_buf, ns, line_number - 1, 0, {
+      virt_text = { { "│", "OmniacBorder" } },
+      virt_text_pos = "overlay",
+      virt_text_win_col = win_width - 1,
+    })
+    add_hl(state.input_buf, line_number, 0, #"│", "OmniacBorder")
+    if index == 1 then
+      add_hl(state.input_buf, line_number, #"│", #prefix, "OmniacInputPrompt")
+    end
+    add_hl(state.input_buf, line_number, #prefix, -1, "OmniacInputText")
+  end
+  add_hl(state.input_buf, #buffer_lines, 0, -1, "OmniacBorder")
   vim.bo[state.input_buf].modified = false
   state.rendering_input = false
   state.input_chunks = { { source_line = 1, start_col = 0, end_col = 0 } }
+  for index = 2, INPUT_MIN_DISPLAY_LINES do
+    state.input_chunks[index] = { padding = true }
+  end
   if valid_win(state.input_win) then
-    pcall(vim.api.nvim_win_set_height, state.input_win, 3)
+    pcall(vim.api.nvim_win_set_height, state.input_win, INPUT_MIN_DISPLAY_LINES + 2)
   end
 end
 
@@ -505,10 +518,13 @@ local function raw_input_lines()
   if state.input_chunks and #state.input_chunks == #buffer_lines then
     local result = {}
     for index, line in ipairs(buffer_lines) do
-      local source_line = state.input_chunks[index].source_line
-      result[source_line] = (result[source_line] or "") .. strip_input_prefix(line, index)
+      local chunk = state.input_chunks[index]
+      if not chunk.padding then
+        local source_line = chunk.source_line
+        result[source_line] = (result[source_line] or "") .. strip_input_prefix(line, index)
+      end
     end
-    return result
+    return #result > 0 and result or { "" }
   end
 
   local result = {}
@@ -531,7 +547,7 @@ local function input_content_width(win_width, prefix)
 end
 
 local function input_display_height(lines, win_width)
-  return math.min(INPUT_MAX_DISPLAY_LINES, math.max(1, #lines)) + 2
+  return math.min(INPUT_MAX_DISPLAY_LINES, math.max(INPUT_MIN_DISPLAY_LINES, #lines)) + 2
 end
 
 local function wrap_input_lines(lines, cursor, win_width)
@@ -603,9 +619,14 @@ local function render_input(lines, cursor)
   local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
   local chunks
   lines, cursor, chunks = wrap_input_lines(lines, cursor, win_width)
+  local display_line_count = math.max(INPUT_MIN_DISPLAY_LINES, #lines)
   local buffer_lines = { box_line("╭", "─", "╮", win_width) }
-  for index, line in ipairs(lines) do
+  for index = 1, display_line_count do
+    local line = lines[index] or ""
     table.insert(buffer_lines, (index == 1 and INPUT_PROMPT or INPUT_CONTINUATION) .. line)
+    if not chunks[index] then
+      chunks[index] = { padding = true }
+    end
   end
   table.insert(buffer_lines, box_line("╰", "─", "╯", win_width))
 
@@ -614,7 +635,7 @@ local function render_input(lines, cursor)
   vim.api.nvim_buf_set_lines(state.input_buf, 0, -1, false, buffer_lines)
   vim.api.nvim_buf_clear_namespace(state.input_buf, ns, 0, -1)
   add_hl(state.input_buf, 1, 0, -1, "OmniacBorder")
-  for index = 1, #lines do
+  for index = 1, display_line_count do
     local line_number = index + 1
     local prefix = index == 1 and INPUT_PROMPT or INPUT_CONTINUATION
     vim.api.nvim_buf_set_extmark(state.input_buf, ns, line_number - 1, 0, {
@@ -629,6 +650,7 @@ local function render_input(lines, cursor)
     if index == 1 then
       add_hl(state.input_buf, line_number, #"│", #prefix, "OmniacInputPrompt")
     end
+    add_hl(state.input_buf, line_number, #prefix, -1, "OmniacInputText")
   end
   add_hl(state.input_buf, #buffer_lines, 0, -1, "OmniacBorder")
   vim.bo[state.input_buf].modified = false
@@ -636,7 +658,7 @@ local function render_input(lines, cursor)
   state.input_chunks = chunks
 
   if valid_win(state.input_win) then
-    pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(lines, win_width))
+    pcall(vim.api.nvim_win_set_height, state.input_win, math.min(INPUT_MAX_DISPLAY_LINES, display_line_count) + 2)
     if cursor and vim.api.nvim_get_current_buf() == state.input_buf then
       local cursor_line = math.min(math.max(cursor.line or 1, 1), #lines)
       local prefix = cursor_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION

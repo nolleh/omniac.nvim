@@ -198,6 +198,52 @@ run("normal i inside input prompt starts at content column", function()
   assert_equal(line, "│ > x", "typed text should be inserted after the input prompt")
 end)
 
+run("input height shrinks back to three display lines", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  assert_equal(vim.api.nvim_win_get_height(0), 5, "input window should start with three display lines")
+  assert_equal(vim.api.nvim_buf_line_count(0), 5, "input box should start with three display lines")
+
+  local text = table.concat({ "a", "b", "c", "d", "e" }, "<S-CR>")
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i" .. text .. "<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(vim.api.nvim_win_get_height(0), 7, "input window should grow with input lines")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<BS><BS><BS><BS><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(vim.api.nvim_win_get_height(0), 5, "input window should shrink back to the minimum display height")
+  assert_equal(vim.api.nvim_buf_line_count(0), 5, "input box should fill the minimum input window height")
+  assert_equal(vim.fn.winsaveview().topline, 1, "input top border should stay visible")
+end)
+
+run("input line background does not override border foreground", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  local input_hl = vim.api.nvim_get_hl(0, { name = "OmniacInput" })
+  local input_text_hl = vim.api.nvim_get_hl(0, { name = "OmniacInputText" })
+
+  assert_equal(input_hl.fg, nil, "input line highlight should only provide the input background")
+  assert_equal(input_hl.bg, tonumber("313244", 16), "input line highlight should keep the input background")
+  assert_equal(input_text_hl.fg, tonumber("cdd6f4", 16), "input text should keep the normal input foreground")
+  assert_equal(input_text_hl.bg, tonumber("313244", 16), "input text should keep the input background")
+end)
+
 run("activity text keeps horizontal padding when truncated", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
