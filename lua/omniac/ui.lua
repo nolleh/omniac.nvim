@@ -695,6 +695,23 @@ local function completed_suggestion_text(text)
   return text
 end
 
+local render_input
+
+local function complete_current_suggestion()
+  local text = input_text()
+  local completed = completed_suggestion_text(text)
+  if completed == text then
+    return false
+  end
+
+  render_input(completed, {
+    line = 1,
+    col = #completed,
+  })
+  vim.cmd("startinsert!")
+  return true
+end
+
 local function ensure_command_buffer()
   if valid_buf(state.command_buf) then
     return
@@ -804,7 +821,7 @@ end
 
 local reset_leftcol
 
-local function render_input(lines, cursor)
+render_input = function(lines, cursor)
   if not valid_buf(state.input_buf) then
     return
   end
@@ -1224,6 +1241,11 @@ function M.open(config, submit)
       focus_input()
       return
     end
+    if mention_prefix() ~= nil then
+      complete_current_suggestion()
+      focus_input()
+      return
+    end
     text = completed_suggestion_text(text)
     reset_input()
     if state.submit then
@@ -1245,6 +1267,17 @@ function M.open(config, submit)
     buffer = state.input_buf,
     nowait = true,
     desc = "Delete Omniac input character",
+  })
+  vim.keymap.set({ "n", "i" }, "<Tab>", function()
+    vim.schedule(function()
+      if not complete_current_suggestion() then
+        focus_input()
+      end
+    end)
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Complete Omniac suggestion",
   })
 
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do

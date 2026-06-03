@@ -472,7 +472,7 @@ run("enter completes best slash command candidate", function()
   assert_equal(submitted, "/resume", "enter should complete the best slash command candidate")
 end)
 
-run("enter completes best file mention candidate", function()
+run("enter completes file mention without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -488,7 +488,62 @@ run("enter completes best file mention candidate", function()
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<CR>", true, false, true), "xt", false)
   vim.cmd("redraw")
 
-  assert_equal(submitted, "@README.md", "enter should complete the best file mention candidate")
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+  assert_true(lines:match("@README.md") ~= nil, "enter should complete the file mention in the input")
+  assert_equal(submitted, nil, "enter completion should not submit file mentions")
+end)
+
+run("tab completes slash command without submitting", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/res<Tab><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local lines
+  vim.wait(50, function()
+    lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+    return lines:match("/resume") ~= nil
+  end)
+  assert_true(lines:match("/resume") ~= nil, "tab should complete the slash command in the input")
+  assert_equal(submitted, nil, "tab completion should not submit")
+end)
+
+run("tab completes file mention without submitting", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<Tab><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local lines
+  vim.wait(50, function()
+    lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+    return lines:match("@README.md") ~= nil
+  end)
+  assert_true(lines:match("@README.md") ~= nil, "tab should complete the file mention in the input")
+  assert_equal(submitted, nil, "tab completion should not submit")
 end)
 
 run("command suggestions do not drift input window", function()
