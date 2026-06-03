@@ -1,46 +1,153 @@
 # Protocol TODO
 
-This file tracks what is already working and what still needs to be implemented for a broader ACP-compatible client.
+ACP reference: https://agentclientprotocol.com/protocol/v1/overview
 
-## Working today
+This file tracks what is already working and what still needs to be implemented for a broader ACP-compatible client. The sections below follow the ACP v1 documentation sidebar.
 
-- `stdio` transport for local subprocesses
-- backend auto-selection between `codex app-server` and `codex-acp`
-- `initialize` / `initialized`
-- `session/new`
-- `session/prompt`
-- `session/started`
-- `session/update`
-- `session/completed`
-- `session/error`
-- ACP `session/request_permission` handling through a Neovim review UI
-- Codex app-server `thread/start` / `turn/start` startup and prompt flow
-- Codex app-server response streaming for agent message events
-- Codex app-server file-change, patch, and command approval review for known request shapes
-- basic handling for Codex permission, command, tool-input, and tool-call requests
-- prompt construction from visual selection and file mentions
-- `:Omniac` chat, activity, input, and status UI buffers
-- native Neovim diff UI for reviewing edits
-- save-back from `:OmniacDiff` buffers into the target file
-- async approval completion through `:OmniacDiffAccept` and `:OmniacDiffDeny`
+## Overview
 
-## Remaining ACP work
+- [x] Speak JSON-RPC-style request / response / notification messages over the active transport.
+- [x] Keep ACP session flow in `lua/omniac/backend/acp.lua`.
+- [x] Keep process framing and subprocess communication in `lua/omniac/transport/`.
+- [x] Write protocol logs when enabled.
+- [ ] Confirm exact ACP schema details against each supported agent and isolate per-agent adapters.
+- [ ] Add explicit retry / recovery behavior for failed session startup and prompt submission.
+- [ ] Add integration tests against `codex-acp` and at least one additional ACP agent.
 
-- confirm the exact ACP schema for each supported agent and keep per-agent adapters isolated
-- map every remaining permission / approval request type to an intentional UI choice instead of fallback auto-accept / first-option behavior
-- support more `session/update` variants beyond the current text-oriented extraction, including non-message updates
-- support structured tool calls and tool results
-- support ACP-native file editing / patch flows rather than relying on generic permission review shapes
-- support richer session lifecycle events, including restart / resume / fork if required by agents
-- support cancelling active turns from the UI
-- support multi-file approval reviews instead of showing only the first recognized change
-- replace the lightweight unified-diff preview parser with a real patch parser or ACP-native edit representation
-- verify remote-agent transports such as HTTP or WebSocket when needed
-- add explicit retry / recovery behavior for failed session startup and prompt submission
-- add integration tests against `codex-acp` and at least one additional ACP agent
+## Initialization
 
-## Backend split to keep
+- [x] Send `initialize` with `protocolVersion`, `clientInfo`, and `clientCapabilities`.
+- [x] Default ACP client capabilities to no client-side file-system or terminal access.
+- [x] Disable legacy transport auto-initialization when running through the ACP backend.
+- [ ] Persist and use negotiated agent capabilities from the `initialize` response.
+- [ ] Validate protocol-version compatibility before continuing session startup.
 
-- `lua/omniac/transport/` should remain transport-only
-- `lua/omniac/backend/acp.lua` should own ACP session flow
-- future agent-specific behavior should live in separate backend modules, not in the transport layer
+## Authentication
+
+- [ ] Support `authenticate` when required by an agent.
+- [ ] Surface authentication failures in the UI with an actionable state.
+- [ ] Support `logout` when advertised by agent capabilities.
+
+## Session Setup
+
+- [x] Create new sessions with `session/new`.
+- [x] Pass `cwd` and configured MCP servers to `session/new`.
+- [x] Store the returned `sessionId` for later requests.
+- [x] Queue a prompt while startup is still creating the session, then flush it after the session is ready.
+- [ ] Support `session/load` for resuming an existing session when advertised.
+- [ ] Support richer lifecycle operations such as restart, resume, or fork if agents require them.
+
+## Session List
+
+- [ ] Support listing available sessions if the protocol / agent exposes it.
+- [ ] Add UI affordances for selecting and loading an existing session.
+
+## Prompt Turn
+
+- [x] Send user input through `session/prompt`.
+- [x] Build text prompts from chat input, visual selection, current file context, and file mentions.
+- [x] Show `omniac/prompt_started` as a working UI state.
+- [x] Stream `agent_message_chunk` / `agentMessageChunk` updates into the chat UI.
+- [x] Handle final agent message updates and non-streamed prompt responses.
+- [x] Mark streamed responses complete after the prompt response / completion event.
+- [x] Surface `session/error` and transport errors in the UI.
+- [ ] Support `session/cancel` from the UI for active turns.
+- [ ] Track ACP stop reasons from the `session/prompt` response.
+
+## Content
+
+- [x] Send basic text content items in prompts.
+- [x] Extract text from common ACP and agent-specific content shapes.
+- [ ] Support non-text content blocks intentionally instead of recursive best-effort extraction.
+- [ ] Render user, agent, and thought content distinctly when the update shape exposes them.
+- [ ] Preserve structured content metadata needed for later actions.
+
+## Tool Calls
+
+- [x] Track `tool_call` and `tool_call_update` session updates.
+- [x] Show compact tool activity in the UI.
+- [x] Track edit tool calls by `toolCallId`.
+- [x] Handle completed and failed edit tool-call updates.
+- [ ] Render structured tool calls and tool results in the chat / activity UI.
+- [ ] Map every remaining permission / approval request type to an intentional UI choice instead of fallback behavior.
+
+## File System
+
+- [x] Detect ACP edit updates containing `path`, `oldText`, and `newText`.
+- [x] Open native Neovim diff review UI for edit permission diffs.
+- [x] Apply completed file updates back to disk and loaded buffers.
+- [x] Support save-back from `:OmniacDiff` buffers into the target file.
+- [x] Complete async approval through `:OmniacDiffAccept` and `:OmniacDiffDeny`.
+- [ ] Support ACP-native `fs/read_text_file`.
+- [ ] Support ACP-native `fs/write_text_file`.
+- [ ] Support multi-file approval reviews instead of showing only the first recognized change.
+- [ ] Replace the lightweight unified-diff preview parser with a real patch parser or ACP-native edit representation.
+
+## Terminals
+
+- [x] Surface known command / terminal-like tool activity summaries when included in session updates.
+- [ ] Advertise terminal capability only when real terminal methods are implemented.
+- [ ] Support `terminal/create`.
+- [ ] Support `terminal/output`.
+- [ ] Support `terminal/release`.
+- [ ] Support `terminal/wait_for_exit`.
+- [ ] Support `terminal/kill`.
+
+## Agent Plan
+
+- [ ] Handle plan updates from `session/update`.
+- [ ] Render active plan items in the activity UI.
+- [ ] Reflect completed / failed plan steps without losing chat context.
+
+## Session Modes
+
+- [x] Configure an initial `agent.mode_id`.
+- [x] Send `session/set_mode` after session creation when a mode id is configured.
+- [x] Pass `INITIAL_AGENT_MODE` for agents that read the initial mode from the environment.
+- [ ] Render available modes from agent capabilities.
+- [ ] Let users switch modes during an active session.
+- [ ] Handle mode-change notifications from `session/update`.
+
+## Session Config Options
+
+- [ ] Read advertised session config options from initialization / session metadata.
+- [ ] Render configurable options in the UI.
+- [ ] Send selected config options with session creation or prompt requests.
+
+## Slash Commands
+
+- [ ] Handle available slash-command updates.
+- [ ] Render slash-command completion in the input UI.
+- [ ] Send selected slash commands through the appropriate ACP request shape.
+
+## Extensibility
+
+- [x] Keep internal client events under `omniac/*` and transport diagnostics under `_transport/*`.
+- [x] Preserve debug logging for unknown request / notification shapes.
+- [ ] Support `_meta` fields deliberately where ACP defines them.
+- [ ] Define a clear policy for custom agent methods prefixed with `_`.
+
+## Transports
+
+- [x] Support local subprocess stdio transport.
+- [x] Parse newline-delimited JSON frames.
+- [x] Dispatch requests, responses, and notifications to separate handlers.
+- [x] Reply to agent-initiated requests.
+- [x] Handle process stderr and exit notifications.
+- [ ] Verify remote-agent transports such as HTTP or WebSocket when needed.
+- [ ] Add transport-level timeout handling for pending requests.
+
+## Schema
+
+- [x] Use camelCase for ACP request fields currently sent by the backend.
+- [x] Keep compatibility extraction for snake_case and legacy agent response fields.
+- [ ] Generate or validate Lua-side protocol shapes from the official ACP schema.
+- [ ] Add focused tests for each supported request, response, and notification shape.
+
+## Legacy Codex App-Server Compatibility
+
+- [x] Auto-select between `codex app-server` and `codex-acp`.
+- [x] Support Codex app-server `thread/start` / `turn/start` startup and prompt flow.
+- [x] Support Codex app-server response streaming for agent message events.
+- [x] Support Codex app-server file-change, patch, and command approval review for known request shapes.
+- [x] Keep legacy app-server behavior out of the ACP backend.
