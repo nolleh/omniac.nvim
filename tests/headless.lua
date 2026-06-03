@@ -516,6 +516,39 @@ run("command suggestions do not drift input window", function()
   assert_equal(vim.api.nvim_win_get_position(input_win)[1], initial_row, "input window row should not drift")
 end)
 
+run("shrinking command suggestions stay below input", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.set_available_commands({
+    { name = "alpha", description = "one" },
+    { name = "alpine", description = "two" },
+    { name = "apply", description = "three" },
+    { name = "archive", description = "four" },
+    { name = "banana", description = "five" },
+  })
+
+  local input_win = vim.api.nvim_get_current_win()
+  local initial_row = vim.api.nvim_win_get_position(input_win)[1]
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/a<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  assert_equal(vim.api.nvim_win_get_position(input_win)[1], initial_row, "input row should stay while suggestions open")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("arch<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  assert_equal(
+    vim.api.nvim_win_get_position(input_win)[1],
+    initial_row,
+    "input row should stay when suggestions shrink"
+  )
+end)
+
 run("omniac ui buffers are named and unlisted", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

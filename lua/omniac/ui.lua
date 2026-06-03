@@ -733,6 +733,15 @@ end
 
 local update_command_window
 
+local function input_bottom_position()
+  if not valid_win(state.input_win) then
+    return 0, 0
+  end
+  local pos = vim.api.nvim_win_get_position(state.input_win)
+  local row = pos[1] + vim.api.nvim_win_get_height(state.input_win)
+  return row, pos[2]
+end
+
 local function input_content_width(win_width, prefix)
   return math.max(1, win_width - vim.fn.strdisplaywidth(prefix or INPUT_PROMPT) - 3)
 end
@@ -1037,19 +1046,32 @@ update_command_window = function()
   ensure_command_buffer()
 
   if not valid_win(state.command_win) then
-    local previous_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_set_current_win(state.input_win)
-    state.command_win = open_split_with_buffer("aboveleft", state.command_buf)
+    local row, col = input_bottom_position()
+    state.command_win = vim.api.nvim_open_win(state.command_buf, false, {
+      relative = "editor",
+      width = width(state.config),
+      height = 1,
+      row = row,
+      col = col,
+      style = "minimal",
+      border = "none",
+      focusable = false,
+    })
     configure_window(state.command_win)
-    vim.wo[state.command_win].winfixwidth = true
-    vim.wo[state.command_win].winfixheight = true
     vim.wo[state.command_win].wrap = false
     vim.wo[state.command_win].statusline = "%#OmniacStatus#%="
-    pcall(vim.api.nvim_set_current_win, previous_win)
   end
 
   local target_width = width(state.config)
   local display_count = math.min(5, #matches)
+  local row, col = input_bottom_position()
+  pcall(vim.api.nvim_win_set_config, state.command_win, {
+    relative = "editor",
+    width = target_width,
+    height = display_count,
+    row = row,
+    col = col,
+  })
   pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
   pcall(vim.api.nvim_win_set_height, state.command_win, display_count)
 
