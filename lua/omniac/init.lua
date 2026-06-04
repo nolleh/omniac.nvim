@@ -182,6 +182,10 @@ function M.setup(opts)
     M.disconnect()
   end
 
+  local function exit()
+    M.exit()
+  end
+
   local function ask(cmd)
     M.ask(cmd.args)
   end
@@ -228,6 +232,7 @@ function M.setup(opts)
   register_command("Omniac", open_chat, {})
   register_command("OmniacConnect", connect, {})
   register_command("OmniacDisconnect", disconnect, {})
+  register_command("OmniacExit", exit, {})
   register_command("OmniacSession", choose_session, {})
   register_command("OmniacSessionNew", function()
     connect_session("new", nil)
@@ -310,6 +315,10 @@ function M.open_chat()
 
   ui.open(M.config, function(text)
     local command = slash_command(text)
+    if command == "exit" then
+      M.exit()
+      return
+    end
     if command == "resume" or command == "sessions" then
       ui.set_activity("Opening session list.", M.config)
       ui.set_status("connecting", M.config)
@@ -706,6 +715,10 @@ function M.disconnect()
     M.transport:close()
     M.transport = nil
   end
+end
+
+function M.exit()
+  ui.close()
 end
 
 return M

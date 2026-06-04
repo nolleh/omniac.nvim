@@ -54,6 +54,19 @@ local function cleanup_omniac_buffers()
   end
 end
 
+local function has_window_for_buffer_name(name)
+  local target = vim.fn.bufnr(name)
+  if target == -1 then
+    return false
+  end
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == target then
+      return true
+    end
+  end
+  return false
+end
+
 run("diff review accepts with :w", function()
   package.loaded["omniac.diff"] = nil
   local diff = require("omniac.diff")
@@ -811,6 +824,7 @@ run("slash input opens command suggestions below chat", function()
   assert_true(vim.api.nvim_win_get_height(command_win) <= 5, "commands window should show up to five rows")
 
   local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
+  assert_true(lines:match("/exit") ~= nil, "local exit command should be listed")
   assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
   assert_true(lines:match("/plan") ~= nil, "agent command should be listed")
   assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
@@ -926,6 +940,51 @@ run("enter completes best slash command candidate", function()
   vim.cmd("redraw")
 
   assert_equal(submitted, "/resume", "enter should complete the best slash command candidate")
+end)
+
+run("slash exit closes chat without submitting", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac"] = nil
+  package.loaded["omniac.ui"] = nil
+  for _, name in ipairs({
+    "Omniac",
+    "OmniacConnect",
+    "OmniacDisconnect",
+    "OmniacExit",
+    "OmniacSession",
+    "OmniacSessionNew",
+    "OmniacSessionLoad",
+    "OmniacSessionResume",
+    "OmniacAsk",
+    "OmniacDebug",
+    "OmniacAskFiles",
+    "OmniacDiff",
+    "OmniacDiffAccept",
+    "OmniacDiffDeny",
+  }) do
+    pcall(vim.api.nvim_del_user_command, name)
+  end
+
+  local omniac = require("omniac")
+  omniac.setup({
+    backend = { kind = "codex" },
+    agent = { cmd = { "codex" } },
+    ui = { chat_width = 48 },
+  })
+  local submitted = false
+  omniac.ask = function()
+    submitted = true
+  end
+
+  omniac.open_chat()
+  assert_true(has_window_for_buffer_name("omniac://input"), "input window should open")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/exit<CR>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(submitted, false, "exit should not submit a prompt")
+  assert_equal(has_window_for_buffer_name("omniac://input"), false, "input window should close")
+  assert_equal(has_window_for_buffer_name("omniac"), false, "chat window should close")
 end)
 
 run("enter completes file mention without submitting", function()

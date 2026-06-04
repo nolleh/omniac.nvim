@@ -565,6 +565,10 @@ end
 local function local_commands()
   return {
     {
+      name = "exit",
+      description = "Close Omniac chat",
+    },
+    {
       name = "resume",
       description = "Open the ACP session selector",
     },
@@ -1187,6 +1191,23 @@ resize_aux_windows = function()
   end
 end
 
+function M.close()
+  stop_activity_timer()
+  close_command_window()
+  if valid_win(state.input_win) then
+    pcall(vim.api.nvim_win_close, state.input_win, true)
+  end
+  if valid_win(state.activity_win) then
+    pcall(vim.api.nvim_win_close, state.activity_win, true)
+  end
+  if valid_win(state.status_win) then
+    pcall(vim.api.nvim_win_close, state.status_win, true)
+  end
+  if valid_win(state.chat_win) then
+    pcall(vim.api.nvim_win_close, state.chat_win, true)
+  end
+end
+
 function M.open(config, submit)
   setup_highlights()
   state.config = config or state.config
@@ -1356,22 +1377,7 @@ function M.open(config, submit)
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
   end
 
-  vim.keymap.set("n", "q", function()
-    stop_activity_timer()
-    if valid_win(state.input_win) then
-      close_command_window()
-      vim.api.nvim_win_close(state.input_win, true)
-    end
-    if valid_win(state.activity_win) then
-      vim.api.nvim_win_close(state.activity_win, true)
-    end
-    if valid_win(state.status_win) then
-      vim.api.nvim_win_close(state.status_win, true)
-    end
-    if valid_win(state.chat_win) then
-      vim.api.nvim_win_close(state.chat_win, true)
-    end
-  end, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
+  vim.keymap.set("n", "q", M.close, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
 
   vim.api.nvim_clear_autocmds({ group = augroup, buffer = state.input_buf })
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave" }, {
