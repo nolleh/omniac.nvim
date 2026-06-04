@@ -580,14 +580,25 @@ local function normalized_commands()
     if type(command) ~= "table" or type(command.name) ~= "string" or command.name == "" then
       return
     end
-    local name = command.name:gsub("^/", "")
-    if seen[name] then
+    local trigger = "/"
+    local name = command.name
+    local first = name:sub(1, 1)
+    if first == "/" or first == "$" then
+      trigger = first
+      name = name:sub(2)
+    end
+    if name == "" then
       return
     end
-    seen[name] = true
+    local key = trigger .. name
+    if seen[key] then
+      return
+    end
+    seen[key] = true
     local description = type(command.description) == "string" and command.description or ""
     local input = type(command.input) == "table" and command.input or nil
     table.insert(result, {
+      trigger = trigger,
       name = name,
       description = description,
       input = input,
@@ -606,17 +617,21 @@ local function normalized_commands()
     if left.source ~= right.source then
       return left.source == "omniac"
     end
+    if left.trigger ~= right.trigger then
+      return left.trigger < right.trigger
+    end
     return left.name < right.name
   end)
   return result
 end
 
-local function slash_prefix()
+local function command_prefix()
   local text = raw_input_text()
   if text:find("\n", 1, true) then
-    return nil
+    return nil, nil
   end
-  return text:match("^%s*/([%w_-]*)$")
+  local trigger, prefix = text:match("^%s*([/$])([^%s]*)$")
+  return trigger, prefix
 end
 
 local function mention_prefix()
@@ -627,14 +642,14 @@ local function mention_prefix()
   return text:match("^%s*@([^%s]*)$")
 end
 
-local function command_matches(prefix)
-  if prefix == nil then
+local function command_matches(trigger, prefix)
+  if trigger == nil or prefix == nil then
     return {}
   end
 
   local matches = {}
   for _, command in ipairs(normalized_commands()) do
-    if command.name:sub(1, #prefix) == prefix then
+    if command.trigger == trigger and command.name:sub(1, #prefix) == prefix then
       table.insert(matches, command)
     end
   end
@@ -671,9 +686,9 @@ local function file_matches(prefix)
 end
 
 local function current_suggestions()
-  local slash = slash_prefix()
-  if slash ~= nil then
-    return "command", command_matches(slash)
+  local trigger, prefix = command_prefix()
+  if trigger ~= nil then
+    return "command", command_matches(trigger, prefix), trigger
   end
 
   local mention = mention_prefix()
@@ -685,11 +700,11 @@ local function current_suggestions()
 end
 
 local function completed_suggestion_text(text)
-  local prefix = slash_prefix()
-  if prefix ~= nil then
-    local matches = command_matches(prefix)
+  local trigger, prefix = command_prefix()
+  if trigger ~= nil then
+    local matches = command_matches(trigger, prefix)
     if #matches > 0 then
-      return "/" .. matches[1].name
+      return matches[1].trigger .. matches[1].name
     end
   end
 
@@ -1058,7 +1073,7 @@ update_command_window = function()
     return
   end
 
-  local kind, matches = current_suggestions()
+  local kind, matches, trigger = current_suggestions()
   if kind == nil then
     close_command_window()
     return
@@ -1105,11 +1120,11 @@ update_command_window = function()
   local marks = {}
   for index = 1, display_count do
     local item = matches[index]
-    local trigger = kind == "mention" and "@" or "/"
+    local item_trigger = kind == "mention" and "@" or (item.trigger or trigger or "/")
     local hint = item.input and item.input.hint and (" " .. item.input.hint) or ""
     local description = item.description ~= "" and (" - " .. item.description) or ""
     local source = item.source == "omniac" and " client" or ""
-    local line = fit(trigger .. item.name .. hint .. description .. source, target_width)
+    local line = fit(item_trigger .. item.name .. hint .. description .. source, target_width)
     table.insert(lines, line)
     table.insert(marks, {
       line = index,

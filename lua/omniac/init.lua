@@ -315,6 +315,15 @@ function M.open_chat()
       ui.set_status("error", M.config)
     end
   end)
+
+  if M.config.backend and M.config.backend.kind == "acp" and not M.backend then
+    ui.set_status("connecting", M.config)
+    local ok, err = pcall(M.connect)
+    if not ok then
+      ui.add_message("Error", err, M.config)
+      ui.set_status("error", M.config)
+    end
+  end
 end
 
 function M.select_session()

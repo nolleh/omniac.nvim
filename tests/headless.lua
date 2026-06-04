@@ -613,6 +613,38 @@ run("slash command suggestions tolerate null input metadata", function()
   assert_true(lines:match("/compact") ~= nil, "command with null metadata should be listed")
 end)
 
+run("dollar input opens agent skill suggestions", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.set_available_commands({
+    { name = "skills", description = "List skills" },
+    { name = "$imagegen", description = "Generate images" },
+    { name = "$openai-docs", description = "OpenAI docs" },
+  })
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i$im<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local command_buf
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_get_name(buf) == "omniac://commands" then
+      command_buf = buf
+      break
+    end
+  end
+
+  assert_true(command_buf ~= nil, "skill suggestions should use the commands buffer")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
+  assert_true(lines:match("%$imagegen") ~= nil, "dollar-prefixed skill should be listed")
+  assert_true(lines:match("/skills") == nil, "dollar suggestions should not include slash commands")
+end)
+
 run("at input opens file mention suggestions", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -731,6 +763,57 @@ run("tab completes file mention without submitting", function()
   end)
   assert_true(lines:match("@README.md") ~= nil, "tab should complete the file mention in the input")
   assert_equal(submitted, nil, "tab completion should not submit")
+end)
+
+run("tab completes dollar skill without submitting", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+  ui.set_available_commands({
+    { name = "$imagegen", description = "Generate images" },
+  })
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i$im<Tab><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local lines
+  vim.wait(50, function()
+    lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+    return lines:match("%$imagegen") ~= nil
+  end)
+  assert_true(lines:match("%$imagegen") ~= nil, "tab should complete the dollar skill in the input")
+  assert_equal(submitted, nil, "tab completion should not submit")
+end)
+
+run("enter completes and submits dollar skill", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+  ui.set_available_commands({
+    { name = "$imagegen", description = "Generate images" },
+  })
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i$im<CR>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  assert_equal(submitted, "$imagegen", "enter should complete and submit the dollar skill")
 end)
 
 run("shift tab triggers session mode cycling", function()
