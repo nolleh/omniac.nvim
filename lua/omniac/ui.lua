@@ -22,6 +22,8 @@ local state = {
   streaming_message_index = nil,
   config = nil,
   submit = nil,
+  cancel_handler = nil,
+  cancel_requested = false,
   rendering_input = false,
   input_chunks = nil,
   transient_activity = nil,
@@ -720,6 +722,7 @@ local function completed_suggestion_text(text)
 end
 
 local render_input
+local focus_input
 
 local function complete_current_suggestion()
   local text = input_text()
@@ -733,6 +736,22 @@ local function complete_current_suggestion()
     col = #completed,
   })
   vim.cmd("startinsert!")
+  return true
+end
+
+local function cancel_active_turn()
+  if state.status ~= "working" or state.cancel_requested then
+    return false
+  end
+
+  state.cancel_requested = true
+  vim.schedule(function()
+    M.set_activity("Cancelling current turn.", state.config)
+    if state.cancel_handler then
+      state.cancel_handler()
+    end
+    focus_input()
+  end)
   return true
 end
 
@@ -958,7 +977,7 @@ local function clamp_input_cursor()
   end
 end
 
-local function focus_input()
+focus_input = function()
   if not valid_win(state.input_win) then
     return
   end
@@ -1314,6 +1333,24 @@ function M.open(config, submit)
     nowait = true,
     desc = "Cycle Omniac session mode",
   })
+  vim.keymap.set("i", "<Esc>", function()
+    if cancel_active_turn() then
+      return ""
+    end
+    return "<Esc>"
+  end, {
+    buffer = state.input_buf,
+    expr = true,
+    nowait = true,
+    desc = "Cancel active Omniac turn",
+  })
+  vim.keymap.set("n", "<Esc>", function()
+    cancel_active_turn()
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Cancel active Omniac turn",
+  })
 
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
@@ -1361,6 +1398,7 @@ function M.set_status(status, config)
   state.status = status or "idle"
   if state.status ~= "working" then
     state.tool_activity = nil
+    state.cancel_requested = false
   end
   if state.status ~= "connecting" and state.status ~= "working" then
     state.transient_activity = nil
@@ -1380,6 +1418,10 @@ end
 
 function M.set_mode_cycle_handler(handler)
   state.mode_cycle_handler = handler
+end
+
+function M.set_cancel_handler(handler)
+  state.cancel_handler = handler
 end
 
 function M.set_session_mode(mode)
@@ -1472,7 +1514,20 @@ function M.handle_notification(message, config)
   if method == "thread/started" or method == "turn/started" or method == "omniac/prompt_started" then
     state.streaming_message_index = nil
     state.tool_activity = nil
+    state.cancel_requested = false
     M.set_status("working", config)
+    return
+  end
+
+  if method == "omniac/prompt_cancelled" then
+    M.set_status("ready", config)
+    M.set_activity("Cancelled current turn.", config)
+    return
+  end
+
+  if method == "omniac/prompt_cancel_failed" then
+    state.cancel_requested = false
+    M.set_activity(params.message or "Cancel failed.", config)
     return
   end
 

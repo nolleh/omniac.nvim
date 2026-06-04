@@ -1025,6 +1025,26 @@ function M.new(config)
     self:set_session_mode(next_mode.id, callback)
   end
 
+  function state:cancel(callback)
+    callback = callback or function() end
+    if not self.transport or not self.running then
+      callback({
+        message = "ACP transport is not running",
+      })
+      return
+    end
+    if not self.session_id then
+      callback({
+        message = "ACP session is not ready",
+      })
+      return
+    end
+
+    self.transport:request("session/cancel", {
+      sessionId = self.session_id,
+    }, callback)
+  end
+
   function state:_flush_pending_prompt()
     if not self.pending_prompt then
       return

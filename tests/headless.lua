@@ -456,6 +456,32 @@ run("ACP legacy planning modes cycle with set_mode", function()
   assert_equal(request.params.modeId, "agent", "cycle should select the next legacy mode")
 end)
 
+run("ACP cancel sends session cancel request", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local request
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      request = {
+        method = method,
+        params = params,
+      }
+      callback(nil, {})
+    end,
+  }
+
+  client:cancel(function(err)
+    assert_equal(err, nil, "cancel should succeed")
+  end)
+
+  assert_equal(request.method, "session/cancel", "cancel should use the ACP cancel method")
+  assert_equal(request.params.sessionId, "sess_1", "cancel should target the active session")
+end)
+
 run("ACP mode state can be nested in session result", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")
@@ -814,6 +840,65 @@ run("enter completes and submits dollar skill", function()
   vim.cmd("redraw")
 
   assert_equal(submitted, "$imagegen", "enter should complete and submit the dollar skill")
+end)
+
+run("esc cancels active turn once", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local cancels = 0
+
+  ui.set_cancel_handler(function()
+    cancels = cancels + 1
+  end)
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<Esc><Esc><Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  vim.wait(50, function()
+    return cancels > 0
+  end)
+
+  assert_equal(cancels, 1, "esc should send one cancel request while working")
+end)
+
+run("cancel failure allows retry", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local cancels = 0
+
+  ui.set_cancel_handler(function()
+    cancels = cancels + 1
+    ui.handle_notification({
+      method = "omniac/prompt_cancel_failed",
+      params = {
+        message = "cancel failed",
+      },
+    }, { ui = { chat_width = 48 } })
+  end)
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  vim.wait(50, function()
+    return cancels >= 1
+  end)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  vim.wait(50, function()
+    return cancels >= 2
+  end)
+
+  assert_equal(cancels, 2, "failed cancel should allow a later esc retry")
 end)
 
 run("shift tab triggers session mode cycling", function()

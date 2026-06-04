@@ -251,6 +251,43 @@ function M.setup(opts)
 end
 
 function M.open_chat()
+  ui.set_cancel_handler(function()
+    if not (M.config.backend and M.config.backend.kind == "acp") then
+      ui.handle_notification({
+        method = "omniac/prompt_cancel_failed",
+        params = {
+          message = "Cancel is not available for this backend.",
+        },
+      }, M.config)
+      return
+    end
+    if not M.backend or not M.backend.cancel then
+      ui.handle_notification({
+        method = "omniac/prompt_cancel_failed",
+        params = {
+          message = "Cancel is not available.",
+        },
+      }, M.config)
+      return
+    end
+
+    M.backend:cancel(function(err)
+      if err then
+        ui.handle_notification({
+          method = "omniac/prompt_cancel_failed",
+          params = {
+            message = tostring(err.message or err.error or err),
+          },
+        }, M.config)
+        return
+      end
+      ui.handle_notification({
+        method = "omniac/prompt_cancelled",
+        params = {},
+      }, M.config)
+    end)
+  end)
+
   ui.set_mode_cycle_handler(function()
     if not (M.config.backend and M.config.backend.kind == "acp") then
       ui.set_activity("Session modes are not available.", M.config)
