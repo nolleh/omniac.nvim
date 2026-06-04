@@ -298,6 +298,59 @@ run("activity text keeps horizontal padding when truncated", function()
   assert_true(line:match("  $"), "activity line should keep right padding")
 end)
 
+run("permission request stays out of chat stream", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["omniac.approval"] = nil
+  local ui = require("omniac.ui")
+  local approval = require("omniac.approval")
+  local original_select = vim.ui.select
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  ui.handle_notification(
+    { method = "omniac/response_chunk", params = { text = "before " } },
+    { ui = { chat_width = 48 } }
+  )
+
+  vim.ui.select = function(items, opts, callback)
+    callback(items[1])
+  end
+  local replied
+  approval.review_acp_permission({
+    toolCall = {
+      kind = "execute",
+      rawInput = {
+        command = "git add README.md",
+      },
+    },
+    options = {
+      { optionId = "allow_once", name = "Allow Once" },
+    },
+  }, function(result)
+    replied = result
+  end, { ui = { chat_width = 48 } })
+  vim.wait(50, function()
+    return replied ~= nil
+  end)
+  vim.ui.select = original_select
+
+  ui.handle_notification(
+    { method = "omniac/response_chunk", params = { text = "after" } },
+    { ui = { chat_width = 48 } }
+  )
+  ui.handle_notification({ method = "omniac/response_completed", params = {} }, { ui = { chat_width = 48 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(chat:match("before after") ~= nil, "streaming response should continue after permission request")
+  assert_true(chat:match("Permission requested") == nil, "permission request should not be inserted into chat")
+  assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
+end)
+
 run("status renders ACP session mode", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

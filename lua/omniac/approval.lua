@@ -241,44 +241,21 @@ local function option_label(option)
   return option.name or option.label or option.kind or option_id(option) or "Select"
 end
 
-local function permission_text(params)
+local function permission_summary(params)
   local tool_call = params and params.toolCall or {}
   local raw_input = type(tool_call.rawInput) == "table" and tool_call.rawInput or {}
-  local lines = {
-    "Permission requested",
-    "",
-    "kind: " .. tostring(tool_call.kind or "unknown"),
-  }
-
+  local kind = tool_call.kind or "tool"
   local command = raw_input.command or tool_call.title
   if type(command) == "string" and command ~= "" then
-    table.insert(lines, "command: " .. command)
+    return "Permission requested: " .. tostring(kind) .. " " .. command
   end
-
-  local cwd = raw_input.cwd
-  if type(cwd) == "string" and cwd ~= "" then
-    table.insert(lines, "cwd: " .. cwd)
-  end
-
-  for _, item in ipairs(content_items(tool_call)) do
-    local text = first_string(item, { "text", "message" })
-    if not text and type(item.content) == "table" then
-      text = first_string(item.content, { "text", "message" })
-    end
-    if text and text ~= "" then
-      table.insert(lines, "")
-      table.insert(lines, text)
-      break
-    end
-  end
-
-  return table.concat(lines, "\n")
+  return "Permission requested: " .. tostring(kind)
 end
 
 local function show_permission_text(params, config)
   local ok, ui = pcall(require, "omniac.ui")
-  if ok and ui and ui.add_message then
-    ui.add_message("Omniac", permission_text(params), config)
+  if ok and ui and ui.set_activity then
+    ui.set_activity(permission_summary(params), config)
   end
 end
 
