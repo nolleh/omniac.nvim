@@ -113,6 +113,43 @@ run("diff review can deny edited proposed buffer with :q", function()
   assert_equal(result.accepted, false, "edited review should still be denied by :q")
 end)
 
+run("session dialog flattens multiline session titles", function()
+  package.loaded["omniac.session_dialog"] = nil
+  local dialog = require("omniac.session_dialog")
+  local result
+
+  dialog.open({
+    {
+      sessionId = "sess_1",
+      title = "first line\n\nCurrent file: omniac://input",
+      cwd = "/tmp/project",
+      updatedAt = "2026-06-04T13:03:55.000Z",
+    },
+  }, {
+    list_supported = true,
+  }, function(selection)
+    result = selection
+  end)
+
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local rendered = table.concat(lines, "\n")
+  assert_true(rendered:match("current file") ~= nil, "session title metadata should preserve regular letters")
+  assert_true(rendered:match("%[LOAD%]") == nil, "session rows should not repeat the load action label")
+  assert_true(rendered:match("sess_1") ~= nil, "session item should render after flattening multiline text")
+  assert_true(rendered:match("전") ~= nil, "session metadata should include relative time")
+  local footer_rendered = ""
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.bo[buf].filetype == "omniac-session-footer" then
+      footer_rendered = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+      break
+    end
+  end
+  assert_true(footer_rendered:match("%[n%] new") ~= nil, "new session action should render in the footer")
+
+  vim.api.nvim_feedkeys("q", "xt", false)
+  assert_equal(result, nil, "closing the dialog without selection should not choose a session")
+end)
+
 run("input focus returns to end of wrapped message", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -533,6 +570,127 @@ run("ACP cancel sends session cancel request", function()
 
   assert_equal(request.method, "session/cancel", "cancel should use the ACP cancel method")
   assert_equal(request.params.sessionId, "sess_1", "cancel should target the active session")
+end)
+
+run("ACP list sessions requests even without advertised capability", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({
+    agent = {
+      cwd = "/tmp/project",
+    },
+  })
+  local request
+  local listed
+
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      request = {
+        method = method,
+        params = params,
+      }
+      callback(nil, {
+        sessions = {
+          { sessionId = "sess_1", title = "One" },
+        },
+      })
+    end,
+  }
+
+  client:list_sessions(function(err, sessions)
+    assert_equal(err, nil, "list_sessions should not fail before trying request")
+    listed = sessions
+  end)
+
+  assert_equal(request.method, "session/list", "list_sessions should optimistically request session/list")
+  assert_equal(request.params.cwd, "/tmp/project", "session/list should include the configured cwd")
+  assert_equal(listed[1].sessionId, "sess_1", "session/list results should be returned")
+end)
+
+run("ACP list sessions stops on JSON null cursor", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local requests = {}
+  local listed
+
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      table.insert(requests, {
+        method = method,
+        params = params,
+      })
+      if #requests == 1 then
+        callback(nil, {
+          sessions = {
+            { sessionId = "sess_1" },
+          },
+          nextCursor = "cursor_2",
+        })
+        return
+      end
+
+      callback(nil, {
+        sessions = {
+          { sessionId = "sess_2" },
+        },
+        nextCursor = vim.NIL,
+      })
+    end,
+  }
+
+  client:list_sessions(function(err, sessions)
+    assert_equal(err, nil, "list_sessions should not fail on JSON null cursor")
+    listed = sessions
+  end)
+
+  assert_equal(#requests, 2, "JSON null nextCursor should terminate pagination")
+  assert_equal(requests[2].params.cursor, "cursor_2", "second page should use the first cursor")
+  assert_equal(#listed, 2, "sessions from both pages should be collected")
+  assert_equal(listed[2].sessionId, "sess_2", "second page sessions should be included")
+end)
+
+run("ACP select session falls back when list request fails", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local selector_opts
+  local client = acp.new({
+    agent = {
+      session = {
+        action = "select",
+      },
+    },
+    session_selector = function(sessions, opts, callback)
+      selector_opts = opts
+      callback({ action = "new" })
+    end,
+  })
+  local methods = {}
+
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      table.insert(methods, method)
+      if method == "session/list" then
+        callback({ message = "not supported" }, nil)
+      elseif method == "session/new" then
+        callback(nil, { sessionId = "new_session" })
+      else
+        callback(nil, {})
+      end
+    end,
+  }
+
+  client:_setup_session(function(err, result, method)
+    assert_equal(err, nil, "select fallback should continue with chosen new session")
+    assert_equal(method, "session/new", "fallback selection should create a new session")
+  end)
+
+  assert_equal(methods[1], "session/list", "select setup should try session/list first")
+  assert_equal(selector_opts.list_supported, false, "selector should know list failed")
+  assert_true(selector_opts.message:match("not supported") ~= nil, "selector should receive the list error message")
 end)
 
 run("ACP mode state can be nested in session result", function()

@@ -83,6 +83,10 @@ local function json_null()
   return nil
 end
 
+local function is_json_null(value)
+  return vim.NIL ~= nil and value == vim.NIL
+end
+
 local function log_path(config)
   config = config or {}
   config.logs = config.logs or {}
@@ -774,7 +778,7 @@ function M.new(config)
       end
 
       local next_cursor = result and (result.nextCursor or result.next_cursor)
-      if next_cursor and next_cursor ~= "" then
+      if next_cursor and not is_json_null(next_cursor) and next_cursor ~= "" then
         self:_list_sessions(callback, next_cursor, collected)
         return
       end
@@ -784,13 +788,6 @@ function M.new(config)
   end
 
   function state:list_sessions(callback)
-    if not session_capability(self.agent_capabilities, "list") then
-      callback({
-        message = "agent does not advertise sessionCapabilities.list",
-      }, nil)
-      return
-    end
-
     self:_list_sessions(callback)
   end
 
@@ -816,29 +813,12 @@ function M.new(config)
       local selector = self.config.session_selector
       if not selector then
         action = "new"
-      elseif not session_capability(self.agent_capabilities, "list") then
-        selector({}, {
-          list_supported = false,
-        }, function(selection)
-          if not selection then
-            callback({
-              message = "session selection cancelled",
-            }, nil, "session/select")
-            return
-          end
-          self.config.agent.session = selection
-          self:_setup_session(callback)
-        end)
-        return
       else
         self:_list_sessions(function(list_err, sessions)
-          if list_err then
-            callback(list_err, nil, "session/list")
-            return
-          end
-
           selector(sessions or {}, {
-            list_supported = true,
+            list_supported = list_err == nil,
+            message = list_err and tostring(list_err.message or list_err.error or "session/list is not available")
+              or nil,
           }, function(selection)
             if not selection then
               callback({

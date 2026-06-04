@@ -359,13 +359,6 @@ function M.select_session()
   end
 
   if M.config.backend and M.config.backend.kind == "acp" and M.backend then
-    if not M.backend.supports_session_capability or not M.backend:supports_session_capability("list") then
-      session_dialog.open({}, {
-        list_supported = false,
-      }, continue_with)
-      return
-    end
-
     local completed = false
     local timer = vim.loop.new_timer()
     timer:start(5000, 0, function()
@@ -393,8 +386,12 @@ function M.select_session()
       timer:close()
 
       if err then
-        ui.add_message("Error", tostring(err.message or err.error or err), M.config)
-        ui.set_status("error", M.config)
+        ui.set_status("ready", M.config)
+        ui.set_activity("session/list is not available.", M.config)
+        session_dialog.open({}, {
+          list_supported = false,
+          message = tostring(err.message or err.error or "session/list is not available"),
+        }, continue_with)
         return
       end
 
