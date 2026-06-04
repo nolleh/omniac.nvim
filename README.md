@@ -76,10 +76,15 @@ Use a project-local working directory and disable protocol logs:
 | `agent.pty`                            | `false`                     | Runs the subprocess through a PTY when supported.                                     |
 | `agent.session.action`                 | `"new"`                     | ACP session startup action: `"new"`, `"load"`, `"resume"`, or `"select"`.            |
 | `agent.session.id`                     | `nil`                       | ACP session ID used when `agent.session.action` is `"load"` or `"resume"`.            |
+| `agent.session_action`                 | `nil`                       | Backward-compatible alias for `agent.session.action`.                                 |
+| `agent.session_id`                     | `nil`                       | Backward-compatible alias for `agent.session.id`.                                     |
+| `session_selector`                     | `nil`                       | Callback used to select a session when `agent.session.action` is `"select"`.          |
+| `mcpServers`                           | `{}`                        | MCP server configuration passed to ACP session creation, load, and resume requests.   |
+| `additionalDirectories`                | `nil`                       | Extra directories passed to ACP sessions when the agent advertises support.            |
 | `client.name`                          | `"omniac.nvim"`             | Client name sent during initialization.                                               |
 | `client.title`                         | `"omniac.nvim"`             | Client title sent during initialization.                                              |
 | `client.version`                       | `"0.1.0"`                   | Client version sent during initialization.                                            |
-| `client.protocol_version`              | `1`                         | Legacy protocol version value.                                                        |
+| `client.protocol_version`              | `1`                         | Protocol version sent during initialization.                                          |
 | `client.capabilities.fs.readTextFile`  | `true`                      | Advertises ACP text-file read capability.                                             |
 | `client.capabilities.fs.writeTextFile` | `true`                      | Advertises ACP text-file write capability.                                            |
 | `client.capabilities.terminal`         | `false`                     | Advertises terminal capability.                                                       |
