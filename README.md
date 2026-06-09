@@ -97,7 +97,7 @@ Use a project-local working directory and disable protocol logs:
 ## Features
 
 - `:OmniacConnect` starts the configured subprocess
-- type `/resume` or `/sessions` in the Omniac chat to list sessions and open the session-selection dialog
+- type `/resume` in the Omniac chat to list sessions and open the session-selection dialog
 - `:OmniacSession` opens the same session-selection flow as a command
 - `:OmniacSessionNew` starts a fresh ACP session
 - `:OmniacSessionLoad {sessionId}` loads an ACP session and replays its history when the agent advertises `loadSession`

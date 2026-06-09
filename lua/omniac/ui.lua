@@ -572,10 +572,6 @@ local function local_commands()
       name = "resume",
       description = "Open the ACP session selector",
     },
-    {
-      name = "sessions",
-      description = "Open the ACP session selector",
-    },
   }
 end
 

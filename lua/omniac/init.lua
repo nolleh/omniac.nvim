@@ -319,7 +319,7 @@ function M.open_chat()
       M.exit()
       return
     end
-    if command == "resume" or command == "sessions" then
+    if command == "resume" then
       ui.set_activity("Opening session list.", M.config)
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.select_session)
