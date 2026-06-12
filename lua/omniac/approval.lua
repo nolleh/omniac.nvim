@@ -3,6 +3,7 @@ local diff = require("omniac.diff")
 local M = {}
 local pending_acp_permissions = {}
 local pending_acp_diffs = {}
+local EDIT_DIFF_WAIT_MS = 1000
 
 local function diff_separate_tab(config)
   local ui = config and config.ui or {}
@@ -464,6 +465,11 @@ local function open_permission_diff(pending, payload)
     return false
   end
   pending.opened = true
+  if pending.diff_timer then
+    pending.diff_timer:stop()
+    pending.diff_timer:close()
+    pending.diff_timer = nil
+  end
 
   local before = as_lines(payload.oldText) or {}
   local after = as_lines(payload.newText) or {}
@@ -493,6 +499,47 @@ local function open_permission_diff(pending, payload)
     }, true, {})
   end)
   return true
+end
+
+local function close_pending_timer(pending)
+  if pending.diff_timer then
+    pending.diff_timer:stop()
+    pending.diff_timer:close()
+    pending.diff_timer = nil
+  end
+end
+
+local function schedule_edit_permission_fallback(pending)
+  update_permission_text(pending.notice_index, pending.notice_text, "Waiting for proposed diff...", pending.config)
+
+  pending.diff_timer = vim.loop.new_timer()
+  pending.diff_timer:start(
+    EDIT_DIFF_WAIT_MS,
+    0,
+    vim.schedule_wrap(function()
+      close_pending_timer(pending)
+      if pending.replied or pending.opened or pending_acp_permissions[pending.tool_call_id] ~= pending then
+        return
+      end
+
+      pending.opened = true
+      update_permission_text(
+        pending.notice_index,
+        pending.notice_text,
+        "No proposed diff was provided. Choose a permission option.",
+        pending.config
+      )
+      select_permission_option(pending.params, function(result)
+        if pending.replied then
+          return
+        end
+        pending.replied = true
+        pending_acp_permissions[pending.tool_call_id] = nil
+        pending_acp_diffs[pending.tool_call_id] = nil
+        pending.reply(result)
+      end, pending.config, pending.notice_index, pending.notice_text)
+    end)
+  )
 end
 
 local function write_lines(path, lines)
@@ -556,6 +603,8 @@ function M.review_request(method, params, reply, resolve, config)
     local payload = diff_payload(tool_call) or pending_acp_diffs[pending.tool_call_id]
     if payload then
       open_permission_diff(pending, payload)
+    else
+      schedule_edit_permission_fallback(pending)
     end
     return
   end

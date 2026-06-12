@@ -473,6 +473,54 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
 end)
 
+run("edit permission without diff falls back to selector", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["omniac.approval"] = nil
+  local ui = require("omniac.ui")
+  local approval = require("omniac.approval")
+  local original_select = vim.ui.select
+  local select_prompt
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+
+  vim.ui.select = function(items, opts, callback)
+    select_prompt = opts.prompt
+    callback(items[1])
+  end
+
+  local replied
+  approval.review_acp_permission({
+    sessionId = "sess_1",
+    toolCall = {
+      kind = "edit",
+      status = "pending",
+      toolCallId = "call_edit_without_diff",
+      content = vim.NIL,
+    },
+    options = {
+      { optionId = "allow_once", name = "Allow Once" },
+      { optionId = "reject_once", name = "Reject" },
+    },
+  }, function(result)
+    replied = result
+  end, { ui = { chat_width = 48 } })
+
+  vim.wait(1500, function()
+    return replied ~= nil
+  end)
+  vim.ui.select = original_select
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_equal(select_prompt, "Permission requested: edit", "edit fallback selector should stay compact")
+  assert_true(chat:match("Decision: Allow Once") ~= nil, "edit fallback should record the selected decision")
+  assert_equal(replied.outcome.optionId, "allow_once", "edit fallback should reply with selected option")
+end)
+
 run("status renders ACP session mode", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
