@@ -1,4 +1,5 @@
 local diff = require("omniac.diff")
+local permission_dialog = require("omniac.permission_dialog")
 
 local M = {}
 local pending_acp_permissions = {}
@@ -382,6 +383,9 @@ local function update_permission_text(notice_index, base_text, decision, config)
   end
 
   ui.update_notice(notice_index, table.concat({ base_text or "", "", decision }, "\n"), config)
+  if decision:match("^Decision:") and ui.set_activity then
+    ui.set_activity(nil, config)
+  end
 end
 
 local function selected_permission_response(option)
@@ -411,9 +415,8 @@ local function select_permission_option(params, reply, config, notice_index, not
   end
 
   vim.schedule(function()
-    vim.ui.select(options, {
+    permission_dialog.open(options, {
       prompt = permission_summary(params),
-      format_item = option_label,
     }, function(choice)
       update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
       reply(selected_permission_response(choice))

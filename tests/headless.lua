@@ -392,10 +392,10 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   package.loaded["omniac.approval"] = nil
+  package.loaded["omniac.permission_dialog"] = nil
   local ui = require("omniac.ui")
   local approval = require("omniac.approval")
-  local original_select = vim.ui.select
-  local select_prompt
+  local dialog_text
 
   ui.open({
     agent = { cmd = { "codex-acp" } },
@@ -407,10 +407,6 @@ run("permission request shows JSON-RPC details in chat and selector", function()
     { ui = { chat_width = 48 } }
   )
 
-  vim.ui.select = function(items, opts, callback)
-    select_prompt = opts.prompt
-    callback(items[1])
-  end
   local replied
   approval.review_acp_permission({
     sessionId = "019ebc08-548b-7033-bb21-96097389145c",
@@ -440,10 +436,16 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   }, function(result)
     replied = result
   end, { ui = { chat_width = 48 } })
+
+  vim.wait(50, function()
+    return vim.fn.bufnr("omniac://permission") ~= -1
+  end)
+  local dialog_buf = vim.fn.bufnr("omniac://permission")
+  dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
+  vim.api.nvim_feedkeys("1", "xt", false)
   vim.wait(50, function()
     return replied ~= nil
   end)
-  vim.ui.select = original_select
 
   ui.handle_notification(
     { method = "omniac/response_chunk", params = { text = "after" } },
@@ -469,28 +471,27 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   assert_true(chat:match("cwd:") ~= nil, "permission chat should show cwd")
   assert_true(chat:match("Options:") == nil, "permission chat should leave options to the selector")
   assert_true(chat:match("Details:") == nil, "permission chat should not expose protocol-ish detail labels")
-  assert_equal(select_prompt, "Permission requested: execute", "selector prompt should stay compact")
+  assert_true(dialog_text:match("Permission requested: execute") ~= nil, "selector prompt should stay compact")
   assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
+
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Permission requested") == nil, "permission activity should clear after decision")
 end)
 
 run("edit permission without diff falls back to selector", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   package.loaded["omniac.approval"] = nil
+  package.loaded["omniac.permission_dialog"] = nil
   local ui = require("omniac.ui")
   local approval = require("omniac.approval")
-  local original_select = vim.ui.select
-  local select_prompt
+  local dialog_text
 
   ui.open({
     agent = { cmd = { "codex-acp" } },
     ui = { chat_width = 48 },
   }, function(_) end)
-
-  vim.ui.select = function(items, opts, callback)
-    select_prompt = opts.prompt
-    callback(items[1])
-  end
 
   local replied
   approval.review_acp_permission({
@@ -509,16 +510,75 @@ run("edit permission without diff falls back to selector", function()
     replied = result
   end, { ui = { chat_width = 48 } })
 
-  vim.wait(1500, function()
+  vim.wait(1200, function()
+    return vim.fn.bufnr("omniac://permission") ~= -1
+  end)
+  local dialog_buf = vim.fn.bufnr("omniac://permission")
+  dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
+  vim.api.nvim_feedkeys("1", "xt", false)
+
+  vim.wait(50, function()
     return replied ~= nil
   end)
-  vim.ui.select = original_select
 
   local chat_buf = vim.fn.bufnr("omniac")
   local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
-  assert_equal(select_prompt, "Permission requested: edit", "edit fallback selector should stay compact")
+  assert_true(dialog_text:match("Permission requested: edit") ~= nil, "edit fallback selector should stay compact")
   assert_true(chat:match("Decision: Allow Once") ~= nil, "edit fallback should record the selected decision")
   assert_equal(replied.outcome.optionId, "allow_once", "edit fallback should reply with selected option")
+end)
+
+run("permission dialog ignores escape without cancelling", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.permission_dialog"] = nil
+  local dialog = require("omniac.permission_dialog")
+  local choice = "unset"
+
+  dialog.open({
+    { optionId = "allow_once", name = "Allow Once" },
+    { optionId = "reject_once", name = "Reject" },
+  }, {
+    prompt = "Permission requested: execute",
+  }, function(selected)
+    choice = selected
+  end)
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc><Esc>", true, false, true), "xt", false)
+  vim.wait(50)
+
+  assert_equal(choice, "unset", "escape should not choose or cancel permission")
+  assert_true(vim.fn.bufnr("omniac://permission") ~= -1, "permission dialog should remain open after escape")
+
+  vim.api.nvim_feedkeys("q", "xt", false)
+  vim.wait(50, function()
+    return choice ~= "unset"
+  end)
+  assert_equal(choice.optionId, "reject_once", "q should explicitly reject permission")
+end)
+
+run("permission dialog replaces an existing dialog", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.permission_dialog"] = nil
+  local dialog = require("omniac.permission_dialog")
+
+  dialog.open({
+    { optionId = "allow_once", name = "Allow Once" },
+  }, {
+    prompt = "Permission requested: first",
+  }, function() end)
+
+  dialog.open({
+    { optionId = "allow_once", name = "Allow Once" },
+  }, {
+    prompt = "Permission requested: second",
+  }, function() end)
+
+  local dialog_buf = vim.fn.bufnr("omniac://permission")
+  local text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
+  assert_true(text:match("second") ~= nil, "second permission dialog should replace the first")
+  assert_true(text:match("first") == nil, "stale permission dialog content should be removed")
+
+  vim.api.nvim_feedkeys("q", "xt", false)
 end)
 
 run("status renders ACP session mode", function()
