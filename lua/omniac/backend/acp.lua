@@ -165,6 +165,11 @@ local function session_capability(capabilities, name)
   return session_capabilities[name] ~= nil
 end
 
+local function prompt_capability(capabilities, name)
+  local prompt_capabilities = capabilities.promptCapabilities or capabilities.prompt_capabilities or {}
+  return prompt_capabilities[name] == true
+end
+
 local function session_id_from_result(result)
   if type(result) ~= "table" then
     return nil
@@ -481,6 +486,10 @@ function M.new(config)
 
   function state:supports_session_capability(name)
     return session_capability(self.agent_capabilities, name)
+  end
+
+  function state:supports_prompt_capability(name)
+    return prompt_capability(self.agent_capabilities, name)
   end
 
   function state:_transport_config()
@@ -1182,6 +1191,17 @@ function M.new(config)
           text = text,
         },
       }
+
+    for _, item in ipairs(request_params.prompt or {}) do
+      if type(item) == "table" and item.type == "image" and not self:supports_prompt_capability("image") then
+        if callback then
+          callback({
+            message = "agent does not support image prompts",
+          })
+        end
+        return
+      end
+    end
 
     local function send_prompt()
       self.response_buffer = ""

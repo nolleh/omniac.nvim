@@ -1,4 +1,5 @@
 local M = {}
+local clipboard = require("omniac.clipboard")
 
 local ns = vim.api.nvim_create_namespace("omniac.ui")
 local augroup = vim.api.nvim_create_augroup("omniac.ui", { clear = false })
@@ -26,6 +27,7 @@ local state = {
   cancel_requested = false,
   rendering_input = false,
   input_chunks = nil,
+  input_attachments = {},
   transient_activity = nil,
   available_commands = {},
   session_mode = nil,
@@ -103,6 +105,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacUserBubble", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacAssistant", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacAssistantText", { fg = "#cdd6f4" })
+  vim.api.nvim_set_hl(0, "OmniacCode", { fg = "#a6e3a1", bg = "#1e1e2e" })
   vim.api.nvim_set_hl(0, "OmniacError", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking1", { fg = "#585b70", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
@@ -291,7 +294,7 @@ local function render_chat(config)
       else
         local blocks = wrapped_blocks(message.text, text_width, message.complete)
         for block_index, block in ipairs(blocks) do
-          local block_group = block.code and nil or group
+          local block_group = block.code and "OmniacCode" or group
           for _, line in ipairs(block.lines) do
             add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", block_group)
           end
@@ -490,6 +493,20 @@ local function reset_input()
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_set_height, state.input_win, INPUT_MIN_DISPLAY_LINES + 2)
   end
+end
+
+local function attachment_summary(attachments)
+  local count = #(attachments or {})
+  if count == 0 then
+    return nil
+  end
+
+  local parts = {}
+  for index, attachment in ipairs(attachments) do
+    local size = attachment.byteSize and string.format(" %.1fKB", attachment.byteSize / 1024) or ""
+    table.insert(parts, string.format("image %d: %s%s", index, attachment.mimeType or "image", size))
+  end
+  return table.concat(parts, ", ")
 end
 
 local function strip_input_prefix(line, index)
@@ -753,6 +770,24 @@ local function cancel_active_turn()
     focus_input()
   end)
   return true
+end
+
+local function add_clipboard_image()
+  local image, err = clipboard.read_image()
+  if not image then
+    return false, err
+  end
+
+  table.insert(state.input_attachments, image)
+  vim.schedule(function()
+    M.set_activity("Attached " .. (attachment_summary({ image }) or "image") .. ".", state.config)
+    focus_input()
+  end)
+  return true
+end
+
+local function clear_input_attachments()
+  state.input_attachments = {}
 end
 
 local function ensure_command_buffer()
@@ -1296,22 +1331,47 @@ function M.open(config, submit)
 
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     local text = input_text()
-    if text == "" then
+    local attachments = vim.deepcopy(state.input_attachments or {})
+    if text == "" and #attachments == 0 then
       reset_input()
       focus_input()
       return
     end
-    if mention_prefix() ~= nil then
+    if mention_prefix() ~= nil and #attachments == 0 then
       complete_current_suggestion()
       focus_input()
       return
     end
     text = completed_suggestion_text(text)
     reset_input()
+    clear_input_attachments()
     if state.submit then
-      state.submit(text)
+      state.submit(text, attachments)
     end
   end, { buffer = state.input_buf, nowait = true, desc = "Send Omniac prompt" })
+
+  vim.keymap.set("i", "<C-v>", function()
+    local ok = add_clipboard_image()
+    if ok then
+      return ""
+    end
+    return "<C-r>+"
+  end, {
+    buffer = state.input_buf,
+    expr = true,
+    nowait = true,
+    desc = "Paste Omniac clipboard image or text",
+  })
+  vim.keymap.set("n", "<C-v>", function()
+    local ok = add_clipboard_image()
+    if not ok then
+      vim.cmd('normal! "+p')
+    end
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Paste Omniac clipboard image or text",
+  })
 
   vim.keymap.set({ "n", "i" }, "<S-CR>", insert_input_newline, {
     buffer = state.input_buf,
@@ -1469,6 +1529,15 @@ function M.add_message(role, text, config)
   focus_input()
 end
 
+function M.add_notice(role, text, config)
+  table.insert(state.messages, {
+    role = role or "Notice",
+    text = text or "",
+  })
+  render_chat(config)
+  focus_input()
+end
+
 function M.append_response_chunk(text, config)
   if not text or text == "" then
     return
@@ -1499,8 +1568,13 @@ function M.complete_response(config)
   state.streaming_message_index = nil
 end
 
-function M.submit(text, config)
-  M.add_message("You", text, config)
+function M.submit(text, config, attachments)
+  local display = text
+  local summary = attachment_summary(attachments)
+  if summary then
+    display = display ~= "" and (display .. "\n[" .. summary .. "]") or ("[" .. summary .. "]")
+  end
+  M.add_message("You", display, config)
   M.set_status("working", config)
 end
 

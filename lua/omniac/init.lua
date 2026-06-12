@@ -78,6 +78,27 @@ local function build_prompt(extra)
   return table.concat(prompt, "\n\n")
 end
 
+local function build_prompt_items(text, attachments)
+  local items = {
+    {
+      type = "text",
+      text = text,
+    },
+  }
+
+  for _, attachment in ipairs(attachments or {}) do
+    if type(attachment) == "table" and attachment.type == "image" then
+      table.insert(items, {
+        type = "image",
+        mimeType = attachment.mimeType,
+        data = attachment.data,
+      })
+    end
+  end
+
+  return items
+end
+
 local function build_granted_permissions(profile)
   if not profile then
     return {
@@ -313,13 +334,13 @@ function M.open_chat()
     end)
   end)
 
-  ui.open(M.config, function(text)
+  ui.open(M.config, function(text, attachments)
     local command = slash_command(text)
-    if command == "exit" then
+    if command == "exit" and #(attachments or {}) == 0 then
       M.exit()
       return
     end
-    if command == "resume" then
+    if command == "resume" and #(attachments or {}) == 0 then
       ui.set_activity("Opening session list.", M.config)
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.select_session)
@@ -330,7 +351,7 @@ function M.open_chat()
       return
     end
 
-    ui.submit(text, M.config)
+    ui.submit(text, M.config, attachments)
     if not M.backend and not M.transport then
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.connect)
@@ -340,7 +361,7 @@ function M.open_chat()
         return
       end
     end
-    local ok, err = pcall(M.ask, text)
+    local ok, err = pcall(M.ask, text, attachments)
     if not ok then
       ui.add_message("Error", err, M.config)
       ui.set_status("error", M.config)
@@ -418,12 +439,20 @@ function M.select_session()
   }, continue_with)
 end
 
-function M.ask(extra)
+function M.ask(extra, attachments)
   local prompt = build_prompt(extra)
   if M.config.backend and M.config.backend.kind == "acp" and M.backend then
-    M.backend:prompt(prompt, nil, function(err, result)
+    local params = nil
+    if attachments and #attachments > 0 then
+      params = {
+        prompt = build_prompt_items(prompt, attachments),
+      }
+    end
+    M.backend:prompt(prompt, params, function(err, result)
       if err then
         vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "omniac response" })
+        ui.add_message("Error", tostring(err.message or err.error or err), M.config)
+        ui.set_status("error", M.config)
         return
       end
 

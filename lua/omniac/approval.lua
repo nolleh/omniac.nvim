@@ -243,18 +243,123 @@ end
 
 local function permission_summary(params)
   local tool_call = params and params.toolCall or {}
-  local raw_input = type(tool_call.rawInput) == "table" and tool_call.rawInput or {}
   local kind = tool_call.kind or "tool"
-  local command = raw_input.command or tool_call.title
-  if type(command) == "string" and command ~= "" then
-    return "Permission requested: " .. tostring(kind) .. " " .. command
-  end
   return "Permission requested: " .. tostring(kind)
+end
+
+local function string_list(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+
+  local parts = {}
+  for _, item in ipairs(value) do
+    if type(item) == "string" and item ~= "" then
+      table.insert(parts, item)
+    end
+  end
+
+  if #parts == 0 then
+    return nil
+  end
+
+  return table.concat(parts, " ")
+end
+
+local function content_text(value, seen)
+  if type(value) == "string" then
+    return value
+  end
+  if type(value) ~= "table" then
+    return nil
+  end
+
+  seen = seen or {}
+  if seen[value] then
+    return nil
+  end
+  seen[value] = true
+
+  for _, key in ipairs({ "text", "message", "description", "content" }) do
+    local found = content_text(value[key], seen)
+    if found and found ~= "" then
+      return found
+    end
+  end
+
+  for _, item in ipairs(value) do
+    local found = content_text(item, seen)
+    if found and found ~= "" then
+      return found
+    end
+  end
+
+  return nil
+end
+
+local function permission_details(params)
+  local tool_call = params and params.toolCall or {}
+  local raw_input = type(tool_call.rawInput) == "table" and tool_call.rawInput or {}
+  local lines = { permission_summary(params) }
+  local description = raw_input.description
+    or tool_call.description
+    or params.description
+    or content_text(tool_call.content)
+
+  local title = tool_call.title or raw_input.title
+  if type(title) == "string" and title ~= "" then
+    table.insert(lines, "Title: " .. title)
+  end
+
+  if type(description) == "string" and description ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, description)
+  end
+
+  local command = raw_input.command or raw_input.cmd
+  if type(command) == "string" and command ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "Command:")
+    table.insert(lines, "```sh")
+    table.insert(lines, command)
+    table.insert(lines, "```")
+  end
+
+  local args = string_list(raw_input.args or raw_input.argv)
+  if args then
+    table.insert(lines, "")
+    table.insert(lines, "Args:")
+    table.insert(lines, "```sh")
+    table.insert(lines, args)
+    table.insert(lines, "```")
+  end
+
+  local cwd = raw_input.cwd
+  if type(cwd) == "string" and cwd ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "cwd: `" .. cwd .. "`")
+  end
+
+  local path = raw_input.path or tool_call.path
+  if type(path) == "string" and path ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "path: `" .. path .. "`")
+  end
+
+  return table.concat(lines, "\n")
 end
 
 local function show_permission_text(params, config)
   local ok, ui = pcall(require, "omniac.ui")
-  if ok and ui and ui.set_activity then
+  if not ok or not ui then
+    return
+  end
+  if ui.add_notice then
+    ui.add_notice("Permission", permission_details(params), config)
+  elseif ui.add_message then
+    ui.add_message("Permission", permission_details(params), config)
+  end
+  if ui.set_activity then
     ui.set_activity(permission_summary(params), config)
   end
 end
@@ -278,7 +383,6 @@ end
 
 local function select_permission_option(params, reply, config)
   local options = params and params.options or {}
-  show_permission_text(params, config)
 
   if type(options) ~= "table" or #options == 0 then
     reply(permission_response(params, false))
@@ -287,7 +391,7 @@ local function select_permission_option(params, reply, config)
 
   vim.schedule(function()
     vim.ui.select(options, {
-      prompt = "Omniac permission",
+      prompt = permission_summary(params),
       format_item = option_label,
     }, function(choice)
       reply(selected_permission_response(choice))
@@ -398,6 +502,7 @@ function M.review_request(method, params, reply, resolve, config)
 
   local tool_call = params and params.toolCall
   if method == "session/request_permission" then
+    show_permission_text(params, config)
     if type(tool_call) ~= "table" then
       select_permission_option(params, reply, config)
       return

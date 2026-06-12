@@ -229,6 +229,46 @@ run("input padding cursor is remapped safely", function()
   assert_equal(cursor[1], 2, "padding cursor should map back to the editable input line")
 end)
 
+run("input ctrl-v attaches clipboard image and submits it", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["omniac.clipboard"] = {
+    read_image = function()
+      return {
+        type = "image",
+        mimeType = "image/png",
+        data = "aW1n",
+        byteSize = 3,
+      }
+    end,
+  }
+  local ui = require("omniac.ui")
+  local submitted_text
+  local submitted_attachments
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(text, attachments)
+    submitted_text = text
+    submitted_attachments = attachments
+  end)
+
+  vim.cmd("startinsert")
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-v>", true, false, true), "x", false)
+  vim.wait(20)
+  vim.cmd("stopinsert")
+  vim.api.nvim_buf_set_lines(vim.api.nvim_get_current_buf(), 1, 2, false, { "│ > describe image" })
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+  vim.cmd("redraw")
+
+  assert_equal(submitted_text, "describe image", "submit should keep typed prompt text")
+  assert_equal(#submitted_attachments, 1, "submit should include the pasted image")
+  assert_equal(submitted_attachments[1].mimeType, "image/png", "image mime type should be preserved")
+
+  package.loaded["omniac.clipboard"] = nil
+end)
+
 run("input allows greater-than as user text", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -348,13 +388,14 @@ run("activity text keeps horizontal padding when truncated", function()
   assert_true(line:match("  $"), "activity line should keep right padding")
 end)
 
-run("permission request stays out of chat stream", function()
+run("permission request shows JSON-RPC details in chat and selector", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   package.loaded["omniac.approval"] = nil
   local ui = require("omniac.ui")
   local approval = require("omniac.approval")
   local original_select = vim.ui.select
+  local select_prompt
 
   ui.open({
     agent = { cmd = { "codex-acp" } },
@@ -367,18 +408,34 @@ run("permission request stays out of chat stream", function()
   )
 
   vim.ui.select = function(items, opts, callback)
+    select_prompt = opts.prompt
     callback(items[1])
   end
   local replied
   approval.review_acp_permission({
+    sessionId = "019ebc08-548b-7033-bb21-96097389145c",
     toolCall = {
       kind = "execute",
+      status = "pending",
+      toolCallId = "call_NoA8PXYCbZ2V0zw4BmoF62T3",
       rawInput = {
-        command = "git add README.md",
+        command = "stylua lua/omniac/clipboard.lua lua/omniac/backend/acp.lua lua/omniac/init.lua lua/omniac/ui.lua tests/headless.lua",
+        cwd = "/Users/nolleh/Documents/workspace_github/omniac.nvim",
+      },
+      content = {
+        {
+          type = "content",
+          content = {
+            type = "text",
+            text = "커밋 전에 변경된 Lua 파일 포맷을 확인/적용하도록 허용할까요?",
+          },
+        },
       },
     },
     options = {
       { optionId = "allow_once", name = "Allow Once" },
+      { optionId = "allow_always", name = "Allow for Session" },
+      { optionId = "reject_once", name = "Reject" },
     },
   }, function(result)
     replied = result
@@ -397,7 +454,14 @@ run("permission request stays out of chat stream", function()
   local chat_buf = vim.fn.bufnr("omniac")
   local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
   assert_true(chat:match("before after") ~= nil, "streaming response should continue after permission request")
-  assert_true(chat:match("Permission requested") == nil, "permission request should not be inserted into chat")
+  assert_true(chat:match("Permission requested") ~= nil, "permission request should be inserted into chat")
+  assert_true(chat:match("```sh") ~= nil, "permission command should be rendered as shell code")
+  assert_true(chat:match("stylua lua/omniac/clipboard.lua") ~= nil, "permission chat should show the command")
+  assert_true(chat:match("커밋 전에 변경된 Lua 파일") ~= nil, "permission chat should show content text")
+  assert_true(chat:match("cwd:") ~= nil, "permission chat should show cwd")
+  assert_true(chat:match("Options:") == nil, "permission chat should leave options to the selector")
+  assert_true(chat:match("Details:") == nil, "permission chat should not expose protocol-ish detail labels")
+  assert_equal(select_prompt, "Permission requested: execute", "selector prompt should stay compact")
   assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
 end)
 
@@ -583,6 +647,71 @@ run("ACP cancel sends session cancel request", function()
 
   assert_equal(request.method, "session/cancel", "cancel should use the ACP cancel method")
   assert_equal(request.params.sessionId, "sess_1", "cancel should target the active session")
+end)
+
+run("ACP prompt sends image content blocks when advertised", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local request
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.agent_capabilities = {
+    promptCapabilities = {
+      image = true,
+    },
+  }
+  client.transport = {
+    request = function(_, method, params, callback)
+      request = {
+        method = method,
+        params = params,
+      }
+      callback(nil, {})
+    end,
+  }
+
+  client:prompt("look", {
+    prompt = {
+      { type = "text", text = "look" },
+      { type = "image", mimeType = "image/png", data = "aW1n" },
+    },
+  }, function(err)
+    assert_equal(err, nil, "image prompt should be accepted when advertised")
+  end)
+
+  assert_equal(request.method, "session/prompt", "image prompts should use session/prompt")
+  assert_equal(request.params.prompt[2].type, "image", "image content block should be preserved")
+  assert_equal(request.params.prompt[2].data, "aW1n", "image data should be preserved")
+end)
+
+run("ACP prompt rejects image content blocks without capability", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local requested = false
+  local received_err
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function()
+      requested = true
+    end,
+  }
+
+  client:prompt("look", {
+    prompt = {
+      { type = "text", text = "look" },
+      { type = "image", mimeType = "image/png", data = "aW1n" },
+    },
+  }, function(err)
+    received_err = err
+  end)
+
+  assert_equal(requested, false, "unsupported image prompt should not call transport")
+  assert_true(received_err and received_err.message:match("image prompts"), "unsupported image prompt should error")
 end)
 
 run("ACP list sessions requests even without advertised capability", function()
