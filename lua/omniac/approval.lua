@@ -349,19 +349,38 @@ local function permission_details(params)
   return table.concat(lines, "\n")
 end
 
+local function permission_result_text(option, accepted)
+  if type(option) == "table" then
+    return "Decision: " .. option_label(option)
+  end
+  return accepted and "Decision: Accepted" or "Decision: Cancelled"
+end
+
 local function show_permission_text(params, config)
   local ok, ui = pcall(require, "omniac.ui")
   if not ok or not ui then
-    return
+    return nil, nil
   end
+  local notice_index = nil
+  local details = permission_details(params)
   if ui.add_notice then
-    ui.add_notice("Permission", permission_details(params), config)
+    notice_index = ui.add_notice("Permission", details, config)
   elseif ui.add_message then
-    ui.add_message("Permission", permission_details(params), config)
+    ui.add_message("Permission", details, config)
   end
   if ui.set_activity then
     ui.set_activity(permission_summary(params), config)
   end
+  return notice_index, details
+end
+
+local function update_permission_text(notice_index, base_text, decision, config)
+  local ok, ui = pcall(require, "omniac.ui")
+  if not ok or not ui or not ui.update_notice then
+    return
+  end
+
+  ui.update_notice(notice_index, table.concat({ base_text or "", "", decision }, "\n"), config)
 end
 
 local function selected_permission_response(option)
@@ -381,10 +400,11 @@ local function selected_permission_response(option)
   }
 end
 
-local function select_permission_option(params, reply, config)
+local function select_permission_option(params, reply, config, notice_index, notice_text)
   local options = params and params.options or {}
 
   if type(options) ~= "table" or #options == 0 then
+    update_permission_text(notice_index, notice_text, permission_result_text(nil, false), config)
     reply(permission_response(params, false))
     return
   end
@@ -394,6 +414,7 @@ local function select_permission_option(params, reply, config)
       prompt = permission_summary(params),
       format_item = option_label,
     }, function(choice)
+      update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
       reply(selected_permission_response(choice))
     end)
   end)
@@ -457,6 +478,12 @@ local function open_permission_diff(pending, payload)
     pending.replied = true
     pending_acp_permissions[pending.tool_call_id] = nil
     pending_acp_diffs[pending.tool_call_id] = nil
+    update_permission_text(
+      pending.notice_index,
+      pending.notice_text,
+      accepted and "Decision: Accepted" or "Decision: Rejected",
+      pending.config
+    )
     pending.reply(permission_response(pending.params, accepted))
     vim.api.nvim_echo({
       {
@@ -502,14 +529,14 @@ function M.review_request(method, params, reply, resolve, config)
 
   local tool_call = params and params.toolCall
   if method == "session/request_permission" then
-    show_permission_text(params, config)
+    local notice_index, notice_text = show_permission_text(params, config)
     if type(tool_call) ~= "table" then
-      select_permission_option(params, reply, config)
+      select_permission_option(params, reply, config, notice_index, notice_text)
       return
     end
 
     if tool_call.kind ~= "edit" then
-      select_permission_option(params, reply, config)
+      select_permission_option(params, reply, config, notice_index, notice_text)
       return
     end
 
@@ -519,6 +546,8 @@ function M.review_request(method, params, reply, resolve, config)
       params = params,
       reply = reply,
       config = config,
+      notice_index = notice_index,
+      notice_text = notice_text,
       opened = false,
       replied = false,
     }

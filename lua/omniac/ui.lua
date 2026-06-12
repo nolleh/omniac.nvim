@@ -105,7 +105,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacUserBubble", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacAssistant", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacAssistantText", { fg = "#cdd6f4" })
-  vim.api.nvim_set_hl(0, "OmniacCode", { fg = "#a6e3a1", bg = "#1e1e2e" })
+  vim.api.nvim_set_hl(0, "OmniacCode", { fg = "#a6e3a1" })
   vim.api.nvim_set_hl(0, "OmniacError", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking1", { fg = "#585b70", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
@@ -1530,10 +1530,25 @@ function M.add_message(role, text, config)
 end
 
 function M.add_notice(role, text, config)
+  if state.streaming_message_index and state.messages[state.streaming_message_index] then
+    state.messages[state.streaming_message_index].complete = true
+    state.streaming_message_index = nil
+  end
   table.insert(state.messages, {
     role = role or "Notice",
     text = text or "",
   })
+  local index = #state.messages
+  render_chat(config)
+  focus_input()
+  return index
+end
+
+function M.update_notice(index, text, config)
+  if type(index) ~= "number" or not state.messages[index] then
+    return
+  end
+  state.messages[index].text = text or state.messages[index].text or ""
   render_chat(config)
   focus_input()
 end
