@@ -237,6 +237,10 @@ function M.setup(opts)
     M.select_session()
   end
 
+  local function resize(cmd)
+    M.resize(cmd.args)
+  end
+
   register_command("Omniac", open_chat, {})
   register_command("OmniacConnect", connect, {})
   register_command("OmniacDisconnect", disconnect, {})
@@ -252,6 +256,7 @@ function M.setup(opts)
     connect_session("resume", cmd.args)
   end, { nargs = 1 })
   register_command("OmniacAsk", ask, { nargs = "?" })
+  register_command("OmniacResize", resize, { nargs = 1 })
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
@@ -424,6 +429,10 @@ function M.select_session()
     list_supported = false,
     message = "no active ACP session; choose new or enter a session id",
   }, continue_with)
+end
+
+function M.resize(width)
+  return ui.resize(width)
 end
 
 function M.ask(extra, attachments)

@@ -103,6 +103,7 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacSessionLoad {sessionId}` loads an ACP session and replays its history when the agent advertises `loadSession`
 - `:OmniacSessionResume {sessionId}` resumes an ACP session without replaying history when the agent advertises `sessionCapabilities.resume`
 - `:Omniac` opens a Neovim chat/input/status UI
+- `:OmniacResize {width}` resizes the Omniac side UI as one body
 - `:OmniacAsk` sends the built prompt through the active backend when connected
 - `Ctrl-V` in the Omniac input attaches a PNG or JPEG image from the macOS clipboard when the ACP agent advertises image prompts; otherwise it falls back to normal text paste
 - visual selections can be included in prompts

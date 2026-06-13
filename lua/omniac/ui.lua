@@ -32,6 +32,7 @@ local state = {
   available_commands = {},
   session_mode = nil,
   mode_cycle_handler = nil,
+  relayout_pending = false,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -945,11 +946,12 @@ local function clear_command_window()
 end
 
 local function close_command_window()
+  local had_window = valid_win(state.command_win)
   if valid_win(state.command_win) then
     pcall(vim.api.nvim_win_close, state.command_win, true)
   end
   state.command_win = nil
-  if resize_aux_windows then
+  if had_window and resize_aux_windows then
     resize_aux_windows()
     vim.schedule(resize_aux_windows)
   end
@@ -1028,7 +1030,8 @@ end
 
 local reset_leftcol
 
-render_input = function(lines, cursor)
+render_input = function(lines, cursor, opts)
+  opts = opts or {}
   if not valid_buf(state.input_buf) then
     return
   end
@@ -1091,7 +1094,7 @@ render_input = function(lines, cursor)
     end
     reset_leftcol(state.input_win)
   end
-  if update_command_window then
+  if update_command_window and not opts.skip_command_window then
     update_command_window()
   end
 end
@@ -1372,8 +1375,61 @@ resize_aux_windows = function()
   end
 end
 
+local function relayout()
+  if
+    not (
+      valid_win(state.chat_win)
+      or valid_win(state.input_win)
+      or valid_win(state.activity_win)
+      or valid_win(state.status_win)
+    )
+  then
+    return
+  end
+
+  render_chat(state.config)
+  render_activity()
+  render_status()
+  if valid_buf(state.input_buf) then
+    render_input(raw_input_lines(), nil, { skip_command_window = true })
+  end
+end
+
+function M.resize(value)
+  local target_width = tonumber(value)
+  if not target_width then
+    return false
+  end
+
+  target_width = math.floor(math.min(math.max(target_width, 42), math.max(42, vim.o.columns - 20)))
+  for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
+    if valid_win(win) then
+      pcall(vim.api.nvim_win_set_width, win, target_width)
+    end
+  end
+  if valid_win(state.command_win) then
+    pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
+    pcall(vim.api.nvim_win_set_config, state.command_win, { width = target_width })
+  end
+  relayout()
+  return true
+end
+
+local function schedule_relayout()
+  if state.relayout_pending then
+    return
+  end
+
+  state.relayout_pending = true
+  vim.schedule(function()
+    state.relayout_pending = false
+    relayout()
+  end)
+end
+
 function M.close()
   stop_activity_timer()
+  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
   close_command_window()
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_close, state.input_win, true)
@@ -1596,6 +1652,11 @@ function M.open(config, submit)
     group = augroup,
     buffer = state.input_buf,
     callback = clamp_input_cursor,
+  })
+  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
+  vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
+    group = augroup,
+    callback = schedule_relayout,
   })
 
   render_chat(state.config)

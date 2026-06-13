@@ -502,6 +502,104 @@ run("chat buffer uses markdown renderer when available", function()
   package.loaded["render-markdown"] = nil
 end)
 
+run("chat and input redraw after user vertical resize", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local render_calls = {}
+  package.preload["render-markdown"] = function()
+    return {
+      initialized = true,
+      render = function(ctx)
+        table.insert(render_calls, ctx)
+      end,
+    }
+  end
+
+  local ui = require("omniac.ui")
+  vim.api.nvim_set_option_value("columns", 180, {})
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local status_buf = vim.fn.bufnr("omniac://status")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  vim.cmd("vertical resize 100")
+  vim.cmd("doautocmd WinResized")
+  vim.wait(50, function()
+    local chat_line = vim.api.nvim_buf_get_lines(chat_buf, 0, 1, false)[1] or ""
+    local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ""
+    return vim.fn.strdisplaywidth(chat_line) == 100 and vim.fn.strdisplaywidth(input_line) == 100 and #render_calls >= 2
+  end)
+
+  local chat_line = vim.api.nvim_buf_get_lines(chat_buf, 0, 1, false)[1] or ""
+  local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ""
+  local status_line = vim.api.nvim_buf_get_lines(status_buf, 0, 1, false)[1] or ""
+  assert_equal(vim.api.nvim_win_get_width(chat_win), 100, "user resize should keep the chat window width")
+  assert_equal(vim.fn.strdisplaywidth(chat_line), 100, "chat should redraw to the resized width")
+  assert_equal(vim.fn.strdisplaywidth(input_line), 100, "input should redraw to the resized width")
+  assert_equal(vim.fn.strdisplaywidth(status_line), 100, "status should redraw to the resized width")
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
+run("omniac resize command resizes the side ui as one body", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac"] = nil
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  package.preload["render-markdown"] = function()
+    return {
+      initialized = true,
+      render = function(_) end,
+    }
+  end
+
+  local omniac = require("omniac")
+  vim.api.nvim_set_option_value("columns", 180, {})
+  omniac.setup({
+    backend = { kind = "acp" },
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  })
+  omniac.open_chat()
+
+  vim.cmd("OmniacResize 100")
+
+  local widths = {}
+  for _, name in ipairs({ "omniac", "omniac://activity", "omniac://input", "omniac://status" }) do
+    local buf = vim.fn.bufnr(name)
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_buf(win) == buf then
+        table.insert(widths, vim.api.nvim_win_get_width(win))
+        break
+      end
+    end
+  end
+
+  assert_equal(#widths, 4, "all omniac side windows should be open")
+  for _, actual in ipairs(widths) do
+    assert_equal(actual, 100, "omniac side windows should share the requested width")
+  end
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
 run("transport reconnect messages render as activity", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
