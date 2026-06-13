@@ -36,6 +36,8 @@ M.defaults = {
     diff_title = "ACP Diff",
     diff_separate_tab = false,
     chat_width = 58,
+    tool_results = "compact",
+    tool_result_max_lines = 4,
   },
   logs = {
     dir = "logs",

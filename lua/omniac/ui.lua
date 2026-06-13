@@ -25,6 +25,7 @@ local state = {
   submit = nil,
   cancel_handler = nil,
   cancel_requested = false,
+  suppress_current_turn = false,
   rendering_input = false,
   input_chunks = nil,
   input_attachments = {},
@@ -339,6 +340,50 @@ local function tool_result_text(message)
   end
 
   return table.concat(result, "\n")
+end
+
+local function is_opaque_tool_name(value)
+  return type(value) == "string" and value:match("^call_[%w_%-]+$")
+end
+
+local function tool_result_mode(config)
+  local mode = ((config or state.config or {}).ui or {}).tool_results
+  if mode == "all" or mode == "none" or mode == "compact" then
+    return mode
+  end
+  return "compact"
+end
+
+local function tool_result_max_lines(config)
+  local value = tonumber(((config or state.config or {}).ui or {}).tool_result_max_lines)
+  if not value then
+    return 4
+  end
+  return math.max(0, math.floor(value))
+end
+
+local function should_show_tool_result(params, config)
+  if params.status == "failed" then
+    return true
+  end
+
+  local mode = tool_result_mode(config)
+  if mode == "none" then
+    return false
+  end
+  if mode == "all" then
+    return true
+  end
+
+  local command = params.command
+  local title = params.title
+  local display = command or title or params.kind
+  if is_opaque_tool_name(display) or (not command and is_opaque_tool_name(title)) then
+    return false
+  end
+
+  local line_count = #(split_lines(params.output or ""))
+  return line_count <= tool_result_max_lines(config)
 end
 
 local function header(lines, marks, size)
@@ -892,6 +937,7 @@ local function cancel_active_turn()
   end
 
   state.cancel_requested = true
+  state.suppress_current_turn = true
   vim.schedule(function()
     M.set_activity("Cancelling current turn.", state.config)
     if state.cancel_handler then
@@ -1748,6 +1794,9 @@ function M.add_tool_result(params, config)
   if type(output) ~= "string" or output == "" then
     return
   end
+  if not should_show_tool_result(params, config) then
+    return
+  end
 
   if state.streaming_message_index and state.messages[state.streaming_message_index] then
     state.messages[state.streaming_message_index].complete = true
@@ -1847,6 +1896,7 @@ function M.complete_response(config)
 end
 
 function M.submit(text, config, attachments)
+  state.suppress_current_turn = false
   local display = text
   local summary = attachment_summary(attachments)
   if summary then
@@ -1869,11 +1919,13 @@ function M.handle_notification(message, config)
     state.streaming_message_index = nil
     state.tool_activity = nil
     state.cancel_requested = false
+    state.suppress_current_turn = false
     M.set_status("working", config)
     return
   end
 
   if method == "omniac/prompt_cancelled" then
+    state.cancel_requested = false
     M.set_status("ready", config)
     M.set_activity("Cancelled current turn.", config)
     return
@@ -1881,12 +1933,25 @@ function M.handle_notification(message, config)
 
   if method == "omniac/prompt_cancel_failed" then
     state.cancel_requested = false
+    state.suppress_current_turn = false
     M.set_activity(params.message or "Cancel failed.", config)
     return
   end
 
   if method == "turn/completed" then
     M.set_status("ready", config)
+    return
+  end
+
+  if
+    state.suppress_current_turn
+    and (
+      method == "omniac/response"
+      or method == "omniac/response_chunk"
+      or method == "omniac/tool_activity"
+      or method == "omniac/tool_result"
+    )
+  then
     return
   end
 

@@ -92,6 +92,8 @@ Use a project-local working directory and enable debug logging:
 | `ui.diff_title`                        | `"ACP Diff"`                | Buffer title used for proposed-change reviews.                                        |
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
 | `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
+| `ui.tool_results`                      | `"compact"`                 | Chat visibility for completed tool output: `"compact"`, `"all"`, or `"none"`.        |
+| `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
 | `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |
 
 ## Features

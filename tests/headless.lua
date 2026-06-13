@@ -416,7 +416,7 @@ run("tool result output is collapsed and toggled", function()
 
   ui.open({
     agent = { cmd = { "codex-acp" } },
-    ui = { chat_width = 60 },
+    ui = { chat_width = 60, tool_results = "all" },
   }, function(_) end)
 
   ui.handle_notification({
@@ -428,7 +428,7 @@ run("tool result output is collapsed and toggled", function()
       output = table.concat({ "one", "two", "three", "four", "five", "six" }, "\n") .. "\n",
       exitCode = 0,
     },
-  }, { ui = { chat_width = 60 } })
+  }, { ui = { chat_width = 60, tool_results = "all" } })
 
   local chat_buf = vim.fn.bufnr("omniac")
   local collapsed = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
@@ -445,6 +445,61 @@ run("tool result output is collapsed and toggled", function()
   local expanded = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
   assert_true(expanded:match("three") ~= nil, "expanded output should show hidden line")
   assert_true(expanded:match("%-2 lines") ~= nil, "expanded output should show collapse hint")
+end)
+
+run("compact tool results hide noisy completed output", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local config = {
+    agent = { cmd = { "codex-acp" } },
+    ui = {
+      chat_width = 60,
+      tool_results = "compact",
+      tool_result_max_lines = 4,
+    },
+  }
+
+  ui.open(config, function(_) end)
+
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      title = "call_hidden",
+      output = "internal output\n",
+      exitCode = 0,
+    },
+  }, config)
+
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      command = "printf lines",
+      output = table.concat({ "one", "two", "three", "four", "five" }, "\n") .. "\n",
+      exitCode = 0,
+    },
+  }, config)
+
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      command = "printf ok",
+      output = "ok\n",
+      exitCode = 0,
+    },
+  }, config)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local collapsed = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(collapsed:match("Ran call_hidden") == nil, "compact mode should hide opaque completed calls")
+  assert_true(collapsed:match("Ran printf lines") == nil, "compact mode should hide long completed output")
+  assert_true(collapsed:match("Ran printf ok") ~= nil, "compact mode should keep short named output")
 end)
 
 run("chat buffer uses markdown renderer when available", function()
@@ -1901,6 +1956,53 @@ run("cancel failure allows retry", function()
   end)
 
   assert_equal(cancels, 2, "failed cancel should allow a later esc retry")
+end)
+
+run("cancel suppresses late current-turn tool output", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local config = {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48, tool_results = "all" },
+  }
+
+  ui.set_cancel_handler(function() end)
+  ui.open(config, function() end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, config)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<Esc>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      command = "late command",
+      output = "late output\n",
+      exitCode = 0,
+    },
+  }, config)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local cancelled = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(cancelled:match("late command") == nil, "late cancelled tool output should be hidden")
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, config)
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      command = "next command",
+      output = "next output\n",
+      exitCode = 0,
+    },
+  }, config)
+
+  local next_turn = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(next_turn:match("next command") ~= nil, "next turn tool output should render normally")
 end)
 
 run("shift tab switches to chat without cycling session mode", function()
