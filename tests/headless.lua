@@ -528,10 +528,20 @@ run("chat buffer uses markdown renderer when available", function()
       text = "```markdown\n| A | B |\n| - | - |\n| 1 | 2 |\n```\n\n```lua\nprint('x')\n```",
     },
   }, { ui = { chat_width = 48 } })
+  ui.handle_notification({ method = "omniac/response_completed", params = {} }, { ui = { chat_width = 48 } })
 
   local chat_buf = vim.fn.bufnr("omniac")
   local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
   assert_true(chat_buf ~= -1, "chat buffer should exist")
+  assert_true(chat_win ~= nil, "chat window should exist")
+  assert_equal(vim.wo[chat_win].signcolumn, "no", "chat window should not use signcolumn for padding")
   assert_equal(vim.bo[chat_buf].filetype, "markdown", "chat buffer should use markdown filetype")
   assert_true(chat:match("```markdown") == nil, "markdown fences should be unwrapped before display")
   assert_true(chat:match("| A | B |") ~= nil, "markdown fence contents should remain visible")
@@ -555,6 +565,64 @@ run("chat buffer uses markdown renderer when available", function()
 
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
+end)
+
+run("streaming response defers markdown rendering until complete", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local render_calls = {}
+  package.preload["render-markdown"] = function()
+    return {
+      initialized = true,
+      render = function(ctx)
+        table.insert(render_calls, ctx)
+      end,
+    }
+  end
+
+  local ui = require("omniac.ui")
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  local initial_calls = #render_calls
+
+  ui.handle_notification({
+    method = "omniac/response_chunk",
+    params = {
+      text = "| A | B |\n| - | - |\n| 1 | 2 |\n",
+    },
+  }, { ui = { chat_width = 48 } })
+  assert_equal(#render_calls, initial_calls, "streaming chunks should not invoke markdown rendering")
+
+  ui.handle_notification({ method = "omniac/response_completed", params = {} }, { ui = { chat_width = 48 } })
+  assert_true(#render_calls > initial_calls, "completed responses should invoke markdown rendering")
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
+run("assistant prose keeps chat padding", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.handle_notification({
+    method = "omniac/response_chunk",
+    params = {
+      text = "plain assistant line",
+    },
+  }, { ui = { chat_width = 48 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(chat:match("\n  plain assistant line%s+\n") ~= nil, "assistant prose should keep horizontal padding")
 end)
 
 run("chat and input redraw after user vertical resize", function()
@@ -603,6 +671,7 @@ run("chat and input redraw after user vertical resize", function()
   local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ""
   local status_line = vim.api.nvim_buf_get_lines(status_buf, 0, 1, false)[1] or ""
   assert_equal(vim.api.nvim_win_get_width(chat_win), 100, "user resize should keep the chat window width")
+  assert_equal(vim.wo[chat_win].signcolumn, "no", "chat should not use signcolumn for padding")
   assert_equal(vim.fn.strdisplaywidth(chat_line), 100, "chat should redraw to the resized width")
   assert_equal(vim.fn.strdisplaywidth(input_line), 100, "input should redraw to the resized width")
   assert_equal(vim.fn.strdisplaywidth(status_line), 100, "status should redraw to the resized width")

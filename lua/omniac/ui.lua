@@ -206,6 +206,18 @@ local function render_chat_markdown()
   end
 end
 
+local function clear_render_markdown_marks()
+  if not valid_buf(state.chat_buf) then
+    return
+  end
+
+  for name, id in pairs(vim.api.nvim_get_namespaces()) do
+    if type(name) == "string" and name:match("render.markdown") then
+      pcall(vim.api.nvim_buf_clear_namespace, state.chat_buf, id, 0, -1)
+    end
+  end
+end
+
 local function wrapped(text, max_width)
   local result = {}
   for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
@@ -342,6 +354,22 @@ local function tool_result_text(message)
   return table.concat(result, "\n")
 end
 
+local function is_markdown_structural_line(line)
+  local value = tostring(line or "")
+  return value == ""
+    or value:match("^%s*|")
+    or value:match("^%s*```")
+    or value:match("^%s*~~~")
+    or value:match("^%s*%-%-%-+%s*$")
+end
+
+local function chat_message_line(line, width)
+  if is_markdown_structural_line(line) then
+    return line
+  end
+  return "  " .. fit(line, math.max(1, width - 4)) .. "  "
+end
+
 local function is_opaque_tool_name(value)
   return type(value) == "string" and value:match("^call_[%w_%-]+$")
 end
@@ -427,7 +455,8 @@ local function header(lines, marks, size)
   add_line(lines, marks, bottom, "OmniacBorder")
 end
 
-local function render_chat(config)
+local function render_chat(config, opts)
+  opts = opts or {}
   state.config = config or state.config
   if not valid_buf(state.chat_buf) then
     return
@@ -469,7 +498,7 @@ local function render_chat(config)
           message_text = unwrap_markdown_fences(message_text)
         end
         for _, line in ipairs(split_lines(message_text)) do
-          add_line(lines, marks, line, group)
+          add_line(lines, marks, chat_message_line(line, win_width), group)
         end
         if message.complete then
           add_line(
@@ -486,6 +515,7 @@ local function render_chat(config)
 
   vim.bo[state.chat_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.chat_buf, ns, 0, -1)
+  clear_render_markdown_marks()
   vim.api.nvim_buf_set_lines(state.chat_buf, 0, -1, false, lines)
   vim.bo[state.chat_buf].modifiable = false
   vim.bo[state.chat_buf].modified = false
@@ -495,7 +525,9 @@ local function render_chat(config)
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
   end
 
-  render_chat_markdown()
+  if not opts.skip_markdown then
+    render_chat_markdown()
+  end
 
   if valid_win(state.chat_win) and #lines > 0 then
     pcall(vim.api.nvim_win_set_cursor, state.chat_win, { #lines, 0 })
@@ -1883,7 +1915,7 @@ function M.append_response_chunk(text, config)
 
   state.messages[index].complete = false
   state.messages[index].text = (state.messages[index].text or "") .. text
-  render_chat(config)
+  render_chat(config, { skip_markdown = true })
 end
 
 function M.complete_response(config)
