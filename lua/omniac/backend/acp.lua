@@ -382,6 +382,55 @@ local function tool_activity(update)
   }
 end
 
+local function raw_output_text(raw_output)
+  if type(raw_output) == "string" then
+    return raw_output
+  end
+  if type(raw_output) ~= "table" then
+    return nil
+  end
+
+  for _, key in ipairs({ "output", "stdout", "stderr", "text", "message", "content" }) do
+    local value = raw_output[key]
+    if type(value) == "string" and value ~= "" then
+      return value
+    end
+  end
+
+  return extract_text(raw_output)
+end
+
+local function tool_result(update)
+  if type(update) ~= "table" then
+    return nil
+  end
+
+  local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
+  local raw_output = update.rawOutput or update.raw_output
+  local output = raw_output_text(raw_output) or extract_text(update.content)
+  if type(output) ~= "string" or output == "" then
+    return nil
+  end
+
+  local raw_output_table = type(raw_output) == "table" and raw_output or {}
+  local meta = type(update._meta) == "table" and update._meta or {}
+  local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
+
+  return {
+    toolCallId = update.toolCallId,
+    kind = update.kind,
+    status = update.status,
+    title = update.title or raw_input.command or update.kind or update.toolCallId,
+    command = raw_input.command or raw_input.cmd or update.title,
+    cwd = raw_input.cwd,
+    output = output,
+    exitCode = raw_output_table.exit_code
+      or raw_output_table.exitCode
+      or terminal_exit.exit_code
+      or terminal_exit.exitCode,
+  }
+end
+
 local function update_content_items(update)
   if type(update) ~= "table" or type(update.content) ~= "table" then
     return {}
@@ -391,9 +440,9 @@ local function update_content_items(update)
 end
 
 local function is_file_update_item(item)
+  local meta_kind = type(item) == "table" and type(item._meta) == "table" and item._meta.kind or nil
   return type(item) == "table"
-    and type(item._meta) == "table"
-    and item._meta.kind == "update"
+    and (item.type == "diff" or meta_kind == "update" or meta_kind == "add")
     and type(item.path) == "string"
     and type(item.newText) == "string"
 end
@@ -603,6 +652,20 @@ function M.new(config)
       local is_edit_update = update
         and update.toolCallId
         and (update.kind == "edit" or self.edit_tool_calls[update.toolCallId])
+
+      if
+        (update_type == "tool_call" or update_type == "tool_call_update")
+        and not is_edit_update
+        and (update.status == "completed" or update.status == "failed")
+      then
+        local result = tool_result(update)
+        if result then
+          self:_emit_notification({
+            method = "omniac/tool_result",
+            params = result,
+          })
+        end
+      end
 
       if (update_type == "tool_call" or update_type == "tool_call_update") and is_edit_update then
         local emitted_file_update = false

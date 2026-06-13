@@ -550,6 +550,8 @@ function M.connect(opts)
           echomsg("[omniac acp notification] omniac/file_update " .. tostring(params.path))
         elseif method == "omniac/permission_diff" then
           echomsg("[omniac acp notification] omniac/permission_diff " .. tostring(params.path))
+        elseif method == "omniac/tool_result" then
+          echomsg("[omniac acp notification] omniac/tool_result " .. tostring(params.title or params.command))
         elseif method == "omniac/edit_failed" then
           echomsg("[omniac acp notification] omniac/edit_failed " .. tostring(params.toolCallId))
         elseif method ~= "session/update" and method ~= "omniac/response_chunk" then

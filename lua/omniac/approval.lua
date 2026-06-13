@@ -468,6 +468,8 @@ local function open_permission_diff(pending, payload)
     return false
   end
   pending.opened = true
+  pending.selector_open = false
+  permission_dialog.dismiss()
   if pending.diff_timer then
     pending.diff_timer:stop()
     pending.diff_timer:close()
@@ -525,7 +527,7 @@ local function schedule_edit_permission_fallback(pending)
         return
       end
 
-      pending.opened = true
+      pending.selector_open = true
       update_permission_text(
         pending.notice_index,
         pending.notice_text,
@@ -537,6 +539,7 @@ local function schedule_edit_permission_fallback(pending)
           return
         end
         pending.replied = true
+        pending.selector_open = false
         pending_acp_permissions[pending.tool_call_id] = nil
         pending_acp_diffs[pending.tool_call_id] = nil
         pending.reply(result)

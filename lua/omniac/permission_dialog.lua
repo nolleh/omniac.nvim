@@ -76,6 +76,23 @@ local function close(choice)
   end
 end
 
+function M.dismiss()
+  state.callback = nil
+
+  if valid_win(state.win) then
+    pcall(vim.api.nvim_win_close, state.win, true)
+  end
+  if valid_buf(state.buf) then
+    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
+  end
+
+  state.buf = nil
+  state.win = nil
+  state.selected = 1
+  state.options = {}
+  state.prompt = ""
+end
+
 local function cleanup_existing()
   state.callback = nil
   if valid_win(state.win) then

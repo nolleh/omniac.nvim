@@ -214,6 +214,73 @@ local function wrapped_blocks(text, max_width, keep_trailing_empty)
   return blocks
 end
 
+local function split_lines(text)
+  local result = {}
+  for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+    table.insert(result, line)
+  end
+  if #result > 0 and result[#result] == "" then
+    table.remove(result)
+  end
+  return result
+end
+
+local function nonempty_tail(lines)
+  for index = #lines, 1, -1 do
+    if tostring(lines[index] or ""):match("%S") then
+      return lines[index]
+    end
+  end
+  return nil
+end
+
+local function collapsed_tool_lines(lines)
+  if #lines <= 4 then
+    return vim.deepcopy(lines)
+  end
+
+  return {
+    lines[1],
+    lines[2],
+    "…",
+    lines[#lines - 1],
+    lines[#lines],
+  }
+end
+
+local function tool_result_text(message)
+  local command = message.command or message.title or message.kind or "tool"
+  local lines = split_lines(message.output or "")
+  local visible = message.expanded and lines or collapsed_tool_lines(lines)
+  local hidden = math.max(0, #lines - 4)
+  local title = message.status == "failed" and "Failed" or "Ran"
+  local suffix = message.exitCode ~= nil and (" (exit " .. tostring(message.exitCode) .. ")") or ""
+  local result = { title .. " " .. command .. suffix }
+
+  if #lines == 1 then
+    local tail = nonempty_tail(lines)
+    if tail and tail ~= "" then
+      result[1] = result[1] .. ": " .. tail
+    end
+  elseif #visible > 0 then
+    table.insert(result, "```text")
+    for _, line in ipairs(visible) do
+      table.insert(result, line)
+    end
+    table.insert(result, "```")
+  end
+
+  if #lines > 4 then
+    table.insert(
+      result,
+      message.expanded and ("-" .. tostring(hidden) .. " lines (Ctrl-T to collapse)")
+        or ("+" .. tostring(hidden) .. " lines (Ctrl-T to expand)")
+    )
+  end
+
+  return table.concat(result, "\n")
+end
+
 local function header(lines, marks, size)
   local box_width = math.max(40, size)
   local inner = box_width - 2
@@ -292,7 +359,8 @@ local function render_chat(config)
           add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
       else
-        local blocks = wrapped_blocks(message.text, text_width, message.complete)
+        local message_text = message.type == "tool_result" and tool_result_text(message) or message.text
+        local blocks = wrapped_blocks(message_text, text_width, message.complete)
         for block_index, block in ipairs(blocks) do
           local block_group = block.code and "OmniacCode" or group
           for _, line in ipairs(block.lines) do
@@ -1429,6 +1497,17 @@ function M.open(config, submit)
     desc = "Cancel active Omniac turn",
   })
 
+  local function toggle_tool_output()
+    M.toggle_tool_output(state.config)
+  end
+  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
+    vim.keymap.set({ "n", "i" }, "<C-t>", toggle_tool_output, {
+      buffer = buf,
+      nowait = true,
+      desc = "Toggle Omniac tool output",
+    })
+  end
+
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
   end
@@ -1515,6 +1594,47 @@ function M.set_tool_activity(params, config)
   local exit = params.exitCode ~= nil and (" exit " .. tostring(params.exitCode)) or ""
   state.tool_activity = string.format("%s %s: %s%s", prefix, kind, title, exit)
   render_activity()
+end
+
+function M.toggle_tool_output(config)
+  for index = #state.messages, 1, -1 do
+    local message = state.messages[index]
+    if message and message.type == "tool_result" and #(split_lines(message.output or "")) > 4 then
+      message.expanded = not message.expanded
+      render_chat(config or state.config)
+      focus_input()
+      return true
+    end
+  end
+  return false
+end
+
+function M.add_tool_result(params, config)
+  params = params or {}
+  local output = params.output
+  if type(output) ~= "string" or output == "" then
+    return
+  end
+
+  if state.streaming_message_index and state.messages[state.streaming_message_index] then
+    state.messages[state.streaming_message_index].complete = true
+    state.streaming_message_index = nil
+  end
+
+  table.insert(state.messages, {
+    type = "tool_result",
+    role = "Tool",
+    kind = params.kind,
+    status = params.status,
+    title = params.title,
+    command = params.command,
+    cwd = params.cwd,
+    output = output,
+    exitCode = params.exitCode,
+    expanded = false,
+  })
+  render_chat(config)
+  focus_input()
 end
 
 function M.add_message(role, text, config)
@@ -1641,6 +1761,11 @@ function M.handle_notification(message, config)
 
   if method == "omniac/tool_activity" then
     M.set_tool_activity(params, config)
+    return
+  end
+
+  if method == "omniac/tool_result" then
+    M.add_tool_result(params, config)
     return
   end
 

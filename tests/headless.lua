@@ -388,6 +388,44 @@ run("activity text keeps horizontal padding when truncated", function()
   assert_true(line:match("  $"), "activity line should keep right padding")
 end)
 
+run("tool result output is collapsed and toggled", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 60 },
+  }, function(_) end)
+
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      command = "printf lines",
+      output = table.concat({ "one", "two", "three", "four", "five", "six" }, "\n") .. "\n",
+      exitCode = 0,
+    },
+  }, { ui = { chat_width = 60 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local collapsed = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(collapsed:match("Ran printf lines") ~= nil, "tool result should show command")
+  assert_true(collapsed:match("one") ~= nil, "collapsed output should show first line")
+  assert_true(collapsed:match("two") ~= nil, "collapsed output should show second line")
+  assert_true(collapsed:match("five") ~= nil, "collapsed output should show penultimate line")
+  assert_true(collapsed:match("six") ~= nil, "collapsed output should show last line")
+  assert_true(collapsed:match("three") == nil, "collapsed output should hide middle lines")
+  assert_true(collapsed:match("%+2 lines") ~= nil, "collapsed output should show hidden line count")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-t>", true, false, true), "xt", false)
+  vim.wait(20)
+  local expanded = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(expanded:match("three") ~= nil, "expanded output should show hidden line")
+  assert_true(expanded:match("%-2 lines") ~= nil, "expanded output should show collapse hint")
+end)
+
 run("permission request shows JSON-RPC details in chat and selector", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -526,6 +564,67 @@ run("edit permission without diff falls back to selector", function()
   assert_true(dialog_text:match("Permission requested: edit") ~= nil, "edit fallback selector should stay compact")
   assert_true(chat:match("Decision: Allow Once") ~= nil, "edit fallback should record the selected decision")
   assert_equal(replied.outcome.optionId, "allow_once", "edit fallback should reply with selected option")
+end)
+
+run("late edit permission diff replaces fallback selector", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["omniac.approval"] = nil
+  package.loaded["omniac.permission_dialog"] = nil
+  local ui = require("omniac.ui")
+  local approval = require("omniac.approval")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+
+  local replied
+  approval.review_acp_permission({
+    sessionId = "sess_1",
+    toolCall = {
+      kind = "edit",
+      status = "pending",
+      toolCallId = "call_late_diff",
+      content = vim.NIL,
+    },
+    options = {
+      { optionId = "allow_once", name = "Allow Once" },
+      { optionId = "reject_once", name = "Reject" },
+    },
+  }, function(result)
+    replied = result
+  end, { ui = { chat_width = 48 } })
+
+  vim.wait(1200, function()
+    return vim.fn.bufnr("omniac://permission") ~= -1
+  end)
+  assert_true(vim.fn.bufnr("omniac://permission") ~= -1, "fallback selector should open while waiting for diff")
+
+  local opened = approval.attach_acp_permission_diff({
+    toolCallId = "call_late_diff",
+    path = "/tmp/omniac-late-new-file.md",
+    oldText = vim.NIL,
+    newText = "# Late\n",
+  })
+
+  assert_true(opened, "late permission diff should open a review")
+  assert_equal(vim.fn.bufnr("omniac://permission"), -1, "late diff should close fallback selector")
+  local current = vim.api.nvim_get_current_buf()
+  local current_name = vim.api.nvim_buf_get_name(current)
+  assert_true(
+    current_name:match("Omniac permission: /tmp/omniac%-late%-new%-file%.md") ~= nil,
+    "diff review should show the file path"
+  )
+  assert_equal(
+    vim.api.nvim_buf_get_lines(current, 0, -1, false)[1],
+    "# Late",
+    "diff review should show proposed content"
+  )
+
+  vim.cmd("w")
+  assert_true(replied ~= nil, "accepting late diff should reply")
+  assert_equal(replied.outcome.optionId, "allow_once", "accepted late diff should use the allow option")
 end)
 
 run("permission dialog ignores escape without cancelling", function()
@@ -765,6 +864,53 @@ run("ACP cancel sends session cancel request", function()
   assert_equal(request.params.sessionId, "sess_1", "cancel should target the active session")
 end)
 
+run("ACP completed tool call emits tool result output", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local notification
+
+  client:on_notification(function(message)
+    if message.method == "omniac/tool_result" then
+      notification = message
+    end
+  end)
+
+  client:_handle_notification({
+    method = "session/update",
+    params = {
+      update = {
+        sessionUpdate = "tool_call_update",
+        kind = "execute",
+        status = "completed",
+        title = "Check file",
+        toolCallId = "call_tool_result",
+        rawInput = {
+          command = "test -f foo && echo exist || echo not exist",
+          cwd = "/tmp",
+        },
+        rawOutput = {
+          output = "exist\n",
+          exit_code = 0,
+        },
+      },
+    },
+  })
+
+  vim.wait(50, function()
+    return notification ~= nil
+  end)
+
+  assert_true(notification ~= nil, "completed tool call should emit tool_result")
+  assert_equal(
+    notification.params.command,
+    "test -f foo && echo exist || echo not exist",
+    "tool result should keep command"
+  )
+  assert_equal(notification.params.output, "exist\n", "tool result should keep output")
+  assert_equal(notification.params.exitCode, 0, "tool result should keep exit code")
+end)
+
 run("ACP prompt sends image content blocks when advertised", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")
@@ -845,6 +991,51 @@ run("ACP edit diff emits permission diff for new files", function()
   assert_equal(notification.params.path, "/private/tmp/omniac-new-file.md", "permission diff should keep the path")
   assert_equal(notification.params.oldText, "", "new file oldText should be normalized to empty text")
   assert_equal(notification.params.newText, "# New\n", "permission diff should keep the proposed content")
+end)
+
+run("ACP edit add emits permission diff for created files", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local notification
+
+  client:on_notification(function(message)
+    if message.method == "omniac/permission_diff" then
+      notification = message
+    end
+  end)
+
+  client:_handle_notification({
+    method = "session/update",
+    params = {
+      update = {
+        sessionUpdate = "tool_call",
+        kind = "edit",
+        status = "in_progress",
+        title = "Editing files",
+        toolCallId = "call_added_file",
+        content = {
+          {
+            type = "diff",
+            _meta = { kind = "add" },
+            path = "/private/tmp/omniac-added-file.md",
+            oldText = vim.NIL,
+            newText = "# Added\n",
+          },
+        },
+      },
+    },
+  })
+
+  vim.wait(50, function()
+    return notification ~= nil
+  end)
+
+  assert_true(notification ~= nil, "created file edits should emit permission_diff")
+  assert_equal(notification.params.toolCallId, "call_added_file", "created file diff should keep tool call id")
+  assert_equal(notification.params.path, "/private/tmp/omniac-added-file.md", "created file diff should keep path")
+  assert_equal(notification.params.oldText, "", "created file oldText should be normalized to empty text")
+  assert_equal(notification.params.newText, "# Added\n", "created file diff should keep new text")
 end)
 
 run("ACP prompt rejects image content blocks without capability", function()
