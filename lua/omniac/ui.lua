@@ -363,11 +363,16 @@ local function is_markdown_structural_line(line)
     or value:match("^%s*%-%-%-+%s*$")
 end
 
-local function chat_message_line(line, width)
+local function chat_message_lines(line, width)
   if is_markdown_structural_line(line) then
-    return line
+    return { line }
   end
-  return "  " .. fit(line, math.max(1, width - 4)) .. "  "
+
+  local result = {}
+  for _, wrapped_line in ipairs(wrapped(line, math.max(1, width - 4))) do
+    table.insert(result, "  " .. fit(wrapped_line, math.max(1, width - 4)) .. "  ")
+  end
+  return result
 end
 
 local function is_opaque_tool_name(value)
@@ -498,7 +503,9 @@ local function render_chat(config, opts)
           message_text = unwrap_markdown_fences(message_text)
         end
         for _, line in ipairs(split_lines(message_text)) do
-          add_line(lines, marks, chat_message_line(line, win_width), group)
+          for _, display_line in ipairs(chat_message_lines(line, win_width)) do
+            add_line(lines, marks, display_line, group)
+          end
         end
         if message.complete then
           add_line(

@@ -625,6 +625,37 @@ run("assistant prose keeps chat padding", function()
   assert_true(chat:match("\n  plain assistant line%s+\n") ~= nil, "assistant prose should keep horizontal padding")
 end)
 
+run("assistant prose wraps instead of ellipsizing", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.handle_notification({
+    method = "omniac/response_chunk",
+    params = {
+      text = "this assistant response is intentionally long enough to wrap across more than one visible chat line",
+    },
+  }, { ui = { chat_width = 48 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local lines = vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)
+  local prose_lines = 0
+  local prose_text = {}
+  for _, line in ipairs(lines) do
+    if line:match("^  %S") and not line:match("^  [─]+%s*$") then
+      prose_lines = prose_lines + 1
+      table.insert(prose_text, line)
+    end
+  end
+
+  assert_true(table.concat(prose_text, "\n"):match("…") == nil, "assistant prose should not be ellipsized")
+  assert_true(prose_lines >= 2, "assistant prose should wrap across multiple padded lines")
+end)
+
 run("chat and input redraw after user vertical resize", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
