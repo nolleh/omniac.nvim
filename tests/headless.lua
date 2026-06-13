@@ -802,6 +802,51 @@ run("ACP prompt sends image content blocks when advertised", function()
   assert_equal(request.params.prompt[2].data, "aW1n", "image data should be preserved")
 end)
 
+run("ACP edit diff emits permission diff for new files", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local notification
+
+  client:on_notification(function(message)
+    if message.method == "omniac/permission_diff" then
+      notification = message
+    end
+  end)
+
+  client:_handle_notification({
+    method = "session/update",
+    params = {
+      update = {
+        sessionUpdate = "tool_call",
+        kind = "edit",
+        status = "in_progress",
+        title = "Editing files",
+        toolCallId = "call_new_file",
+        content = {
+          {
+            type = "diff",
+            _meta = { kind = "update" },
+            path = "/private/tmp/omniac-new-file.md",
+            oldText = vim.NIL,
+            newText = "# New\n",
+          },
+        },
+      },
+    },
+  })
+
+  vim.wait(50, function()
+    return notification ~= nil
+  end)
+
+  assert_true(notification ~= nil, "new file edits should emit permission_diff")
+  assert_equal(notification.params.toolCallId, "call_new_file", "permission diff should keep the tool call id")
+  assert_equal(notification.params.path, "/private/tmp/omniac-new-file.md", "permission diff should keep the path")
+  assert_equal(notification.params.oldText, "", "new file oldText should be normalized to empty text")
+  assert_equal(notification.params.newText, "# New\n", "permission diff should keep the proposed content")
+end)
+
 run("ACP prompt rejects image content blocks without capability", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")

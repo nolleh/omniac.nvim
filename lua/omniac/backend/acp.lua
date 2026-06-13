@@ -395,8 +395,11 @@ local function is_file_update_item(item)
     and type(item._meta) == "table"
     and item._meta.kind == "update"
     and type(item.path) == "string"
-    and type(item.oldText) == "string"
     and type(item.newText) == "string"
+end
+
+local function update_old_text(item)
+  return type(item.oldText) == "string" and item.oldText or ""
 end
 
 function M.new(config)
@@ -612,7 +615,7 @@ function M.new(config)
                 method = "omniac/file_update",
                 params = {
                   path = item.path,
-                  oldText = item.oldText,
+                  oldText = update_old_text(item),
                   newText = item.newText,
                   toolCallId = update.toolCallId,
                   title = update.title,
@@ -625,7 +628,7 @@ function M.new(config)
                 method = "omniac/permission_diff",
                 params = {
                   path = item.path,
-                  oldText = item.oldText,
+                  oldText = update_old_text(item),
                   newText = item.newText,
                   toolCallId = update.toolCallId,
                   title = update.title,
