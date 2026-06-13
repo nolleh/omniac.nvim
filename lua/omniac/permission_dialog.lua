@@ -19,6 +19,12 @@ local function valid_win(win)
   return win and vim.api.nvim_win_is_valid(win)
 end
 
+local function stop_insert()
+  if vim.fn.mode():match("^[iR]") then
+    pcall(vim.cmd, "stopinsert")
+  end
+end
+
 local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacPermissionBorder", { fg = "#89dceb" })
   vim.api.nvim_set_hl(0, "OmniacPermissionTitle", { fg = "#f9e2af", bold = true })
@@ -143,9 +149,11 @@ local function render()
   add("", nil)
   add("[Enter] choose   [1-9] choose   [j/k] move   [q] reject", "OmniacPermissionMuted")
 
+  vim.bo[state.buf].readonly = false
   vim.bo[state.buf].modifiable = true
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
   vim.bo[state.buf].modifiable = false
+  vim.bo[state.buf].readonly = true
   vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
   for _, mark in ipairs(marks) do
     vim.api.nvim_buf_add_highlight(state.buf, ns, mark[4], mark[1], mark[2], mark[3])
@@ -199,6 +207,7 @@ function M.open(options, opts, callback)
   vim.bo[state.buf].swapfile = false
   vim.bo[state.buf].filetype = "omniac-permission"
   vim.bo[state.buf].modifiable = false
+  vim.bo[state.buf].readonly = true
   pcall(vim.api.nvim_buf_set_name, state.buf, "omniac://permission")
 
   state.win = vim.api.nvim_open_win(state.buf, true, {
@@ -219,7 +228,7 @@ function M.open(options, opts, callback)
 
   local function map(lhs, fn)
     vim.keymap.set({ "n", "i" }, lhs, function()
-      pcall(vim.cmd, "stopinsert")
+      stop_insert()
       fn()
     end, { buffer = state.buf, nowait = true, silent = true })
   end
@@ -255,6 +264,12 @@ function M.open(options, opts, callback)
   })
 
   render()
+  stop_insert()
+  vim.schedule(function()
+    if valid_win(state.win) then
+      stop_insert()
+    end
+  end)
   return state
 end
 

@@ -38,6 +38,12 @@ local INPUT_MIN_DISPLAY_LINES = 3
 local INPUT_MAX_DISPLAY_LINES = 10
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
+local CHAT_MARKDOWN_RENDER_CONFIG = {
+  pipe_table = {
+    border_virtual = true,
+    style = "normal",
+  },
+}
 
 local function valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf)
@@ -163,6 +169,41 @@ local function start_chat_treesitter()
   pcall(vim.treesitter.start, state.chat_buf, "markdown")
 end
 
+local function render_chat_markdown()
+  if not valid_buf(state.chat_buf) then
+    return
+  end
+
+  local ok, renderer = pcall(require, "render-markdown")
+  if not ok or type(renderer) ~= "table" then
+    return
+  end
+
+  if renderer.initialized == false and type(renderer.setup) == "function" then
+    pcall(
+      renderer.setup,
+      vim.tbl_deep_extend("force", {
+        file_types = { "markdown" },
+      }, CHAT_MARKDOWN_RENDER_CONFIG)
+    )
+  end
+
+  if type(renderer.render) == "function" then
+    local ok_state, renderer_state = pcall(require, "render-markdown.state")
+    if ok_state and type(renderer_state) == "table" and type(renderer_state.cache) == "table" then
+      renderer_state.cache[state.chat_buf] = nil
+    end
+    pcall(renderer.render, {
+      buf = state.chat_buf,
+      win = state.chat_win,
+      event = "OmniacRender",
+      config = CHAT_MARKDOWN_RENDER_CONFIG,
+    })
+  elseif type(renderer.buf_enable) == "function" then
+    pcall(renderer.buf_enable)
+  end
+end
+
 local function wrapped(text, max_width)
   local result = {}
   for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
@@ -189,31 +230,6 @@ local function wrapped(text, max_width)
   return result
 end
 
-local function wrapped_blocks(text, max_width, keep_trailing_empty)
-  local blocks = {}
-  local in_code = false
-  for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
-    local is_fence = raw:match("^%s*```") or raw:match("^%s*~~~")
-    local code = in_code or is_fence
-    local block = wrapped(raw, max_width)
-    if #block == 0 then
-      block = { "" }
-    end
-    table.insert(blocks, {
-      lines = block,
-      code = code,
-      empty = #block == 1 and block[1] == "",
-    })
-    if is_fence then
-      in_code = not in_code
-    end
-  end
-  if not keep_trailing_empty and #blocks > 0 and blocks[#blocks].empty then
-    table.remove(blocks)
-  end
-  return blocks
-end
-
 local function split_lines(text)
   local result = {}
   for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
@@ -223,6 +239,27 @@ local function split_lines(text)
     table.remove(result)
   end
   return result
+end
+
+local function unwrap_markdown_fences(text)
+  local result = {}
+  local in_markdown_fence = false
+
+  for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+    local lang = line:match("^%s*```%s*([%w_-]+)%s*$")
+    if in_markdown_fence and line:match("^%s*```%s*$") then
+      in_markdown_fence = false
+    elseif not in_markdown_fence and lang and (lang == "markdown" or lang == "md") then
+      in_markdown_fence = true
+    else
+      table.insert(result, line)
+    end
+  end
+
+  if #result > 0 and result[#result] == "" then
+    table.remove(result)
+  end
+  return table.concat(result, "\n")
 end
 
 local function nonempty_tail(lines)
@@ -360,12 +397,11 @@ local function render_chat(config)
         end
       else
         local message_text = message.type == "tool_result" and tool_result_text(message) or message.text
-        local blocks = wrapped_blocks(message_text, text_width, message.complete)
-        for block_index, block in ipairs(blocks) do
-          local block_group = block.code and "OmniacCode" or group
-          for _, line in ipairs(block.lines) do
-            add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", block_group)
-          end
+        if message.type ~= "tool_result" then
+          message_text = unwrap_markdown_fences(message_text)
+        end
+        for _, line in ipairs(split_lines(message_text)) do
+          add_line(lines, marks, line, group)
         end
         if message.complete then
           add_line(
@@ -390,6 +426,8 @@ local function render_chat(config)
   for _, mark in ipairs(marks) do
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
   end
+
+  render_chat_markdown()
 
   if valid_win(state.chat_win) and #lines > 0 then
     pcall(vim.api.nvim_win_set_cursor, state.chat_win, { #lines, 0 })
@@ -1329,8 +1367,7 @@ function M.open(config, submit)
     vim.bo[state.chat_buf].bufhidden = "hide"
     vim.bo[state.chat_buf].swapfile = false
     vim.bo[state.chat_buf].buflisted = false
-    vim.bo[state.chat_buf].filetype = "omniac"
-    vim.bo[state.chat_buf].syntax = "markdown"
+    vim.bo[state.chat_buf].filetype = "markdown"
     vim.api.nvim_buf_set_name(state.chat_buf, "omniac")
   end
 

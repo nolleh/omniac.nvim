@@ -426,6 +426,61 @@ run("tool result output is collapsed and toggled", function()
   assert_true(expanded:match("%-2 lines") ~= nil, "expanded output should show collapse hint")
 end)
 
+run("chat buffer uses markdown renderer when available", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local render_calls = {}
+  package.preload["render-markdown"] = function()
+    return {
+      initialized = true,
+      render = function(ctx)
+        table.insert(render_calls, ctx)
+      end,
+    }
+  end
+
+  local ui = require("omniac.ui")
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+  ui.handle_notification({
+    method = "omniac/response_chunk",
+    params = {
+      text = "```markdown\n| A | B |\n| - | - |\n| 1 | 2 |\n```\n\n```lua\nprint('x')\n```",
+    },
+  }, { ui = { chat_width = 48 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(chat_buf ~= -1, "chat buffer should exist")
+  assert_equal(vim.bo[chat_buf].filetype, "markdown", "chat buffer should use markdown filetype")
+  assert_true(chat:match("```markdown") == nil, "markdown fences should be unwrapped before display")
+  assert_true(chat:match("| A | B |") ~= nil, "markdown fence contents should remain visible")
+  assert_true(chat:match("```lua") ~= nil, "non-markdown code fences should remain intact")
+  assert_true(chat:match("\n| A | B |\n") ~= nil, "markdown table rows should be inserted without padding")
+  assert_true(chat:match("\n  | A | B |") == nil, "markdown table rows should not receive leading UI padding")
+  assert_true(chat:match("| A | B |  \n") == nil, "markdown table rows should not receive trailing UI padding")
+  assert_true(#render_calls > 0, "render-markdown should be called for chat rendering")
+  assert_equal(render_calls[#render_calls].buf, chat_buf, "render-markdown should receive the chat buffer")
+  assert_equal(render_calls[#render_calls].event, "OmniacRender", "render-markdown should receive an Omniac event")
+  assert_equal(
+    render_calls[#render_calls].config.pipe_table.style,
+    "normal",
+    "chat tables should use compact markdown rendering"
+  )
+  assert_equal(
+    render_calls[#render_calls].config.pipe_table.border_virtual,
+    true,
+    "chat table borders should avoid consuming empty buffer lines"
+  )
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
 run("permission request shows JSON-RPC details in chat and selector", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -515,6 +570,34 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   local activity_buf = vim.fn.bufnr("omniac://activity")
   local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
   assert_true(activity:match("Permission requested") == nil, "permission activity should clear after decision")
+end)
+
+run("permission selector leaves insert mode and stays read-only", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.permission_dialog"] = nil
+  local dialog = require("omniac.permission_dialog")
+
+  vim.cmd("startinsert")
+  vim.wait(50, function()
+    return vim.fn.mode():match("^i") ~= nil
+  end)
+
+  dialog.open({
+    { optionId = "allow_once", name = "Allow Once" },
+    { optionId = "reject_once", name = "Reject" },
+  }, { prompt = "Permission requested: execute" }, function(_) end)
+
+  vim.wait(50, function()
+    return not vim.fn.mode():match("^i")
+  end)
+
+  local dialog_buf = vim.fn.bufnr("omniac://permission")
+  assert_true(dialog_buf ~= -1, "permission selector should open")
+  assert_equal(vim.bo[dialog_buf].modifiable, false, "permission selector should not be modifiable")
+  assert_equal(vim.bo[dialog_buf].readonly, true, "permission selector should be read-only")
+  assert_true(not vim.fn.mode():match("^i"), "permission selector should not stay in insert mode")
+
+  dialog.dismiss()
 end)
 
 run("edit permission without diff falls back to selector", function()

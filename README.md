@@ -9,6 +9,10 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "nolleh/omniac.nvim",
+  dependencies = {
+    "nvim-treesitter/nvim-treesitter",
+    "MeanderingProgrammer/render-markdown.nvim",
+  },
 }
 ```
 
