@@ -229,6 +229,27 @@ run("input padding cursor is remapped safely", function()
   assert_equal(cursor[1], 2, "padding cursor should map back to the editable input line")
 end)
 
+run("tab switches between Omniac input and chat windows", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Omniac should open focused on input")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Tab>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "Tab should focus chat")
+
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<S-Tab>", true, false, true), "xt", false)
+  vim.cmd("redraw")
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Shift-Tab should focus input")
+end)
+
 run("input ctrl-v attaches clipboard image and submits it", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -479,6 +500,37 @@ run("chat buffer uses markdown renderer when available", function()
 
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
+end)
+
+run("transport reconnect messages render as activity", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 62 },
+  }, function(_) end)
+
+  ui.handle_notification({
+    method = "omniac/response_chunk",
+    params = { text = "Reconnecting... 4/5\n" },
+  }, { ui = { chat_width = 62 } })
+  ui.handle_notification({
+    method = "omniac/response_chunk",
+    params = {
+      text = "Warning: Falling back from WebSockets to HTTPS transport. stream disconnected before completion: Connection refused (os error 61)\n",
+    },
+  }, { ui = { chat_width = 62 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+
+  assert_true(chat:match("Reconnecting") == nil, "reconnect messages should not be added to chat")
+  assert_true(chat:match("Falling back from WebSockets") == nil, "transport warnings should not be added to chat")
+  assert_true(activity:match("Falling back from WebSockets") ~= nil, "transport warning should render as activity")
 end)
 
 run("permission request shows JSON-RPC details in chat and selector", function()
@@ -787,6 +839,33 @@ run("status renders ACP session mode", function()
   local status_buf = vim.fn.bufnr("omniac://status")
   local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
   assert_true(line:match("Code") ~= nil, "status should include the current ACP mode")
+end)
+
+run("ACP protocol file logs follow debug option", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local base = "/private/tmp/omniac-acp-log-test-" .. tostring(vim.loop.hrtime())
+  local off_dir = base .. "-off"
+  local on_dir = base .. "-on"
+
+  local off_client = acp.new({
+    debug = false,
+    logs = { dir = off_dir },
+  })
+  off_client:_debug("request", { method = "session/new", params = {} })
+  local off_logs = vim.fn.globpath(off_dir, "acp-*.jsonl", false, true)
+  assert_equal(#off_logs, 0, "debug=false should not write ACP protocol files")
+
+  local on_client = acp.new({
+    debug = true,
+    logs = { dir = on_dir },
+  })
+  on_client:_debug("request", { method = "session/new", params = {} })
+  local on_logs = vim.fn.globpath(on_dir, "acp-*.jsonl", false, true)
+  assert_equal(#on_logs, 1, "debug=true should write ACP protocol files")
+
+  pcall(vim.fn.delete, off_dir, "rf")
+  pcall(vim.fn.delete, on_dir, "rf")
 end)
 
 run("ACP mode config options cycle with set_config_option", function()
@@ -1573,7 +1652,7 @@ run("enter completes file mention without submitting", function()
   assert_equal(submitted, nil, "enter completion should not submit file mentions")
 end)
 
-run("tab completes slash command without submitting", function()
+run("tab switches from slash input to chat without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -1590,16 +1669,13 @@ run("tab completes slash command without submitting", function()
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
-  local lines
-  vim.wait(50, function()
-    lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    return lines:match("/resume") ~= nil
-  end)
-  assert_true(lines:match("/resume") ~= nil, "tab should complete the slash command in the input")
-  assert_equal(submitted, nil, "tab completion should not submit")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+  assert_true(lines:match("/res") ~= nil, "tab should keep the slash command input text")
+  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "tab should focus chat")
+  assert_equal(submitted, nil, "tab focus switch should not submit")
 end)
 
-run("tab completes file mention without submitting", function()
+run("tab switches from file mention input to chat without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -1616,16 +1692,13 @@ run("tab completes file mention without submitting", function()
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
-  local lines
-  vim.wait(50, function()
-    lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    return lines:match("@README.md") ~= nil
-  end)
-  assert_true(lines:match("@README.md") ~= nil, "tab should complete the file mention in the input")
-  assert_equal(submitted, nil, "tab completion should not submit")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+  assert_true(lines:match("@READ") ~= nil, "tab should keep the file mention input text")
+  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "tab should focus chat")
+  assert_equal(submitted, nil, "tab focus switch should not submit")
 end)
 
-run("tab completes dollar skill without submitting", function()
+run("tab switches from dollar skill input to chat without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -1645,13 +1718,10 @@ run("tab completes dollar skill without submitting", function()
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
-  local lines
-  vim.wait(50, function()
-    lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    return lines:match("%$imagegen") ~= nil
-  end)
-  assert_true(lines:match("%$imagegen") ~= nil, "tab should complete the dollar skill in the input")
-  assert_equal(submitted, nil, "tab completion should not submit")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+  assert_true(lines:match("%$im") ~= nil, "tab should keep the dollar skill input text")
+  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "tab should focus chat")
+  assert_equal(submitted, nil, "tab focus switch should not submit")
 end)
 
 run("enter completes and submits dollar skill", function()
@@ -1735,7 +1805,7 @@ run("cancel failure allows retry", function()
   assert_equal(cancels, 2, "failed cancel should allow a later esc retry")
 end)
 
-run("shift tab triggers session mode cycling", function()
+run("shift tab switches to chat without cycling session mode", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -1752,7 +1822,8 @@ run("shift tab triggers session mode cycling", function()
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<S-Tab><Esc>", true, false, true), "xt", false)
   vim.cmd("redraw")
 
-  assert_equal(count, 1, "shift-tab should call the mode cycle handler")
+  assert_equal(count, 0, "shift-tab should not call the mode cycle handler")
+  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "shift-tab should focus chat")
 end)
 
 run("command suggestions do not drift input window", function()

@@ -89,11 +89,12 @@ end
 
 local function log_path(config)
   config = config or {}
-  config.logs = config.logs or {}
-  local log_config = config.logs
-  if log_config.enabled == false then
+  if not config.debug then
     return nil
   end
+
+  config.logs = config.logs or {}
+  local log_config = config.logs
   if log_config._path then
     return log_config._path
   end
@@ -122,21 +123,6 @@ local function append_protocol_log(config, event, payload)
   if ok then
     pcall(vim.fn.writefile, { encoded }, path, "a")
   end
-end
-
-local function echomsg(text)
-  vim.schedule(function()
-    vim.api.nvim_echo({ { text, "Comment" } }, true, {})
-  end)
-end
-
-local function inspect_short(value)
-  local text = vim.inspect(value)
-  text = text:gsub("%s+", " ")
-  if #text > 900 then
-    return text:sub(1, 900) .. "..."
-  end
-  return text
 end
 
 local function sorted_keys(value)
@@ -522,14 +508,6 @@ function M.new(config)
         params = entry,
       })
     end
-
-    if self.config.protocol_trace ~= false and (event == "request" or event == "notification") then
-      local method = payload and payload.method or "?"
-      local params = payload and payload.params or {}
-      if method ~= "session/update" then
-        echomsg(string.format("[omniac acp %s] %s %s", event, tostring(method), inspect_short(params)))
-      end
-    end
   end
 
   function state:get_debug_log()
@@ -578,7 +556,6 @@ function M.new(config)
     end
 
     if method == "session/request_permission" then
-      echomsg("[omniac acp fallback] session/request_permission cancelled by backend fallback")
       reply({
         outcome = {
           outcome = "cancelled",
@@ -587,7 +564,6 @@ function M.new(config)
       return
     end
 
-    echomsg("[omniac acp fallback] unhandled request " .. tostring(method) .. " -> {}")
     reply({})
   end
 
@@ -598,13 +574,6 @@ function M.new(config)
     if method == "session/update" then
       local update = params.update or params
       local update_type = update and (update.sessionUpdate or update.type)
-      if
-        self.config.protocol_trace ~= false
-        and update_type ~= "agent_message_chunk"
-        and update_type ~= "agentMessageChunk"
-      then
-        echomsg("[omniac acp session/update] " .. update_summary(update))
-      end
 
       if update_type == "tool_call" or update_type == "tool_call_update" then
         self:_emit_notification({
@@ -673,7 +642,6 @@ function M.new(config)
           if is_file_update_item(item) then
             emitted_file_update = true
             if update.status == "completed" then
-              echomsg("[omniac acp edit] file update completed " .. item.path)
               self:_emit_notification({
                 method = "omniac/file_update",
                 params = {
@@ -702,7 +670,6 @@ function M.new(config)
           end
         end
         if update.status == "failed" and not emitted_file_update then
-          echomsg("[omniac acp edit] edit failed " .. tostring(update.toolCallId))
           self:_emit_notification({
             method = "omniac/edit_failed",
             params = {

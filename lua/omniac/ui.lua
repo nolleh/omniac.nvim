@@ -262,6 +262,28 @@ local function unwrap_markdown_fences(text)
   return table.concat(result, "\n")
 end
 
+local function transport_activity_text(text)
+  local value = tostring(text or ""):gsub("\r", "")
+  value = value:gsub("^%s+", ""):gsub("%s+$", "")
+  if value == "" then
+    return nil
+  end
+
+  if value:match("^Reconnecting%.%.%.%s*%d+/%d+$") then
+    return value
+  end
+
+  if value:match("^Warning:%s*Falling back from WebSockets to HTTPS transport%.") then
+    return value
+  end
+
+  if value:match("^stream disconnected before completion:") then
+    return value
+  end
+
+  return nil
+end
+
 local function nonempty_tail(lines)
   for index = #lines, 1, -1 do
     if tostring(lines[index] or ""):match("%S") then
@@ -846,6 +868,7 @@ end
 
 local render_input
 local focus_input
+local focus_chat
 
 local function complete_current_suggestion()
   local text = input_text()
@@ -1131,6 +1154,27 @@ focus_input = function()
     col = #(lines[line] or ""),
   })
   vim.cmd("startinsert!")
+end
+
+focus_chat = function()
+  if not valid_win(state.chat_win) then
+    return
+  end
+
+  pcall(vim.cmd, "stopinsert")
+  vim.api.nvim_set_current_win(state.chat_win)
+  if valid_buf(state.chat_buf) then
+    local line_count = math.max(1, vim.api.nvim_buf_line_count(state.chat_buf))
+    pcall(vim.api.nvim_win_set_cursor, state.chat_win, { line_count, 0 })
+  end
+end
+
+local function focus_adjacent_omniac_window()
+  if vim.api.nvim_get_current_win() == state.input_win then
+    focus_chat()
+  else
+    focus_input()
+  end
 end
 
 local function enforce_input()
@@ -1493,28 +1537,6 @@ function M.open(config, submit)
     nowait = true,
     desc = "Delete Omniac input character",
   })
-  vim.keymap.set({ "n", "i" }, "<Tab>", function()
-    vim.schedule(function()
-      if not complete_current_suggestion() then
-        focus_input()
-      end
-    end)
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Complete Omniac suggestion",
-  })
-  vim.keymap.set({ "n", "i" }, "<S-Tab>", function()
-    if state.mode_cycle_handler then
-      state.mode_cycle_handler()
-    else
-      focus_input()
-    end
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Cycle Omniac session mode",
-  })
   vim.keymap.set("i", "<Esc>", function()
     if cancel_active_turn() then
       return ""
@@ -1547,6 +1569,19 @@ function M.open(config, submit)
 
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
+  end
+
+  for _, buf in ipairs({ state.chat_buf, state.input_buf }) do
+    vim.keymap.set({ "n", "i" }, "<Tab>", focus_adjacent_omniac_window, {
+      buffer = buf,
+      nowait = true,
+      desc = "Switch Omniac chat/input focus",
+    })
+    vim.keymap.set({ "n", "i" }, "<S-Tab>", focus_adjacent_omniac_window, {
+      buffer = buf,
+      nowait = true,
+      desc = "Switch Omniac chat/input focus",
+    })
   end
 
   vim.keymap.set("n", "q", M.close, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
@@ -1712,6 +1747,16 @@ end
 
 function M.append_response_chunk(text, config)
   if not text or text == "" then
+    return
+  end
+
+  local activity = transport_activity_text(text)
+  if activity then
+    if state.streaming_message_index and state.messages[state.streaming_message_index] then
+      state.messages[state.streaming_message_index].complete = true
+      state.streaming_message_index = nil
+    end
+    M.set_activity(activity, config)
     return
   end
 

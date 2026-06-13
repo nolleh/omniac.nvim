@@ -146,19 +146,6 @@ local function register_command(name, fn, opts)
   vim.api.nvim_create_user_command(name, fn, opts or {})
 end
 
-local function echomsg(text)
-  vim.api.nvim_echo({ { text, "Comment" } }, true, {})
-end
-
-local function inspect_short(value)
-  local text = vim.inspect(value)
-  text = text:gsub("%s+", " ")
-  if #text > 900 then
-    return text:sub(1, 900) .. "..."
-  end
-  return text
-end
-
 local function slash_command(text)
   local command = tostring(text or ""):match("^%s*/([%w_-]+)%s*$")
   return command and command:lower() or nil
@@ -521,11 +508,8 @@ function M.connect(opts)
       :on_request(function(message, reply)
         local method = message and message.method
         local params = message and message.params or {}
-        echomsg("[omniac acp request handler] " .. tostring(method) .. " " .. inspect_short(params))
 
         local function logged_reply(result, err)
-          local payload = err or result or {}
-          echomsg("[omniac acp reply] " .. tostring(method) .. " " .. inspect_short(payload))
           return reply(result, err)
         end
 
@@ -540,23 +524,11 @@ function M.connect(opts)
           return
         end
 
-        echomsg("[omniac acp request handler] unhandled " .. tostring(method) .. " -> {}")
         logged_reply({})
       end)
       :on_notification(function(message)
         local method = message and message.method
         local params = message and message.params or {}
-        if method == "omniac/file_update" then
-          echomsg("[omniac acp notification] omniac/file_update " .. tostring(params.path))
-        elseif method == "omniac/permission_diff" then
-          echomsg("[omniac acp notification] omniac/permission_diff " .. tostring(params.path))
-        elseif method == "omniac/tool_result" then
-          echomsg("[omniac acp notification] omniac/tool_result " .. tostring(params.title or params.command))
-        elseif method == "omniac/edit_failed" then
-          echomsg("[omniac acp notification] omniac/edit_failed " .. tostring(params.toolCallId))
-        elseif method ~= "session/update" and method ~= "omniac/response_chunk" then
-          echomsg("[omniac acp notification] " .. tostring(method) .. " " .. inspect_short(params))
-        end
 
         ui.handle_notification(message, cfg)
 

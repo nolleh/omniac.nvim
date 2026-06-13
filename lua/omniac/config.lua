@@ -2,7 +2,6 @@ local M = {}
 
 M.defaults = {
   debug = false,
-  protocol_trace = true,
   backend = {
     kind = "auto",
   },
@@ -39,7 +38,6 @@ M.defaults = {
     chat_width = 58,
   },
   logs = {
-    enabled = true,
     dir = "logs",
   },
 }

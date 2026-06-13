@@ -9,7 +9,7 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Speak JSON-RPC-style request / response / notification messages over the active transport.
 - [x] Keep ACP session flow in `lua/omniac/backend/acp.lua`.
 - [x] Keep process framing and subprocess communication in `lua/omniac/transport/`.
-- [x] Write protocol logs when enabled.
+- [x] Write protocol logs when debug mode is enabled.
 - [ ] Confirm exact ACP schema details against each supported agent and isolate per-agent adapters.
 - [ ] Add explicit retry / recovery behavior for failed session startup and prompt submission.
 - [ ] Add integration tests against `codex-acp` and at least one additional ACP agent.

@@ -48,17 +48,15 @@ Customize the UI width and diff review behavior:
 }
 ```
 
-Use a project-local working directory and disable protocol logs:
+Use a project-local working directory and enable debug logging:
 
 ```lua
 {
   "nolleh/omniac.nvim",
   opts = {
+    debug = true,
     agent = {
       cwd = vim.fn.getcwd(),
-    },
-    logs = {
-      enabled = false,
     },
   },
 }
@@ -69,7 +67,6 @@ Use a project-local working directory and disable protocol logs:
 | Option                                 | Default                     | Description                                                                           |
 | -------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------- |
 | `debug`                                | `false`                     | Enables extra debug notifications and debug-log inspection.                           |
-| `protocol_trace`                       | `true`                      | Echoes ACP protocol request/notification trace messages.                              |
 | `backend.kind`                         | `"auto"`                    | Backend selection. Use `"acp"` to force ACP mode.                                     |
 | `agent.cmd`                            | `{ "codex", "app-server" }` | Agent subprocess command. In ACP mode, the default is rewritten to `{ "codex-acp" }`. |
 | `agent.args`                           | `{}`                        | Additional agent arguments.                                                           |
@@ -95,8 +92,7 @@ Use a project-local working directory and disable protocol logs:
 | `ui.diff_title`                        | `"ACP Diff"`                | Buffer title used for proposed-change reviews.                                        |
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
 | `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
-| `logs.enabled`                         | `true`                      | Writes ACP protocol logs when enabled.                                                |
-| `logs.dir`                             | `"logs"`                    | Directory used for protocol logs.                                                     |
+| `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |
 
 ## Features
 
