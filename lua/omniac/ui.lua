@@ -507,6 +507,15 @@ local function render_chat(config, opts)
   local lines = {}
   local marks = {}
 
+  local function add_message_separator()
+    add_line(
+      lines,
+      marks,
+      "  " .. fit(string.rep("─", math.max(0, win_width - 4)), win_width - 4) .. "  ",
+      "OmniacMuted"
+    )
+  end
+
   header(lines, marks, win_width)
   add_line(lines, marks, "", nil)
 
@@ -532,6 +541,7 @@ local function render_chat(config, opts)
         for _, line in ipairs(wrapped(message.text, text_width)) do
           add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
+        add_message_separator()
       else
         local message_text = message.type == "tool_result" and tool_result_text(message) or message.text
         if message.type ~= "tool_result" then
@@ -547,12 +557,7 @@ local function render_chat(config, opts)
         end
         local complete = message.complete or (message.complete == nil and message.role == "Omniac" and not message.type)
         if complete then
-          add_line(
-            lines,
-            marks,
-            "  " .. fit(string.rep("─", math.max(0, win_width - 4)), win_width - 4) .. "  ",
-            "OmniacMuted"
-          )
+          add_message_separator()
         end
       end
       add_line(lines, marks, "", nil)
@@ -1303,6 +1308,13 @@ local function focus_adjacent_omniac_window()
   end
 end
 
+local function complete_or_focus_adjacent_omniac_window()
+  if vim.api.nvim_get_current_win() == state.input_win and complete_current_suggestion() then
+    return
+  end
+  focus_adjacent_omniac_window()
+end
+
 local function enforce_input()
   if state.rendering_input or not valid_buf(state.input_buf) then
     return
@@ -1758,18 +1770,33 @@ function M.open(config, submit)
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
   end
 
+  vim.keymap.set({ "n", "i" }, "<Tab>", focus_adjacent_omniac_window, {
+    buffer = state.chat_buf,
+    nowait = true,
+    desc = "Switch Omniac chat/input focus",
+  })
+  vim.keymap.set({ "n", "i" }, "<Tab>", focus_input, {
+    buffer = state.activity_buf,
+    nowait = true,
+    desc = "Focus Omniac input",
+  })
+  vim.keymap.set({ "n", "i" }, "<Tab>", complete_or_focus_adjacent_omniac_window, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Complete Omniac suggestion or switch focus",
+  })
   for _, buf in ipairs({ state.chat_buf, state.input_buf }) do
-    vim.keymap.set({ "n", "i" }, "<Tab>", focus_adjacent_omniac_window, {
-      buffer = buf,
-      nowait = true,
-      desc = "Switch Omniac chat/input focus",
-    })
     vim.keymap.set({ "n", "i" }, "<S-Tab>", focus_adjacent_omniac_window, {
       buffer = buf,
       nowait = true,
       desc = "Switch Omniac chat/input focus",
     })
   end
+  vim.keymap.set({ "n", "i" }, "<S-Tab>", focus_chat, {
+    buffer = state.activity_buf,
+    nowait = true,
+    desc = "Focus Omniac chat",
+  })
 
   vim.keymap.set("n", "q", M.close, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
 

@@ -258,6 +258,40 @@ run("tab switches between Omniac input and chat windows", function()
   assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Shift-Tab should focus input")
 end)
 
+run("tab navigation works from explicitly focused activity window", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  local activity_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)) == "omniac://activity" then
+      activity_win = win
+      break
+    end
+  end
+  assert_true(activity_win ~= nil, "activity window should exist")
+
+  vim.api.nvim_set_current_win(activity_win)
+  feed("<Tab>")
+  vim.cmd("redraw")
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Tab from activity should focus input")
+
+  vim.api.nvim_set_current_win(activity_win)
+  feed("<S-Tab>")
+  vim.cmd("redraw")
+  assert_equal(
+    vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"),
+    "omniac",
+    "Shift-Tab from activity should focus chat"
+  )
+end)
+
 run("input ctrl-v attaches clipboard image and submits it", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -795,6 +829,33 @@ run("completed assistant messages keep turn separators after reopen", function()
   end
 
   assert_true(separators >= 2, "completed assistant messages should keep visible turn separators")
+end)
+
+run("user messages keep turn separators after reopen", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  local config = {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }
+
+  ui.open(config, function(_) end)
+  ui.add_message("You", "first prompt", config)
+  ui.add_message("You", "second prompt", config)
+  ui.open(config, function(_) end)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local lines = vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)
+  local separators = 0
+  for _, line in ipairs(lines) do
+    if line:match("^  [─]+%s*$") then
+      separators = separators + 1
+    end
+  end
+
+  assert_true(separators >= 2, "user messages should keep visible turn separators")
 end)
 
 run("omniac resize command resizes the side ui as one body", function()
@@ -2086,7 +2147,7 @@ run("enter completes file mention without submitting", function()
   assert_equal(submitted, nil, "enter completion should not submit file mentions")
 end)
 
-run("tab switches from slash input to chat without submitting", function()
+run("tab completes slash input without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -2104,12 +2165,12 @@ run("tab switches from slash input to chat without submitting", function()
 
   local input_buf = vim.fn.bufnr("omniac://input")
   local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-  assert_true(lines:match("/res") ~= nil, "tab should keep the slash command input text")
-  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "tab should focus chat")
-  assert_equal(submitted, nil, "tab focus switch should not submit")
+  assert_true(lines:match("/resume") ~= nil, "tab should complete the slash command input text")
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
+  assert_equal(submitted, nil, "tab completion should not submit")
 end)
 
-run("tab switches from file mention input to chat without submitting", function()
+run("tab completes file mention input without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -2127,12 +2188,12 @@ run("tab switches from file mention input to chat without submitting", function(
 
   local input_buf = vim.fn.bufnr("omniac://input")
   local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-  assert_true(lines:match("@READ") ~= nil, "tab should keep the file mention input text")
-  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "tab should focus chat")
-  assert_equal(submitted, nil, "tab focus switch should not submit")
+  assert_true(lines:match("@README.md") ~= nil, "tab should complete the file mention input text")
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
+  assert_equal(submitted, nil, "tab completion should not submit")
 end)
 
-run("tab switches from dollar skill input to chat without submitting", function()
+run("tab completes dollar skill input without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -2153,9 +2214,9 @@ run("tab switches from dollar skill input to chat without submitting", function(
 
   local input_buf = vim.fn.bufnr("omniac://input")
   local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-  assert_true(lines:match("%$im") ~= nil, "tab should keep the dollar skill input text")
-  assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "tab should focus chat")
-  assert_equal(submitted, nil, "tab focus switch should not submit")
+  assert_true(lines:match("%$imagegen") ~= nil, "tab should complete the dollar skill input text")
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
+  assert_equal(submitted, nil, "tab completion should not submit")
 end)
 
 run("enter completes and submits dollar skill", function()
