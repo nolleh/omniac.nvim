@@ -298,6 +298,35 @@ local function transport_activity_text(text)
   return nil
 end
 
+local function normalized_stop_reason(params)
+  params = params or {}
+  local reason = params.stopReason or params.stop_reason
+  if not reason and type(params.result) == "table" then
+    reason = params.result.stopReason or params.result.stop_reason
+  end
+  return type(reason) == "string" and reason or nil
+end
+
+local function stop_reason_activity(reason, config)
+  if reason == "cancelled" or reason == "canceled" then
+    return "Turn cancelled."
+  end
+  if reason == "interrupted" then
+    return "Turn interrupted."
+  end
+  if config and config.debug and reason and reason ~= "" and reason ~= "end_turn" then
+    return "Stopped: " .. reason
+  end
+  return nil
+end
+
+local function stop_reason_footer(reason)
+  if reason == "max_tokens" or reason == "length" or reason == "token_limit" then
+    return "Stopped: token limit"
+  end
+  return nil
+end
+
 local function nonempty_tail(lines)
   for index = #lines, 1, -1 do
     if tostring(lines[index] or ""):match("%S") then
@@ -506,6 +535,9 @@ local function render_chat(config, opts)
           for _, display_line in ipairs(chat_message_lines(line, win_width)) do
             add_line(lines, marks, display_line, group)
           end
+        end
+        if message.stop_footer and message.stop_footer ~= "" then
+          add_line(lines, marks, "  " .. fit(message.stop_footer, win_width - 4) .. "  ", "OmniacMuted")
         end
         if message.complete then
           add_line(
@@ -1858,10 +1890,12 @@ function M.add_tool_result(params, config)
   focus_input()
 end
 
-function M.add_message(role, text, config)
+function M.add_message(role, text, config, opts)
+  opts = opts or {}
   table.insert(state.messages, {
     role = role,
     text = text or "",
+    stop_footer = opts.stop_footer,
   })
   if role ~= "Omniac" then
     state.streaming_message_index = nil
@@ -1925,10 +1959,12 @@ function M.append_response_chunk(text, config)
   render_chat(config, { skip_markdown = true })
 end
 
-function M.complete_response(config)
+function M.complete_response(config, opts)
+  opts = opts or {}
   local index = state.streaming_message_index
   if index and state.messages[index] and state.messages[index].role == "Omniac" then
     state.messages[index].complete = true
+    state.messages[index].stop_footer = opts.stop_footer
     render_chat(config)
   end
   state.streaming_message_index = nil
@@ -1995,9 +2031,16 @@ function M.handle_notification(message, config)
   end
 
   if method == "omniac/response" then
-    M.add_message("Omniac", params.text or "", config)
+    local reason = normalized_stop_reason(params)
+    M.add_message("Omniac", params.text or "", config, {
+      stop_footer = stop_reason_footer(reason),
+    })
     state.streaming_message_index = nil
     M.set_status("ready", config)
+    local activity = stop_reason_activity(reason, config)
+    if activity then
+      M.set_activity(activity, config)
+    end
     return
   end
 
@@ -2027,8 +2070,18 @@ function M.handle_notification(message, config)
   end
 
   if method == "omniac/response_completed" then
-    M.complete_response(config)
+    local reason = normalized_stop_reason(params)
+    local suppress_stop_ui = state.suppress_current_turn
+    M.complete_response(config, {
+      stop_footer = suppress_stop_ui and nil or stop_reason_footer(reason),
+    })
     M.set_status("ready", config)
+    if not suppress_stop_ui then
+      local activity = stop_reason_activity(reason, config)
+      if activity then
+        M.set_activity(activity, config)
+      end
+    end
     return
   end
 

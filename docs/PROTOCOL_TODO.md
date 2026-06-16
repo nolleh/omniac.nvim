@@ -54,7 +54,7 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Mark streamed responses complete after the prompt response / completion event.
 - [x] Surface `session/error` and transport errors in the UI.
 - [x] Support `session/cancel` from the UI for active turns.
-- [ ] Track ACP stop reasons from the `session/prompt` response.
+- [x] Track ACP stop reasons from the `session/prompt` response.
 
 ## Content
 

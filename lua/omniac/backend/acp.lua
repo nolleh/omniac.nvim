@@ -62,6 +62,31 @@ local function extract_text(value, seen)
   return nil
 end
 
+local function extract_response_result_text(result)
+  if type(result) ~= "table" then
+    return nil
+  end
+
+  for _, key in ipairs({ "text", "delta", "message", "content", "value" }) do
+    local found = extract_text(result[key])
+    if found and found ~= "" then
+      return found
+    end
+  end
+
+  local content_items = result.contentItems or result.content_items
+  if type(content_items) == "table" then
+    for _, item in ipairs(content_items) do
+      local found = extract_text(item)
+      if found and found ~= "" then
+        return found
+      end
+    end
+  end
+
+  return nil
+end
+
 local function first_option_id(request)
   local options = request and request.options or {}
   if type(options) ~= "table" then
@@ -1083,12 +1108,13 @@ function M.new(config)
     end
 
     self.response_emitted = true
+    self.last_stop_reason = result and (result.stopReason or result.stop_reason) or nil
 
     local text = self.response_buffer
     self.response_buffer = ""
 
     if (not text or text == "") and result then
-      text = extract_text(result)
+      text = extract_response_result_text(result)
     end
 
     if text and text ~= "" then
@@ -1098,6 +1124,7 @@ function M.new(config)
           params = {
             sessionId = self.session_id,
             result = result,
+            stopReason = self.last_stop_reason,
           },
         })
       else
@@ -1107,9 +1134,19 @@ function M.new(config)
             text = text,
             sessionId = self.session_id,
             result = result,
+            stopReason = self.last_stop_reason,
           },
         })
       end
+    else
+      self:_emit_notification({
+        method = "omniac/response_completed",
+        params = {
+          sessionId = self.session_id,
+          result = result,
+          stopReason = self.last_stop_reason,
+        },
+      })
     end
   end
 

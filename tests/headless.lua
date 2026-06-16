@@ -604,6 +604,51 @@ run("streaming response defers markdown rendering until complete", function()
   package.loaded["render-markdown"] = nil
 end)
 
+run("response stop reasons render only actionable UI", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+
+  ui.handle_notification(
+    { method = "omniac/response_chunk", params = { text = "short answer" } },
+    { ui = { chat_width = 48 } }
+  )
+  ui.handle_notification(
+    { method = "omniac/response_completed", params = { stopReason = "max_tokens" } },
+    { ui = { chat_width = 48 } }
+  )
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(chat:match("short answer") ~= nil, "response text should render")
+  assert_true(chat:match("Stopped: token limit") ~= nil, "token limit stop reason should render as footer")
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  ui.handle_notification(
+    { method = "omniac/response_completed", params = { stopReason = "cancelled" } },
+    { ui = { chat_width = 48 } }
+  )
+
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Turn cancelled%.") ~= nil, "cancelled stop reason should render as activity")
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  ui.handle_notification({ method = "omniac/response_chunk", params = { text = "done" } }, { ui = { chat_width = 48 } })
+  ui.handle_notification(
+    { method = "omniac/response_completed", params = { stopReason = "end_turn" } },
+    { ui = { chat_width = 48 } }
+  )
+
+  chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(chat:match("Stopped: end_turn") == nil, "normal end_turn should not render as chat noise")
+end)
+
 run("assistant prose keeps chat padding", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -1363,6 +1408,101 @@ run("ACP prompt sends image content blocks when advertised", function()
   assert_equal(request.params.prompt[2].data, "aW1n", "image data should be preserved")
 end)
 
+run("ACP prompt response emits stop reason", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local completed
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function(_, method, _, callback)
+      assert_equal(method, "session/prompt", "prompt should use session/prompt")
+      client:_handle_notification({
+        method = "session/update",
+        params = {
+          update = {
+            sessionUpdate = "agent_message_chunk",
+            content = {
+              {
+                type = "text",
+                text = "hello",
+              },
+            },
+          },
+        },
+      })
+      callback(nil, {
+        stopReason = "max_tokens",
+      })
+    end,
+  }
+  client:on_notification(function(message)
+    if message.method == "omniac/response_completed" then
+      completed = message
+    end
+  end)
+
+  client:prompt("hello")
+
+  vim.wait(50, function()
+    return completed ~= nil
+  end)
+
+  assert_true(completed ~= nil, "streamed prompt should emit response_completed")
+  assert_equal(completed.params.stopReason, "max_tokens", "completion event should include stop reason")
+  assert_equal(client.last_stop_reason, "max_tokens", "client should remember last stop reason")
+end)
+
+run("ACP empty prompt result still emits response_completed", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local completed
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function(_, method, _, callback)
+      assert_equal(method, "session/prompt", "prompt should use session/prompt")
+      client:_handle_notification({
+        method = "session/update",
+        params = {
+          update = {
+            sessionUpdate = "tool_call_update",
+            kind = "execute",
+            status = "failed",
+            title = "Run tests",
+            toolCallId = "call_failed_test",
+            rawOutput = {
+              output = "1 test failed\n",
+              exit_code = 1,
+            },
+          },
+        },
+      })
+      callback(nil, {
+        stopReason = "end_turn",
+      })
+    end,
+  }
+  client:on_notification(function(message)
+    if message.method == "omniac/response_completed" then
+      completed = message
+    end
+  end)
+
+  client:prompt("run tests")
+
+  vim.wait(50, function()
+    return completed ~= nil
+  end)
+
+  assert_true(completed ~= nil, "empty prompt result should still emit response_completed")
+  assert_equal(completed.params.stopReason, "end_turn", "completion should keep stop reason")
+end)
+
 run("ACP edit diff emits permission diff for new files", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")
@@ -2088,6 +2228,25 @@ run("cancel suppresses late current-turn tool output", function()
   local chat_buf = vim.fn.bufnr("omniac")
   local cancelled = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
   assert_true(cancelled:match("late command") == nil, "late cancelled tool output should be hidden")
+
+  ui.handle_notification({
+    method = "omniac/response_completed",
+    params = {
+      stopReason = "max_tokens",
+    },
+  }, config)
+
+  cancelled = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(
+    cancelled:match("Stopped: token limit") == nil,
+    "late cancelled completion should not add a stop reason footer"
+  )
+  assert_true(
+    activity:match("Stopped: max_tokens") == nil,
+    "late cancelled completion should not add stop reason activity"
+  )
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, config)
   ui.handle_notification({
