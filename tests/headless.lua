@@ -33,6 +33,14 @@ local function assert_true(value, message)
   end
 end
 
+local function feed(keys)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(tostring(keys or ""), true, false, true), "xt", false)
+  vim.wait(20, function()
+    return true
+  end)
+  vim.cmd("redraw")
+end
+
 local function run(name, fn)
   local ok, err = xpcall(fn, debug.traceback)
   if ok then
@@ -159,7 +167,7 @@ run("session dialog flattens multiline session titles", function()
   end
   assert_true(footer_rendered:match("%[n%] new") ~= nil, "new session action should render in the footer")
 
-  vim.api.nvim_feedkeys("q", "xt", false)
+  feed("q")
   assert_equal(result, nil, "closing the dialog without selection should not choose a session")
 end)
 
@@ -173,10 +181,10 @@ run("input focus returns to end of wrapped message", function()
     ui = { chat_width = 42 },
   }, function(_) end)
 
-  vim.api.nvim_feedkeys(string.rep("a", 80), "xt", false)
+  feed(string.rep("a", 80))
   vim.cmd("stopinsert")
   vim.cmd("wincmd p")
-  vim.api.nvim_feedkeys("i", "xt", false)
+  feed("i")
   vim.cmd("redraw")
 
   local lines = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 0, -1, false)
@@ -241,11 +249,11 @@ run("tab switches between Omniac input and chat windows", function()
 
   assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Omniac should open focused on input")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Tab>", true, false, true), "xt", false)
+  feed("<Tab>")
   vim.cmd("redraw")
   assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "Tab should focus chat")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<S-Tab>", true, false, true), "xt", false)
+  feed("<S-Tab>")
   vim.cmd("redraw")
   assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Shift-Tab should focus input")
 end)
@@ -276,11 +284,11 @@ run("input ctrl-v attaches clipboard image and submits it", function()
   end)
 
   vim.cmd("startinsert")
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-v>", true, false, true), "x", false)
+  feed("<C-v>")
   vim.wait(20)
   vim.cmd("stopinsert")
   vim.api.nvim_buf_set_lines(vim.api.nvim_get_current_buf(), 1, 2, false, { "│ > describe image" })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+  feed("<CR>")
   vim.cmd("redraw")
 
   assert_equal(submitted_text, "describe image", "submit should keep typed prompt text")
@@ -302,7 +310,7 @@ run("input allows greater-than as user text", function()
 
   vim.cmd("stopinsert")
   vim.api.nvim_win_set_cursor(0, { 2, #"│ > " })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i><Esc>", true, false, true), "xt", false)
+  feed("i><Esc>")
   vim.cmd("redraw")
 
   local line = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 1, 2, false)[1]
@@ -321,7 +329,7 @@ run("normal i inside input prompt starts at content column", function()
 
   vim.cmd("stopinsert")
   vim.api.nvim_win_set_cursor(0, { 2, 3 })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("ix<Esc>", true, false, true), "xt", false)
+  feed("ix<Esc>")
   vim.cmd("redraw")
 
   local line = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 1, 2, false)[1]
@@ -342,12 +350,12 @@ run("input height shrinks back to three display lines", function()
   assert_equal(vim.api.nvim_buf_line_count(0), 5, "input box should start with three display lines")
 
   local text = table.concat({ "a", "b", "c", "d", "e" }, "<S-CR>")
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i" .. text .. "<Esc>", true, false, true), "xt", false)
+  feed("i" .. text .. "<Esc>")
   vim.cmd("redraw")
 
   assert_equal(vim.api.nvim_win_get_height(0), 7, "input window should grow with input lines")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<BS><BS><BS><BS><Esc>", true, false, true), "xt", false)
+  feed("i<BS><BS><BS><BS><Esc>")
   vim.cmd("redraw")
 
   assert_equal(vim.api.nvim_win_get_height(0), 5, "input window should shrink back to the minimum display height")
@@ -440,7 +448,7 @@ run("tool result output is collapsed and toggled", function()
   assert_true(collapsed:match("three") == nil, "collapsed output should hide middle lines")
   assert_true(collapsed:match("%+2 lines") ~= nil, "collapsed output should show hidden line count")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-t>", true, false, true), "xt", false)
+  feed("<C-t>")
   vim.wait(20)
   local expanded = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
   assert_true(expanded:match("three") ~= nil, "expanded output should show hidden line")
@@ -752,8 +760,41 @@ run("chat and input redraw after user vertical resize", function()
   assert_equal(vim.fn.strdisplaywidth(input_line), 100, "input should redraw to the resized width")
   assert_equal(vim.fn.strdisplaywidth(status_line), 100, "status should redraw to the resized width")
 
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+  assert_equal(vim.api.nvim_win_get_width(chat_win), 100, "reopening chat should preserve user resize width")
+
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
+end)
+
+run("completed assistant messages keep turn separators after reopen", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  local config = {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }
+
+  ui.open(config, function(_) end)
+  ui.add_message("Omniac", "first answer", config)
+  ui.add_message("Omniac", "second answer", config)
+  ui.open(config, function(_) end)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local lines = vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)
+  local separators = 0
+  for _, line in ipairs(lines) do
+    if line:match("^  [─]+%s*$") then
+      separators = separators + 1
+    end
+  end
+
+  assert_true(separators >= 2, "completed assistant messages should keep visible turn separators")
 end)
 
 run("omniac resize command resizes the side ui as one body", function()
@@ -885,7 +926,7 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   end)
   local dialog_buf = vim.fn.bufnr("omniac://permission")
   dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
-  vim.api.nvim_feedkeys("1", "xt", false)
+  feed("1")
   vim.wait(50, function()
     return replied ~= nil
   end)
@@ -986,7 +1027,7 @@ run("edit permission without diff falls back to selector", function()
   end)
   local dialog_buf = vim.fn.bufnr("omniac://permission")
   dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
-  vim.api.nvim_feedkeys("1", "xt", false)
+  feed("1")
 
   vim.wait(50, function()
     return replied ~= nil
@@ -1075,13 +1116,13 @@ run("permission dialog ignores escape without cancelling", function()
     choice = selected
   end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc><Esc>", true, false, true), "xt", false)
+  feed("<Esc><Esc>")
   vim.wait(50)
 
   assert_equal(choice, "unset", "escape should not choose or cancel permission")
   assert_true(vim.fn.bufnr("omniac://permission") ~= -1, "permission dialog should remain open after escape")
 
-  vim.api.nvim_feedkeys("q", "xt", false)
+  feed("q")
   vim.wait(50, function()
     return choice ~= "unset"
   end)
@@ -1110,7 +1151,7 @@ run("permission dialog replaces an existing dialog", function()
   assert_true(text:match("second") ~= nil, "second permission dialog should replace the first")
   assert_true(text:match("first") == nil, "stale permission dialog content should be removed")
 
-  vim.api.nvim_feedkeys("q", "xt", false)
+  feed("q")
 end)
 
 run("status renders ACP session mode", function()
@@ -1837,7 +1878,7 @@ run("slash input opens command suggestions below chat", function()
     { name = "plan", description = "Create a plan" },
   })
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/<Esc>", true, false, true), "xt", false)
+  feed("i/<Esc>")
   vim.cmd("redraw")
 
   local command_buf
@@ -1865,7 +1906,7 @@ run("slash input opens command suggestions below chat", function()
   assert_true(lines:match("/plan") ~= nil, "agent command should be listed")
   assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("a<BS>hello<Esc>", true, false, true), "xt", false)
+  feed("a<BS>hello<Esc>")
   vim.cmd("redraw")
 
   assert_equal(vim.api.nvim_win_is_valid(command_win), false, "commands window should close for non-slash input")
@@ -1884,7 +1925,7 @@ run("slash command suggestions tolerate null input metadata", function()
     { name = "compact", description = vim.NIL, input = vim.NIL },
   })
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/com<Esc>", true, false, true), "xt", false)
+  feed("i/com<Esc>")
   vim.cmd("redraw")
 
   local command_buf
@@ -1915,7 +1956,7 @@ run("dollar input opens agent skill suggestions", function()
     { name = "$openai-docs", description = "OpenAI docs" },
   })
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i$im<Esc>", true, false, true), "xt", false)
+  feed("i$im<Esc>")
   vim.cmd("redraw")
 
   local command_buf
@@ -1942,7 +1983,7 @@ run("at input opens file mention suggestions", function()
     ui = { chat_width = 48 },
   }, function(_) end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<Esc>", true, false, true), "xt", false)
+  feed("i@READ<Esc>")
   vim.cmd("redraw")
 
   local command_buf
@@ -1972,7 +2013,7 @@ run("enter completes best slash command candidate", function()
     submitted = text
   end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/res<CR>", true, false, true), "xt", false)
+  feed("i/res<CR>")
   vim.cmd("redraw")
 
   assert_equal(submitted, "/resume", "enter should complete the best slash command candidate")
@@ -2015,7 +2056,7 @@ run("slash exit closes chat without submitting", function()
   omniac.open_chat()
   assert_true(has_window_for_buffer_name("omniac://input"), "input window should open")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/exit<CR>", true, false, true), "xt", false)
+  feed("i/exit<CR>")
   vim.cmd("redraw")
 
   assert_equal(submitted, false, "exit should not submit a prompt")
@@ -2036,7 +2077,7 @@ run("enter completes file mention without submitting", function()
     submitted = text
   end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<CR>", true, false, true), "xt", false)
+  feed("i@READ<CR>")
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
@@ -2058,7 +2099,7 @@ run("tab switches from slash input to chat without submitting", function()
     submitted = text
   end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/res<Tab><Esc>", true, false, true), "xt", false)
+  feed("i/res<Tab><Esc>")
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
@@ -2081,7 +2122,7 @@ run("tab switches from file mention input to chat without submitting", function(
     submitted = text
   end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i@READ<Tab><Esc>", true, false, true), "xt", false)
+  feed("i@READ<Tab><Esc>")
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
@@ -2107,7 +2148,7 @@ run("tab switches from dollar skill input to chat without submitting", function(
     { name = "$imagegen", description = "Generate images" },
   })
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i$im<Tab><Esc>", true, false, true), "xt", false)
+  feed("i$im<Tab><Esc>")
   vim.cmd("redraw")
 
   local input_buf = vim.fn.bufnr("omniac://input")
@@ -2133,7 +2174,7 @@ run("enter completes and submits dollar skill", function()
     { name = "$imagegen", description = "Generate images" },
   })
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i$im<CR>", true, false, true), "xt", false)
+  feed("i$im<CR>")
   vim.cmd("redraw")
 
   assert_equal(submitted, "$imagegen", "enter should complete and submit the dollar skill")
@@ -2154,7 +2195,7 @@ run("esc cancels active turn once", function()
   }, function() end)
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<Esc><Esc><Esc>", true, false, true), "xt", false)
+  feed("i<Esc><Esc><Esc>")
   vim.cmd("redraw")
   vim.wait(50, function()
     return cancels > 0
@@ -2184,12 +2225,12 @@ run("cancel failure allows retry", function()
   }, function() end)
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<Esc>", true, false, true), "xt", false)
+  feed("i<Esc>")
   vim.cmd("redraw")
   vim.wait(50, function()
     return cancels >= 1
   end)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "xt", false)
+  feed("<Esc>")
   vim.cmd("redraw")
   vim.wait(50, function()
     return cancels >= 2
@@ -2211,7 +2252,7 @@ run("cancel suppresses late current-turn tool output", function()
   ui.open(config, function() end)
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, config)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<Esc>", true, false, true), "xt", false)
+  feed("i<Esc>")
   vim.cmd("redraw")
 
   ui.handle_notification({
@@ -2278,7 +2319,7 @@ run("shift tab switches to chat without cycling session mode", function()
     ui = { chat_width = 48 },
   }, function() end)
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i<S-Tab><Esc>", true, false, true), "xt", false)
+  feed("i<S-Tab><Esc>")
   vim.cmd("redraw")
 
   assert_equal(count, 0, "shift-tab should not call the mode cycle handler")
@@ -2299,9 +2340,9 @@ run("command suggestions do not drift input window", function()
   local initial_row = vim.api.nvim_win_get_position(input_win)[1]
 
   for _ = 1, 3 do
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/<Esc>", true, false, true), "xt", false)
+    feed("i/<Esc>")
     vim.cmd("redraw")
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("a<BS><Esc>", true, false, true), "xt", false)
+    feed("a<BS><Esc>")
     vim.cmd("redraw")
   end
 
@@ -2330,11 +2371,11 @@ run("shrinking command suggestions stay below input", function()
   local input_win = vim.api.nvim_get_current_win()
   local initial_row = vim.api.nvim_win_get_position(input_win)[1]
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("i/a<Esc>", true, false, true), "xt", false)
+  feed("i/a<Esc>")
   vim.cmd("redraw")
   assert_equal(vim.api.nvim_win_get_position(input_win)[1], initial_row, "input row should stay while suggestions open")
 
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("arch<Esc>", true, false, true), "xt", false)
+  feed("arch<Esc>")
   vim.cmd("redraw")
   assert_equal(
     vim.api.nvim_win_get_position(input_win)[1],

@@ -34,6 +34,7 @@ local state = {
   session_mode = nil,
   mode_cycle_handler = nil,
   relayout_pending = false,
+  user_width = nil,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -57,6 +58,11 @@ end
 
 local function width(config)
   local value = ((config or {}).ui or {}).chat_width or 58
+  return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
+end
+
+local function target_width()
+  local value = state.user_width or width(state.config)
   return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
 end
 
@@ -496,7 +502,7 @@ local function render_chat(config, opts)
     return
   end
 
-  local win_width = valid_win(state.chat_win) and vim.api.nvim_win_get_width(state.chat_win) or width(state.config)
+  local win_width = valid_win(state.chat_win) and vim.api.nvim_win_get_width(state.chat_win) or target_width()
   local text_width = math.max(28, win_width - 6)
   local lines = {}
   local marks = {}
@@ -539,7 +545,8 @@ local function render_chat(config, opts)
         if message.stop_footer and message.stop_footer ~= "" then
           add_line(lines, marks, "  " .. fit(message.stop_footer, win_width - 4) .. "  ", "OmniacMuted")
         end
-        if message.complete then
+        local complete = message.complete or (message.complete == nil and message.role == "Omniac" and not message.type)
+        if complete then
           add_line(
             lines,
             marks,
@@ -578,7 +585,7 @@ local function render_status()
     return
   end
 
-  local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or width(state.config)
+  local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or target_width()
   local mode = state.session_mode and (state.session_mode.currentModeName or state.session_mode.currentModeId)
   local left = " Omniac "
   local middle = "  " .. state.status .. " "
@@ -620,8 +627,7 @@ local function render_activity()
     return
   end
 
-  local win_width = valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win)
-    or width(state.config)
+  local win_width = valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win) or target_width()
   local frames = {
     "Working",
     "Working.",
@@ -700,7 +706,7 @@ local function reset_input()
     return
   end
 
-  local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
+  local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or target_width()
   state.rendering_input = true
   vim.bo[state.input_buf].modifiable = true
   local buffer_lines = { box_line("╭", "─", "╮", win_width), INPUT_PROMPT }
@@ -1160,7 +1166,7 @@ render_input = function(lines, cursor, opts)
     lines = { "" }
   end
 
-  local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or width(state.config)
+  local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or target_width()
   local chunks
   lines, cursor, chunks = wrap_input_lines(lines, cursor, win_width)
   local display_line_count = math.max(INPUT_MIN_DISPLAY_LINES, #lines)
@@ -1414,7 +1420,7 @@ update_command_window = function()
     local row, col = input_bottom_position()
     state.command_win = vim.api.nvim_open_win(state.command_buf, false, {
       relative = "editor",
-      width = width(state.config),
+      width = target_width(),
       height = 1,
       row = row,
       col = col,
@@ -1427,17 +1433,17 @@ update_command_window = function()
     vim.wo[state.command_win].statusline = "%#OmniacStatus#%="
   end
 
-  local target_width = width(state.config)
+  local target = target_width()
   local display_count = math.min(5, #matches)
   local row, col = input_bottom_position()
   pcall(vim.api.nvim_win_set_config, state.command_win, {
     relative = "editor",
-    width = target_width,
+    width = target,
     height = display_count,
     row = row,
     col = col,
   })
-  pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
+  pcall(vim.api.nvim_win_set_width, state.command_win, target)
   pcall(vim.api.nvim_win_set_height, state.command_win, display_count)
 
   local lines = {}
@@ -1448,7 +1454,7 @@ update_command_window = function()
     local hint = item.input and item.input.hint and (" " .. item.input.hint) or ""
     local description = item.description ~= "" and (" - " .. item.description) or ""
     local source = item.source == "omniac" and " client" or ""
-    local line = fit(item_trigger .. item.name .. hint .. description .. source, target_width)
+    local line = fit(item_trigger .. item.name .. hint .. description .. source, target)
     table.insert(lines, line)
     table.insert(marks, {
       line = index,
@@ -1468,26 +1474,26 @@ update_command_window = function()
 end
 
 resize_aux_windows = function()
-  local target_width = width(state.config)
+  local target = target_width()
   if valid_win(state.chat_win) then
-    pcall(vim.api.nvim_win_set_width, state.chat_win, target_width)
+    pcall(vim.api.nvim_win_set_width, state.chat_win, target)
     pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, vim.o.lines))
   end
   if valid_win(state.status_win) then
-    pcall(vim.api.nvim_win_set_width, state.status_win, target_width)
+    pcall(vim.api.nvim_win_set_width, state.status_win, target)
     pcall(vim.api.nvim_win_set_height, state.status_win, 1)
   end
   if valid_win(state.input_win) then
-    pcall(vim.api.nvim_win_set_width, state.input_win, target_width)
-    pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(raw_input_lines(), target_width))
+    pcall(vim.api.nvim_win_set_width, state.input_win, target)
+    pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(raw_input_lines(), target))
     reset_leftcol(state.input_win)
   end
   if valid_win(state.command_win) then
-    pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
+    pcall(vim.api.nvim_win_set_width, state.command_win, target)
     pcall(vim.api.nvim_win_set_height, state.command_win, 5)
   end
   if valid_win(state.activity_win) then
-    pcall(vim.api.nvim_win_set_width, state.activity_win, target_width)
+    pcall(vim.api.nvim_win_set_width, state.activity_win, target)
     pcall(vim.api.nvim_win_set_height, state.activity_win, 1)
   end
 end
@@ -1502,6 +1508,10 @@ local function relayout()
     )
   then
     return
+  end
+
+  if valid_win(state.chat_win) then
+    state.user_width = vim.api.nvim_win_get_width(state.chat_win)
   end
 
   render_chat(state.config)
@@ -1519,6 +1529,7 @@ function M.resize(value)
   end
 
   target_width = math.floor(math.min(math.max(target_width, 42), math.max(42, vim.o.columns - 20)))
+  state.user_width = target_width
   for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
     if valid_win(win) then
       pcall(vim.api.nvim_win_set_width, win, target_width)
@@ -1545,6 +1556,9 @@ local function schedule_relayout()
 end
 
 function M.close()
+  if valid_win(state.chat_win) then
+    state.user_width = vim.api.nvim_win_get_width(state.chat_win)
+  end
   stop_activity_timer()
   vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
   close_command_window()
@@ -1624,7 +1638,7 @@ function M.open(config, submit)
 
   state.chat_win = open_split_with_buffer("botright vertical", state.chat_buf)
   configure_window(state.chat_win)
-  pcall(vim.api.nvim_win_set_width, state.chat_win, width(state.config))
+  pcall(vim.api.nvim_win_set_width, state.chat_win, target_width())
   vim.wo[state.chat_win].winfixwidth = true
   vim.wo[state.chat_win].statusline = "%!v:lua.require'omniac.ui'.statusline()"
 
