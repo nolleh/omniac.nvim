@@ -299,10 +299,10 @@ local function content_text(value, seen)
   return nil
 end
 
-local function permission_details(params)
+local function permission_body(params)
   local tool_call = params and params.toolCall or {}
   local raw_input = type(tool_call.rawInput) == "table" and tool_call.rawInput or {}
-  local lines = { permission_summary(params) }
+  local lines = {}
   local description = raw_input.description
     or tool_call.description
     or params.description
@@ -349,6 +349,15 @@ local function permission_details(params)
   end
 
   return table.concat(lines, "\n")
+end
+
+local function permission_details(params)
+  local body = permission_body(params)
+  if body == "" then
+    return permission_summary(params)
+  end
+
+  return table.concat({ permission_summary(params), "", body }, "\n")
 end
 
 local function permission_result_text(option, accepted)
@@ -417,6 +426,7 @@ local function select_permission_option(params, reply, config, notice_index, not
   vim.schedule(function()
     permission_dialog.open(options, {
       prompt = permission_summary(params),
+      body = permission_details(params),
     }, function(choice)
       update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
       reply(selected_permission_response(choice))
@@ -763,6 +773,7 @@ function M.review_permission_request(params, callback, config)
       { optionId = "reject_once", name = "Reject" },
     }, {
       prompt = permission_summary(params),
+      body = permission_details(params),
     }, function(choice)
       update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
       if callback then

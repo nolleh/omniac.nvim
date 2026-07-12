@@ -9,6 +9,7 @@ local state = {
   options = {},
   callback = nil,
   prompt = "",
+  body = "",
 }
 
 local function valid_buf(buf)
@@ -37,6 +38,14 @@ local function normalize_text(text)
   return tostring(text or ""):gsub("[\r\n]+", " "):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
+local function normalize_body(text)
+  if type(text) == "table" then
+    return table.concat(text, "\n")
+  end
+
+  return tostring(text or "")
+end
+
 local function fit(text, size)
   local value = normalize_text(text)
   local current = vim.fn.strdisplaywidth(value)
@@ -51,6 +60,74 @@ local function fit(text, size)
     return out
   end
   return value .. string.rep(" ", size - current)
+end
+
+local function wrap_line(text, width)
+  local value = tostring(text or "")
+  if value == "" then
+    return { "" }
+  end
+
+  local words = {}
+  for word in value:gmatch("%S+") do
+    table.insert(words, word)
+  end
+  if #words == 0 then
+    return { "" }
+  end
+
+  local lines = {}
+  local current = ""
+
+  local function push_current()
+    if current ~= "" then
+      table.insert(lines, current)
+      current = ""
+    end
+  end
+
+  local function append_hard_wrapped(word)
+    local chunk = ""
+    for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+      if chunk ~= "" and vim.fn.strdisplaywidth(chunk .. char) > width then
+        table.insert(lines, chunk)
+        chunk = char
+      else
+        chunk = chunk .. char
+      end
+    end
+    if chunk ~= "" then
+      current = chunk
+    end
+  end
+
+  for _, word in ipairs(words) do
+    if current == "" then
+      if vim.fn.strdisplaywidth(word) <= width then
+        current = word
+      else
+        append_hard_wrapped(word)
+      end
+    else
+      local candidate = current .. " " .. word
+      if vim.fn.strdisplaywidth(candidate) <= width then
+        current = candidate
+      else
+        push_current()
+        if vim.fn.strdisplaywidth(word) <= width then
+          current = word
+        else
+          append_hard_wrapped(word)
+        end
+      end
+    end
+  end
+
+  push_current()
+  if #lines == 0 then
+    return { value }
+  end
+  return lines
 end
 
 local function option_label(option)
@@ -76,6 +153,7 @@ local function close(choice)
   state.selected = 1
   state.options = {}
   state.prompt = ""
+  state.body = ""
 
   if callback then
     callback(choice)
@@ -97,6 +175,7 @@ function M.dismiss()
   state.selected = 1
   state.options = {}
   state.prompt = ""
+  state.body = ""
 end
 
 local function cleanup_existing()
@@ -118,6 +197,7 @@ local function cleanup_existing()
   state.selected = 1
   state.options = {}
   state.prompt = ""
+  state.body = ""
 end
 
 local function render()
@@ -138,6 +218,18 @@ local function render()
   end
 
   add(state.prompt, "OmniacPermissionTitle")
+  if state.body ~= "" then
+    add("", nil)
+    for _, paragraph in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
+      if paragraph == "" then
+        table.insert(lines, "  " .. string.rep(" ", inner_width))
+      else
+        for _, wrapped in ipairs(wrap_line(paragraph, inner_width)) do
+          add(wrapped, "OmniacPermissionText")
+        end
+      end
+    end
+  end
   add("", nil)
   for index, option in ipairs(state.options) do
     local prefix = index == state.selected and "> " or "  "
@@ -194,10 +286,21 @@ function M.open(options, opts, callback)
   state.options = type(options) == "table" and options or {}
   state.callback = callback
   state.prompt = normalize_text((opts or {}).prompt or "Permission requested")
+  state.body = normalize_body((opts or {}).body or (opts or {}).details or "")
   state.selected = #state.options > 0 and 1 or 0
 
   local width = math.min(math.max(58, math.floor(vim.o.columns * 0.36)), math.max(42, vim.o.columns - 8))
-  local height = math.min(math.max(6, #state.options + 4), math.max(6, vim.o.lines - 8))
+  local body_lines = 0
+  if state.body ~= "" then
+    for _, paragraph in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
+      if paragraph == "" then
+        body_lines = body_lines + 1
+      else
+        body_lines = body_lines + #wrap_line(paragraph, math.max(1, width - 4))
+      end
+    end
+  end
+  local height = math.min(math.max(6, body_lines + #state.options + 5), math.max(6, vim.o.lines - 8))
   local row = math.max(0, math.floor((vim.o.lines - height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
 

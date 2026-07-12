@@ -1275,7 +1275,16 @@ run("permission request shows JSON-RPC details in chat and selector", function()
   assert_true(chat:match("cwd:") ~= nil, "permission chat should show cwd")
   assert_true(chat:match("Options:") == nil, "permission chat should leave options to the selector")
   assert_true(chat:match("Details:") == nil, "permission chat should not expose protocol-ish detail labels")
-  assert_true(dialog_text:match("Permission requested: execute") ~= nil, "selector prompt should stay compact")
+  assert_true(dialog_text:match("Permission requested: execute") ~= nil, "selector prompt should still be shown")
+  assert_true(
+    dialog_text:match("stylua lua/omniac/clipboard.lua") ~= nil,
+    "selector should show the command to approve"
+  )
+  assert_true(
+    dialog_text:match("커밋 전에 변경된 Lua 파일 포맷을 확인/적용하도록 허용할까요%?") ~= nil,
+    "selector should show the request text"
+  )
+  assert_true(dialog_text:match("cwd:") ~= nil, "selector should show the working directory")
   assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
 
   local activity_buf = vim.fn.bufnr("omniac://activity")
