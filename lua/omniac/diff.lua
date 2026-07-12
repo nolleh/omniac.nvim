@@ -219,6 +219,32 @@ local function close_stale_reviews()
   end
 end
 
+local function stop_insert()
+  if vim.fn.mode():match("^[iR]") then
+    pcall(vim.cmd, "stopinsert")
+  end
+end
+
+local function first_diff_line(before_lines, after_lines)
+  local limit = math.max(#before_lines, #after_lines)
+  for index = 1, limit do
+    if before_lines[index] ~= after_lines[index] then
+      return index
+    end
+  end
+  return 1
+end
+
+local function set_window_cursor(win, line)
+  if not win or not vim.api.nvim_win_is_valid(win) then
+    return
+  end
+
+  local line_count = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
+  local target_line = math.max(1, math.min(line, line_count))
+  pcall(vim.api.nvim_win_set_cursor, win, { target_line, 0 })
+end
+
 function M.open(before_lines, after_lines, opts)
   opts = opts or {}
 
@@ -285,6 +311,11 @@ function M.open(before_lines, after_lines, opts)
   if opts.title then
     vim.api.nvim_buf_set_name(after_buf, opts.title)
   end
+
+  stop_insert()
+  local cursor_line = first_diff_line(before_lines or {}, after_lines or {})
+  set_window_cursor(after_win, cursor_line)
+  set_window_cursor(before_win, cursor_line)
 
   return {
     before_buf = before_buf,

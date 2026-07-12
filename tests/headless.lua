@@ -144,6 +144,17 @@ run("diff review opens in normal mode", function()
   assert_true(not vim.fn.mode():match("^i"), "diff review should leave insert mode when it opens")
 end)
 
+run("diff review jumps to the first changed line", function()
+  package.loaded["omniac.diff"] = nil
+  local diff = require("omniac.diff")
+
+  diff.open_review("/tmp/omniac-test.txt", { "keep", "old", "tail" }, { "keep", "new", "tail" }, {})
+
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  assert_equal(cursor[1], 2, "diff review should place the cursor on the first changed line")
+  assert_equal(cursor[2], 0, "diff review cursor should start at column 0")
+end)
+
 run("session dialog flattens multiline session titles", function()
   package.loaded["omniac.session_dialog"] = nil
   local dialog = require("omniac.session_dialog")
