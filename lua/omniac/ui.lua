@@ -1684,6 +1684,9 @@ local function relayout()
     return
   end
 
+  if resize_aux_windows then
+    resize_aux_windows()
+  end
   render_chat(state.config)
   render_activity()
   render_status()
@@ -1728,7 +1731,7 @@ end
 function M.close()
   stop_activity_timer()
   stop_tool_activity_timer()
-  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
+  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized", "WinClosed" } })
   close_command_window()
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_close, state.input_win, true)
@@ -2004,6 +2007,10 @@ function M.open(config, submit)
   })
   vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
   vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
+    group = augroup,
+    callback = schedule_relayout,
+  })
+  vim.api.nvim_create_autocmd("WinClosed", {
     group = augroup,
     callback = schedule_relayout,
   })

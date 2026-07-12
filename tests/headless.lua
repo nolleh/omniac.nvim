@@ -1063,6 +1063,51 @@ run("chat and input redraw after explicit omniac resize", function()
   package.loaded["render-markdown"] = nil
 end)
 
+run("chat relayouts while error state is active", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local ui = require("omniac.ui")
+  vim.api.nvim_set_option_value("columns", 180, {})
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  local initial_height = vim.api.nvim_win_get_height(chat_win)
+  ui.set_status("error", {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  })
+  vim.cmd("split")
+  vim.cmd("enew")
+  vim.cmd("close")
+
+  vim.wait(250, function()
+    return vim.api.nvim_win_is_valid(chat_win) and vim.api.nvim_win_get_height(chat_win) == initial_height
+  end)
+
+  assert_equal(
+    vim.api.nvim_win_get_height(chat_win),
+    initial_height,
+    "error-state relayout should restore the chat window height"
+  )
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
 run("completed assistant messages keep turn separators after reopen", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -1318,6 +1363,61 @@ run("permission selector leaves insert mode and stays read-only", function()
   assert_true(not vim.fn.mode():match("^i"), "permission selector should not stay in insert mode")
 
   dialog.dismiss()
+end)
+
+run("permission dialog uses markdown rendering for the body", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.permission_dialog"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local render_calls = {}
+  package.preload["render-markdown"] = function()
+    return {
+      initialized = true,
+      render = function(ctx)
+        table.insert(render_calls, ctx)
+      end,
+    }
+  end
+
+  local dialog = require("omniac.permission_dialog")
+
+  dialog.open({
+    { optionId = "allow_once", name = "Allow Once" },
+    { optionId = "reject_once", name = "Reject" },
+  }, {
+    prompt = "Permission requested: execute",
+    body = table.concat({
+      "Title: Markdown body",
+      "",
+      "```sh",
+      "printf ok",
+      "```",
+      "",
+      "| A | B |",
+      "| - | - |",
+      "| 1 | 2 |",
+    }, "\n"),
+  }, function(_) end)
+
+  local dialog_buf = vim.fn.bufnr("omniac://permission")
+  assert_true(dialog_buf ~= -1, "permission dialog should open")
+  assert_equal(vim.bo[dialog_buf].filetype, "markdown", "permission dialog should use markdown filetype")
+  assert_true(#render_calls > 0, "permission dialog should call render-markdown")
+  assert_equal(render_calls[#render_calls].buf, dialog_buf, "render-markdown should receive the permission buffer")
+  assert_equal(
+    render_calls[#render_calls].event,
+    "OmniacPermissionRender",
+    "render-markdown should receive a permission render event"
+  )
+
+  local dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
+  assert_true(dialog_text:match("```sh") ~= nil, "permission body should keep markdown source")
+  assert_true(dialog_text:match("| A | B |") ~= nil, "permission body should keep table markdown source")
+
+  dialog.dismiss()
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
 end)
 
 run("permission profile requests require a user choice", function()

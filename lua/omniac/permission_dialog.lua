@@ -1,6 +1,12 @@
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("omniac.permission_dialog")
+local PERMISSION_MARKDOWN_RENDER_CONFIG = {
+  pipe_table = {
+    border_virtual = true,
+    style = "normal",
+  },
+}
 
 local state = {
   buf = nil,
@@ -60,74 +66,6 @@ local function fit(text, size)
     return out
   end
   return value .. string.rep(" ", size - current)
-end
-
-local function wrap_line(text, width)
-  local value = tostring(text or "")
-  if value == "" then
-    return { "" }
-  end
-
-  local words = {}
-  for word in value:gmatch("%S+") do
-    table.insert(words, word)
-  end
-  if #words == 0 then
-    return { "" }
-  end
-
-  local lines = {}
-  local current = ""
-
-  local function push_current()
-    if current ~= "" then
-      table.insert(lines, current)
-      current = ""
-    end
-  end
-
-  local function append_hard_wrapped(word)
-    local chunk = ""
-    for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-      if chunk ~= "" and vim.fn.strdisplaywidth(chunk .. char) > width then
-        table.insert(lines, chunk)
-        chunk = char
-      else
-        chunk = chunk .. char
-      end
-    end
-    if chunk ~= "" then
-      current = chunk
-    end
-  end
-
-  for _, word in ipairs(words) do
-    if current == "" then
-      if vim.fn.strdisplaywidth(word) <= width then
-        current = word
-      else
-        append_hard_wrapped(word)
-      end
-    else
-      local candidate = current .. " " .. word
-      if vim.fn.strdisplaywidth(candidate) <= width then
-        current = candidate
-      else
-        push_current()
-        if vim.fn.strdisplaywidth(word) <= width then
-          current = word
-        else
-          append_hard_wrapped(word)
-        end
-      end
-    end
-  end
-
-  push_current()
-  if #lines == 0 then
-    return { value }
-  end
-  return lines
 end
 
 local function option_label(option)
@@ -200,6 +138,41 @@ local function cleanup_existing()
   state.body = ""
 end
 
+local function render_permission_markdown()
+  if not valid_buf(state.buf) then
+    return
+  end
+
+  local ok, renderer = pcall(require, "render-markdown")
+  if not ok or type(renderer) ~= "table" then
+    return
+  end
+
+  if renderer.initialized == false and type(renderer.setup) == "function" then
+    pcall(
+      renderer.setup,
+      vim.tbl_deep_extend("force", {
+        file_types = { "markdown" },
+      }, PERMISSION_MARKDOWN_RENDER_CONFIG)
+    )
+  end
+
+  if type(renderer.render) == "function" then
+    local ok_state, renderer_state = pcall(require, "render-markdown.state")
+    if ok_state and type(renderer_state) == "table" and type(renderer_state.cache) == "table" then
+      renderer_state.cache[state.buf] = nil
+    end
+    pcall(renderer.render, {
+      buf = state.buf,
+      win = state.win,
+      event = "OmniacPermissionRender",
+      config = PERMISSION_MARKDOWN_RENDER_CONFIG,
+    })
+  elseif type(renderer.buf_enable) == "function" then
+    pcall(renderer.buf_enable)
+  end
+end
+
 local function render()
   if not valid_buf(state.buf) then
     return
@@ -220,13 +193,10 @@ local function render()
   add(state.prompt, "OmniacPermissionTitle")
   if state.body ~= "" then
     add("", nil)
-    for _, paragraph in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
-      if paragraph == "" then
-        table.insert(lines, "  " .. string.rep(" ", inner_width))
-      else
-        for _, wrapped in ipairs(wrap_line(paragraph, inner_width)) do
-          add(wrapped, "OmniacPermissionText")
-        end
+    for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
+      table.insert(lines, "  " .. line)
+      if line ~= "" then
+        table.insert(marks, { #lines - 1, 0, -1, "OmniacPermissionText" })
       end
     end
   end
@@ -290,15 +260,9 @@ function M.open(options, opts, callback)
   state.selected = #state.options > 0 and 1 or 0
 
   local width = math.min(math.max(58, math.floor(vim.o.columns * 0.36)), math.max(42, vim.o.columns - 8))
-  local body_lines = 0
-  if state.body ~= "" then
-    for _, paragraph in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
-      if paragraph == "" then
-        body_lines = body_lines + 1
-      else
-        body_lines = body_lines + #wrap_line(paragraph, math.max(1, width - 4))
-      end
-    end
+  local body_lines = #vim.split(state.body, "\n", { plain = true, trimempty = false })
+  if state.body == "" then
+    body_lines = 0
   end
   local height = math.min(math.max(6, body_lines + #state.options + 5), math.max(6, vim.o.lines - 8))
   local row = math.max(0, math.floor((vim.o.lines - height - 4) / 3))
@@ -308,7 +272,7 @@ function M.open(options, opts, callback)
   vim.bo[state.buf].buftype = "nofile"
   vim.bo[state.buf].bufhidden = "wipe"
   vim.bo[state.buf].swapfile = false
-  vim.bo[state.buf].filetype = "omniac-permission"
+  vim.bo[state.buf].filetype = "markdown"
   vim.bo[state.buf].modifiable = false
   vim.bo[state.buf].readonly = true
   pcall(vim.api.nvim_buf_set_name, state.buf, "omniac://permission")
@@ -367,9 +331,11 @@ function M.open(options, opts, callback)
   })
 
   render()
+  render_permission_markdown()
   stop_insert()
   vim.schedule(function()
     if valid_win(state.win) then
+      render_permission_markdown()
       stop_insert()
     end
   end)
