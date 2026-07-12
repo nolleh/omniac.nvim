@@ -81,6 +81,21 @@ local function capture_user_width()
   end
 end
 
+local function reset_chat_state()
+  state.messages = {}
+  state.streaming_message_index = nil
+  state.tool_activity = nil
+  state.transient_activity = nil
+  state.cancel_requested = false
+  state.suppress_current_turn = false
+  state.active_turn_id = nil
+  if state.tool_activity_timer then
+    state.tool_activity_timer:stop()
+    state.tool_activity_timer:close()
+    state.tool_activity_timer = nil
+  end
+end
+
 local function agent_name(config)
   local cmd = ((config or state.config or {}).agent or {}).cmd or {}
   if type(cmd) == "table" then
@@ -1737,7 +1752,10 @@ end
 function M.close()
   stop_activity_timer()
   stop_tool_activity_timer()
-  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized", "WinClosed" } })
+  vim.api.nvim_clear_autocmds({
+    group = augroup,
+    event = { "VimResized", "WinResized", "WinClosed", "WinEnter", "FocusGained" },
+  })
   close_command_window()
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_close, state.input_win, true)
@@ -2018,11 +2036,22 @@ function M.open(config, submit)
     group = augroup,
     callback = schedule_relayout,
   })
+  vim.api.nvim_create_autocmd({ "WinEnter", "FocusGained" }, {
+    group = augroup,
+    callback = function()
+      if M.is_open() then
+        schedule_relayout()
+      end
+    end,
+  })
   vim.api.nvim_create_autocmd("WinClosed", {
     group = augroup,
     callback = schedule_relayout,
   })
 
+  if resize_aux_windows then
+    resize_aux_windows()
+  end
   render_chat(state.config)
   render_activity()
   reset_input()
@@ -2258,6 +2287,9 @@ function M.handle_notification(message, config)
   end
 
   if method == "_transport/thread_started" or method == "omniac/session_started" then
+    if method == "_transport/thread_started" then
+      reset_chat_state()
+    end
     M.set_status("ready", config)
     return
   end

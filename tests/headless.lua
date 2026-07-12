@@ -1104,6 +1104,84 @@ run("chat keeps its initial open width across external split churn", function()
   package.loaded["render-markdown"] = nil
 end)
 
+run("thread started clears stale chat history", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local ui = require("omniac.ui")
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+
+  ui.add_message("You", "old user message", { ui = { chat_width = 58 } })
+  ui.add_message("Omniac", "old assistant reply", { ui = { chat_width = 58 } })
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local before = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(before:match("old user message") ~= nil, "precondition should render old user text")
+  assert_true(before:match("old assistant reply") ~= nil, "precondition should render old assistant text")
+
+  ui.handle_notification({
+    method = "_transport/thread_started",
+    params = { method = "thread/start" },
+  }, { ui = { chat_width = 58 } })
+
+  local after = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+  assert_true(after:match("old user message") == nil, "thread start should clear old user text")
+  assert_true(after:match("old assistant reply") == nil, "thread start should clear old assistant text")
+  assert_true(after:match("Status: ready") ~= nil, "thread start should show a fresh ready state")
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
+run("chat relayouts while error state is active", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local ui = require("omniac.ui")
+  vim.api.nvim_set_option_value("columns", 180, {})
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  local initial_height = vim.api.nvim_win_get_height(chat_win)
+  ui.set_status("error", {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  })
+  vim.cmd("split")
+  vim.cmd("enew")
+  vim.cmd("close")
+
+  vim.wait(250, function()
+    return vim.api.nvim_win_is_valid(chat_win) and vim.api.nvim_win_get_height(chat_win) == initial_height
+  end)
+
+  assert_equal(
+    vim.api.nvim_win_get_height(chat_win),
+    initial_height,
+    "error-state relayout should restore the chat window height"
+  )
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
 run("completed assistant messages keep turn separators after reopen", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -1406,6 +1484,13 @@ run("permission dialog uses markdown rendering for the body", function()
     "OmniacPermissionRender",
     "render-markdown should receive a permission render event"
   )
+
+  vim.wait(50)
+  local settled_calls = #render_calls
+
+  feed("j")
+  vim.wait(50)
+  assert_equal(#render_calls, settled_calls, "moving the permission selection should not rerender the markdown body")
 
   local dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
   assert_true(dialog_text:match("```sh") ~= nil, "permission body should keep markdown source")
