@@ -1063,7 +1063,7 @@ run("chat and input redraw after explicit omniac resize", function()
   package.loaded["render-markdown"] = nil
 end)
 
-run("chat relayouts while error state is active", function()
+run("chat keeps its initial open width across external split churn", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   package.loaded["render-markdown"] = nil
@@ -1085,23 +1085,19 @@ run("chat relayouts while error state is active", function()
   end
   assert_true(chat_win ~= nil, "chat window should exist")
 
-  local initial_height = vim.api.nvim_win_get_height(chat_win)
-  ui.set_status("error", {
-    agent = { cmd = { "codex-acp" } },
-    ui = { chat_width = 58 },
-  })
-  vim.cmd("split")
+  local initial_width = vim.api.nvim_win_get_width(chat_win)
+  vim.cmd("vsplit")
   vim.cmd("enew")
   vim.cmd("close")
 
   vim.wait(250, function()
-    return vim.api.nvim_win_is_valid(chat_win) and vim.api.nvim_win_get_height(chat_win) == initial_height
+    return vim.api.nvim_win_is_valid(chat_win) and vim.api.nvim_win_get_width(chat_win) == initial_width
   end)
 
   assert_equal(
-    vim.api.nvim_win_get_height(chat_win),
-    initial_height,
-    "error-state relayout should restore the chat window height"
+    vim.api.nvim_win_get_width(chat_win),
+    initial_width,
+    "closing an external split should keep the initial chat window width"
   )
 
   package.preload["render-markdown"] = nil

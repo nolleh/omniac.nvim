@@ -75,6 +75,12 @@ local function target_width()
   return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
 end
 
+local function capture_user_width()
+  if valid_win(state.chat_win) then
+    state.user_width = vim.api.nvim_win_get_width(state.chat_win)
+  end
+end
+
 local function agent_name(config)
   local cmd = ((config or state.config or {}).agent or {}).cmd or {}
   if type(cmd) == "table" then
@@ -1759,6 +1765,7 @@ function M.open(config, submit)
     and valid_win(state.status_win)
   then
     resize_aux_windows()
+    capture_user_width()
     focus_input()
     return state
   end
@@ -1835,6 +1842,7 @@ function M.open(config, submit)
   pcall(vim.api.nvim_win_set_height, state.status_win, 1)
   vim.wo[state.status_win].statusline = "%#OmniacStatus#%="
   resize_aux_windows()
+  capture_user_width()
 
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     local text = input_text()
