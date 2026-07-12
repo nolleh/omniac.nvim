@@ -17,6 +17,7 @@ local state = {
   status_win = nil,
   status = "idle",
   activity_timer = nil,
+  tool_activity_timer = nil,
   activity_frame = 1,
   tool_activity = nil,
   messages = {},
@@ -349,8 +350,35 @@ end
 
 local render_activity
 
+local function stop_tool_activity_timer()
+  if state.tool_activity_timer then
+    state.tool_activity_timer:stop()
+    state.tool_activity_timer:close()
+    state.tool_activity_timer = nil
+  end
+end
+
+local function schedule_tool_activity_clear()
+  stop_tool_activity_timer()
+
+  local uv = vim.uv or vim.loop
+  state.tool_activity_timer = uv.new_timer()
+  state.tool_activity_timer:start(
+    500,
+    0,
+    vim.schedule_wrap(function()
+      state.tool_activity_timer = nil
+      if state.status == "working" and state.tool_activity and state.tool_activity:match("^Completed ") then
+        state.tool_activity = nil
+        render_activity()
+      end
+    end)
+  )
+end
+
 local function clear_completed_tool_activity()
   if state.status == "working" and state.tool_activity and state.tool_activity:match("^Completed ") then
+    stop_tool_activity_timer()
     state.tool_activity = nil
     render_activity()
   end
@@ -1609,6 +1637,7 @@ function M.close()
     state.user_width = vim.api.nvim_win_get_width(state.chat_win)
   end
   stop_activity_timer()
+  stop_tool_activity_timer()
   vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized", "WinClosed" } })
   close_command_window()
   if valid_win(state.input_win) then
@@ -1883,6 +1912,7 @@ function M.set_status(status, config)
   if state.status ~= "working" then
     state.tool_activity = nil
     state.cancel_requested = false
+    stop_tool_activity_timer()
   end
   if state.status == "working" or state.status ~= "connecting" then
     state.transient_activity = nil
@@ -1936,6 +1966,11 @@ function M.set_tool_activity(params, config)
 
   local exit = params.exitCode ~= nil and (" exit " .. tostring(params.exitCode)) or ""
   state.tool_activity = string.format("%s %s: %s%s", prefix, kind, title, exit)
+  if status == "completed" then
+    schedule_tool_activity_clear()
+  else
+    stop_tool_activity_timer()
+  end
   render_activity()
 end
 
@@ -1979,10 +2014,6 @@ function M.add_tool_result(params, config)
     exitCode = params.exitCode,
     expanded = false,
   })
-  if state.status == "working" and (params.status == "completed" or params.status == "failed") then
-    state.tool_activity = nil
-    render_activity()
-  end
   request_chat_render(config, { immediate = true })
   focus_input()
 end

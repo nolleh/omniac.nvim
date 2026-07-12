@@ -543,6 +543,13 @@ run("completed tool results return activity to working", function()
 
   local activity_buf = vim.fn.bufnr("omniac://activity")
   local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Completed execute: run tests") ~= nil, "completed tool activity should show briefly")
+
+  vim.wait(700, function()
+    activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+    return activity:match("Working") ~= nil
+  end)
+
   assert_true(activity:match("Working") ~= nil, "completed tool result should return to working activity")
   assert_true(activity:match("Completed execute: run tests") == nil, "completed tool activity should not linger")
 end)
