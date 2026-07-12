@@ -258,6 +258,80 @@ run("input padding cursor is remapped safely", function()
   assert_equal(cursor[1], 2, "padding cursor should map back to the editable input line")
 end)
 
+run("input history recalls previous prompts with up and down", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted = {}
+  local input_buf
+
+  local function wait_for(predicate, message)
+    local ok = vim.wait(500, function()
+      if not input_buf or not vim.api.nvim_buf_is_valid(input_buf) then
+        return false
+      end
+      return predicate(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false))
+    end)
+    assert_true(ok, message or "timed out waiting for input state")
+  end
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(text)
+    table.insert(submitted, text)
+  end)
+
+  feed("ifirst prompt<CR>")
+  feed("isecond prompt<CR>")
+
+  feed("<Up>")
+  vim.cmd("redraw")
+  input_buf = vim.fn.bufnr("omniac://input")
+  wait_for(function(lines)
+    return table.concat(lines, "\n"):match("second prompt") ~= nil
+  end, "timed out waiting for input to show second prompt")
+
+  feed("<Up>")
+  vim.cmd("redraw")
+  wait_for(function(lines)
+    return table.concat(lines, "\n"):match("first prompt") ~= nil
+  end, "timed out waiting for input to show first prompt")
+
+  feed("<Down>")
+  vim.cmd("redraw")
+  wait_for(function(lines)
+    return table.concat(lines, "\n"):match("second prompt") ~= nil
+  end, "timed out waiting for input to show second prompt")
+
+  feed("<Down>")
+  vim.cmd("redraw")
+  wait_for(function(lines)
+    return (lines[2] or "") == "│ > "
+  end, "timed out waiting for empty prompt")
+
+  assert_equal(submitted[1], "first prompt", "first prompt should be submitted")
+  assert_equal(submitted[2], "second prompt", "second prompt should be submitted")
+end)
+
+run("input up and down keep normal cursor motion when text is present", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 42 },
+  }, function(_) end)
+
+  feed("ihello")
+  local before = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr("omniac://input"), 0, -1, false), "\n")
+  feed("<Up>")
+  vim.cmd("redraw")
+  local after = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr("omniac://input"), 0, -1, false), "\n")
+  assert_equal(after, before, "up should not replace non-empty input with history")
+end)
+
 run("tab switches between Omniac input and chat windows", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

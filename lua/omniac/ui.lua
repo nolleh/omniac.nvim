@@ -21,6 +21,14 @@ local state = {
   activity_frame = 1,
   tool_activity = nil,
   messages = {},
+  input_history = {},
+  input_history_index = nil,
+  input_history_draft = nil,
+  input_history_navigating = false,
+  input_history_render_pending = false,
+  input_history_render_generation = 0,
+  input_history_pending_text = nil,
+  input_history_pending_cursor = nil,
   streaming_message_index = nil,
   config = nil,
   submit = nil,
@@ -764,11 +772,14 @@ local function sync_activity_timer()
   )
 end
 
+local clear_input_history_navigation
+
 local function reset_input()
   if not valid_buf(state.input_buf) then
     return
   end
 
+  clear_input_history_navigation()
   local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or target_width()
   state.rendering_input = true
   vim.bo[state.input_buf].modifiable = true
@@ -887,6 +898,88 @@ end
 
 local function raw_input_text()
   return table.concat(raw_input_lines(), "\n")
+end
+
+local render_input
+clear_input_history_navigation = function()
+  state.input_history_index = nil
+  state.input_history_draft = nil
+  state.input_history_navigating = false
+  state.input_history_render_pending = false
+  state.input_history_pending_text = nil
+  state.input_history_pending_cursor = nil
+  state.input_history_render_generation = state.input_history_render_generation + 1
+end
+
+local function remember_input_history(text)
+  if type(text) ~= "string" or text:match("^%s*$") then
+    return
+  end
+
+  table.insert(state.input_history, text)
+end
+
+local function schedule_input_history_render(text, cursor_col)
+  state.input_history_pending_text = text or ""
+  state.input_history_pending_cursor = cursor_col or #(state.input_history_pending_text or "")
+  if state.input_history_render_pending then
+    return
+  end
+
+  state.input_history_render_pending = true
+  state.input_history_navigating = true
+  local generation = state.input_history_render_generation
+  vim.schedule(function()
+    if generation ~= state.input_history_render_generation then
+      return
+    end
+    state.input_history_render_pending = false
+    if not valid_buf(state.input_buf) then
+      state.input_history_navigating = false
+      return
+    end
+
+    local text = state.input_history_pending_text or ""
+    local cursor_col = math.max(0, tonumber(state.input_history_pending_cursor) or #text)
+    render_input(text, {
+      line = 1,
+      col = cursor_col,
+    })
+    state.input_history_navigating = false
+  end)
+end
+
+local function navigate_input_history(direction)
+  local history = state.input_history or {}
+  if #history == 0 then
+    return false
+  end
+
+  local current_text = raw_input_text()
+  if not state.input_history_index then
+    if direction > 0 or current_text:match("^%s*$") == nil then
+      return false
+    end
+    state.input_history_draft = current_text
+    state.input_history_index = #history
+  else
+    state.input_history_index = state.input_history_index + direction
+    if state.input_history_index < 1 then
+      state.input_history_index = 1
+    end
+    if state.input_history_index > #history then
+      local draft = state.input_history_draft or ""
+      clear_input_history_navigation()
+      schedule_input_history_render(draft, #draft)
+      vim.cmd("startinsert!")
+      return true
+    end
+  end
+
+  local text = history[state.input_history_index] or ""
+  schedule_input_history_render(text, #text)
+  vim.cmd("startinsert!")
+  return true
 end
 
 local function input_text()
@@ -1052,7 +1145,6 @@ local function completed_suggestion_text(text)
   return text
 end
 
-local render_input
 local focus_input
 local focus_chat
 
@@ -1386,6 +1478,9 @@ local function enforce_input()
     return
   end
 
+  if not state.input_history_navigating then
+    clear_input_history_navigation()
+  end
   clamp_input_cursor()
   local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
   local lines = raw_input_lines()
@@ -1752,6 +1847,7 @@ function M.open(config, submit)
       return
     end
     text = completed_suggestion_text(text)
+    remember_input_history(text)
     reset_input()
     clear_input_attachments()
     if state.submit then
@@ -1796,6 +1892,40 @@ function M.open(config, submit)
     buffer = state.input_buf,
     nowait = true,
     desc = "Delete Omniac input character",
+  })
+  vim.keymap.set("i", "<Up>", function()
+    return navigate_input_history(-1) and "<Ignore>" or "<Up>"
+  end, {
+    buffer = state.input_buf,
+    expr = true,
+    nowait = true,
+    desc = "Recall previous Omniac prompt",
+  })
+  vim.keymap.set("i", "<Down>", function()
+    return navigate_input_history(1) and "<Ignore>" or "<Down>"
+  end, {
+    buffer = state.input_buf,
+    expr = true,
+    nowait = true,
+    desc = "Recall next Omniac prompt",
+  })
+  vim.keymap.set("n", "<Up>", function()
+    if not navigate_input_history(-1) then
+      vim.cmd("normal! k")
+    end
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Recall previous Omniac prompt",
+  })
+  vim.keymap.set("n", "<Down>", function()
+    if not navigate_input_history(1) then
+      vim.cmd("normal! j")
+    end
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Recall next Omniac prompt",
   })
   vim.keymap.set("i", "<Esc>", function()
     if cancel_active_turn() then
@@ -2085,6 +2215,7 @@ end
 
 function M.submit(text, config, attachments)
   state.suppress_current_turn = false
+  clear_input_history_navigation()
   local display = text
   local summary = attachment_summary(attachments)
   if summary then
