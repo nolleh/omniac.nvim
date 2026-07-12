@@ -1052,6 +1052,32 @@ run("permission selector leaves insert mode and stays read-only", function()
   dialog.dismiss()
 end)
 
+run("permission profile requests require a user choice", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.approval"] = nil
+  package.loaded["omniac.permission_dialog"] = nil
+  local approval = require("omniac.approval")
+
+  local decided = nil
+  approval.review_permission_request({
+    kind = "permissions",
+    description = "Grant turn permissions for this request?",
+  }, function(accepted)
+    decided = accepted
+  end, { ui = { chat_width = 48 } })
+
+  vim.wait(50, function()
+    return vim.fn.bufnr("omniac://permission") ~= -1
+  end)
+  assert_equal(decided, nil, "permission request should wait for explicit input")
+
+  feed("q")
+  vim.wait(50, function()
+    return decided ~= nil
+  end)
+  assert_equal(decided, false, "rejecting the permission request should deny it")
+end)
+
 run("edit permission without diff falls back to selector", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

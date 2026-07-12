@@ -651,11 +651,17 @@ function M.connect(opts)
       end
 
       if method == "item/permissions/requestApproval" then
-        reply({
-          permissions = build_granted_permissions(M.transport and M.transport.permission_profile or nil),
-          scope = "turn",
-          strictAutoReview = false,
-        })
+        approval.review_permission_request(params, function(accepted)
+          local profile = M.transport and M.transport.permission_profile or nil
+          reply({
+            permissions = accepted and build_granted_permissions(profile) or {
+              fileSystem = nil,
+              network = nil,
+            },
+            scope = "turn",
+            strictAutoReview = false,
+          })
+        end, M.config)
         return
       end
 

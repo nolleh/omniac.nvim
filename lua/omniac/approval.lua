@@ -245,7 +245,7 @@ end
 
 local function permission_summary(params)
   local tool_call = params and params.toolCall or {}
-  local kind = tool_call.kind or "tool"
+  local kind = tool_call.kind or params.kind or "tool"
   return "Permission requested: " .. tostring(kind)
 end
 
@@ -753,6 +753,23 @@ end
 
 function M.review_acp_permission(params, reply, config)
   M.review_request("session/request_permission", params, reply, nil, config)
+end
+
+function M.review_permission_request(params, callback, config)
+  local notice_index, notice_text = show_permission_text(params, config)
+  vim.schedule(function()
+    permission_dialog.open({
+      { optionId = "allow_once", name = "Allow Once" },
+      { optionId = "reject_once", name = "Reject" },
+    }, {
+      prompt = permission_summary(params),
+    }, function(choice)
+      update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
+      if callback then
+        callback(choice ~= nil and choice.optionId == "allow_once")
+      end
+    end)
+  end)
 end
 
 return M
