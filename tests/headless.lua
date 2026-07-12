@@ -924,7 +924,7 @@ run("assistant prose wraps instead of ellipsizing", function()
   assert_true(prose_lines >= 2, "assistant prose should wrap across multiple padded lines")
 end)
 
-run("chat and input redraw after user vertical resize", function()
+run("chat and input redraw after explicit omniac resize", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   package.loaded["render-markdown"] = nil
@@ -958,8 +958,7 @@ run("chat and input redraw after user vertical resize", function()
   end
   assert_true(chat_win ~= nil, "chat window should exist")
 
-  vim.cmd("vertical resize 100")
-  vim.cmd("doautocmd WinResized")
+  ui.resize(100)
   vim.wait(50, function()
     local chat_line = vim.api.nvim_buf_get_lines(chat_buf, 0, 1, false)[1] or ""
     local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ""
@@ -975,6 +974,11 @@ run("chat and input redraw after user vertical resize", function()
   assert_equal(vim.fn.strdisplaywidth(input_line), 100, "input should redraw to the resized width")
   assert_equal(vim.fn.strdisplaywidth(status_line), 100, "status should redraw to the resized width")
 
+  vim.cmd("vsplit")
+  vim.cmd("enew")
+  vim.cmd("close")
+  vim.cmd("doautocmd WinResized")
+
   ui.open({
     agent = { cmd = { "codex-acp" } },
     ui = { chat_width = 58 },
@@ -983,46 +987,6 @@ run("chat and input redraw after user vertical resize", function()
 
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
-end)
-
-run("closing a normal window does not change the preserved omniac width", function()
-  cleanup_omniac_buffers()
-  package.loaded["omniac.ui"] = nil
-
-  local ui = require("omniac.ui")
-  vim.api.nvim_set_option_value("columns", 180, {})
-  ui.open({
-    agent = { cmd = { "codex-acp" } },
-    ui = { chat_width = 58 },
-  }, function(_) end)
-
-  local chat_buf = vim.fn.bufnr("omniac")
-  local chat_win
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(win) == chat_buf then
-      chat_win = win
-      break
-    end
-  end
-  assert_true(chat_win ~= nil, "chat window should exist")
-
-  vim.cmd("vsplit")
-  vim.cmd("enew")
-  ui.resize(100)
-  assert_equal(vim.api.nvim_win_get_width(chat_win), 100, "manual resize should update the omniac width")
-
-  vim.cmd("close")
-  vim.cmd("doautocmd WinResized")
-  ui.open({
-    agent = { cmd = { "codex-acp" } },
-    ui = { chat_width = 58 },
-  }, function(_) end)
-
-  assert_equal(
-    vim.api.nvim_win_get_width(chat_win),
-    100,
-    "closing a normal window should not change the preserved width"
-  )
 end)
 
 run("completed assistant messages keep turn separators after reopen", function()

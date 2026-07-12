@@ -36,7 +36,6 @@ local state = {
   mode_cycle_handler = nil,
   relayout_pending = false,
   user_width = nil,
-  skip_user_width_capture = false,
   active_turn_id = nil,
 }
 
@@ -1590,11 +1589,6 @@ local function relayout()
     return
   end
 
-  if valid_win(state.chat_win) and not state.skip_user_width_capture then
-    state.user_width = vim.api.nvim_win_get_width(state.chat_win)
-  end
-  state.skip_user_width_capture = false
-
   render_chat(state.config)
   render_activity()
   render_status()
@@ -1637,12 +1631,9 @@ local function schedule_relayout()
 end
 
 function M.close()
-  if valid_win(state.chat_win) then
-    state.user_width = vim.api.nvim_win_get_width(state.chat_win)
-  end
   stop_activity_timer()
   stop_tool_activity_timer()
-  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized", "WinClosed" } })
+  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
   close_command_window()
   if valid_win(state.input_win) then
     pcall(vim.api.nvim_win_close, state.input_win, true)
@@ -1881,25 +1872,10 @@ function M.open(config, submit)
     buffer = state.input_buf,
     callback = clamp_input_cursor,
   })
-  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized", "WinClosed" } })
+  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
   vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
     group = augroup,
     callback = schedule_relayout,
-  })
-  vim.api.nvim_create_autocmd("WinClosed", {
-    group = augroup,
-    callback = function(args)
-      local win = tonumber(args.match)
-      if not win then
-        return
-      end
-
-      if valid_win(win) and vim.w[win].omniac_ui then
-        return
-      end
-
-      state.skip_user_width_capture = true
-    end,
   })
 
   render_chat(state.config)
