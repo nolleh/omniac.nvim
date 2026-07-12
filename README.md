@@ -125,6 +125,7 @@ Use a project-local working directory and enable debug logging:
 
 Start Neovim with `scripts/dev.lua` to load this plugin with the default Codex command already configured.
 
-## Protocol TODO
+## TODO
 
-See [docs/PROTOCOL_TODO.md](docs/PROTOCOL_TODO.md) for the current ACP implementation scope and remaining work.
+- [Feature TODO](docs/FEATURE_TODO.md): Omniac input, history, safety, and UX work.
+- [Protocol TODO](docs/PROTOCOL_TODO.md): ACP implementation scope and remaining work.
