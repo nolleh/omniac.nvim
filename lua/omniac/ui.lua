@@ -347,6 +347,15 @@ local function stop_reason_footer(reason)
   return nil
 end
 
+local render_activity
+
+local function clear_completed_tool_activity()
+  if state.status == "working" and state.tool_activity and state.tool_activity:match("^Completed ") then
+    state.tool_activity = nil
+    render_activity()
+  end
+end
+
 local function nonempty_tail(lines)
   for index = #lines, 1, -1 do
     if tostring(lines[index] or ""):match("%S") then
@@ -645,7 +654,7 @@ local function render_status()
   add_capsule(" " .. agent_name(state.config) .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
 end
 
-local function render_activity()
+render_activity = function()
   if not valid_buf(state.activity_buf) then
     return
   end
@@ -1980,6 +1989,9 @@ end
 
 function M.add_message(role, text, config, opts)
   opts = opts or {}
+  if role == "Omniac" then
+    clear_completed_tool_activity()
+  end
   table.insert(state.messages, {
     role = role,
     text = text or "",
@@ -2020,6 +2032,8 @@ function M.append_response_chunk(text, config)
   if not text or text == "" then
     return
   end
+
+  clear_completed_tool_activity()
 
   local activity = transport_activity_text(text)
   if activity then
