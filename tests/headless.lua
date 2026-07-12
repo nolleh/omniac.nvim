@@ -2346,6 +2346,30 @@ run("cancelled turn restores working activity on restart", function()
   assert_true(activity:match("Cancelled current turn") == nil, "restarted turn should clear cancelled activity")
 end)
 
+run("late cancelled completion from old turn is ignored", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = { turnId = 1 } }, { ui = { chat_width = 48 } })
+  ui.handle_notification({ method = "omniac/prompt_cancelled", params = { turnId = 1 } }, { ui = { chat_width = 48 } })
+  ui.handle_notification({ method = "omniac/prompt_started", params = { turnId = 2 } }, { ui = { chat_width = 48 } })
+  ui.handle_notification(
+    { method = "omniac/response_completed", params = { turnId = 1, stopReason = "cancelled" } },
+    { ui = { chat_width = 48 } }
+  )
+
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Working") ~= nil, "late cancelled completion should not replace working activity")
+  assert_true(activity:match("Cancelled current turn") == nil, "late cancelled completion should stay hidden")
+end)
+
 run("cancel suppresses late current-turn tool output", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

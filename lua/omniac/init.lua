@@ -289,19 +289,23 @@ function M.open_chat()
       return
     end
 
+    local turn_id = M.backend.active_turn_id
     M.backend:cancel(function(err)
       if err then
         ui.handle_notification({
           method = "omniac/prompt_cancel_failed",
           params = {
             message = tostring(err.message or err.error or err),
+            turnId = turn_id,
           },
         }, M.config)
         return
       end
       ui.handle_notification({
         method = "omniac/prompt_cancelled",
-        params = {},
+        params = {
+          turnId = turn_id,
+        },
       }, M.config)
     end)
   end)

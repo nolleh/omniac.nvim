@@ -479,6 +479,8 @@ function M.new(config)
     edit_tool_calls = {},
     debug_log = {},
     agent_capabilities = {},
+    turn_sequence = 0,
+    active_turn_id = nil,
   }
 
   function state:on_request(handler)
@@ -720,6 +722,7 @@ function M.new(config)
             params = {
               text = text,
               sessionId = self.session_id,
+              turnId = self.active_turn_id,
             },
           })
         end
@@ -736,6 +739,7 @@ function M.new(config)
             params = {
               text = text,
               sessionId = self.session_id,
+              turnId = self.active_turn_id,
             },
           })
         end
@@ -1102,7 +1106,7 @@ function M.new(config)
     self:prompt(pending.text, pending.params, pending.callback)
   end
 
-  function state:_emit_response(result)
+  function state:_emit_response(result, turn_id)
     if self.response_emitted then
       return
     end
@@ -1123,6 +1127,7 @@ function M.new(config)
           method = "omniac/response_completed",
           params = {
             sessionId = self.session_id,
+            turnId = turn_id,
             result = result,
             stopReason = self.last_stop_reason,
           },
@@ -1133,6 +1138,7 @@ function M.new(config)
           params = {
             text = text,
             sessionId = self.session_id,
+            turnId = turn_id,
             result = result,
             stopReason = self.last_stop_reason,
           },
@@ -1143,6 +1149,7 @@ function M.new(config)
         method = "omniac/response_completed",
         params = {
           sessionId = self.session_id,
+          turnId = turn_id,
           result = result,
           stopReason = self.last_stop_reason,
         },
@@ -1274,6 +1281,8 @@ function M.new(config)
     end
 
     local function send_prompt()
+      self.turn_sequence = self.turn_sequence + 1
+      self.active_turn_id = self.turn_sequence
       self.response_buffer = ""
       self.response_emitted = false
       self.response_streamed = false
@@ -1281,6 +1290,7 @@ function M.new(config)
         method = "omniac/prompt_started",
         params = {
           sessionId = self.session_id,
+          turnId = self.active_turn_id,
         },
       })
       self.transport:request("session/prompt", request_params, function(err, result)
@@ -1291,7 +1301,7 @@ function M.new(config)
           return
         end
 
-        self:_emit_response(result)
+        self:_emit_response(result, self.active_turn_id)
 
         if callback then
           callback(nil, result, nil)
@@ -1327,6 +1337,7 @@ function M.new(config)
     self.response_streamed = false
     self.edit_tool_calls = {}
     self.pending_prompt = nil
+    self.active_turn_id = nil
   end
 
   return state

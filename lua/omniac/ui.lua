@@ -35,6 +35,7 @@ local state = {
   mode_cycle_handler = nil,
   relayout_pending = false,
   user_width = nil,
+  active_turn_id = nil,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -317,6 +318,12 @@ local function normalized_stop_reason(params)
     reason = params.result.stopReason or params.result.stop_reason
   end
   return type(reason) == "string" and reason or nil
+end
+
+local function notification_turn_id(params)
+  params = params or {}
+  local turn_id = params.turnId or params.turn_id
+  return type(turn_id) == "number" and turn_id or nil
 end
 
 local function stop_reason_activity(reason, config)
@@ -1114,6 +1121,14 @@ local function input_display_height(lines, win_width)
   return math.min(INPUT_MAX_DISPLAY_LINES, math.max(INPUT_MIN_DISPLAY_LINES, #lines)) + 2
 end
 
+local function bottom_stack_height()
+  local activity_height = 1
+  local status_height = 1
+  local input_height = input_display_height(raw_input_lines(), target_width())
+
+  return activity_height + input_height + status_height
+end
+
 local function wrap_input_lines(lines, cursor, win_width)
   local wrapped_lines = {}
   local chunks = {}
@@ -1499,7 +1514,8 @@ resize_aux_windows = function()
   local target = target_width()
   if valid_win(state.chat_win) then
     pcall(vim.api.nvim_win_set_width, state.chat_win, target)
-    pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, vim.o.lines))
+    local available = vim.o.lines - bottom_stack_height() - 3
+    pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, available))
   end
   if valid_win(state.status_win) then
     pcall(vim.api.nvim_win_set_width, state.status_win, target)
@@ -2035,6 +2051,19 @@ end
 function M.handle_notification(message, config)
   local method = message and message.method
   local params = message and message.params or {}
+  local turn_id = notification_turn_id(params)
+  local current_turn_id = state.active_turn_id
+
+  if turn_id and current_turn_id and turn_id ~= current_turn_id then
+    if
+      method == "omniac/response"
+      or method == "omniac/response_chunk"
+      or method == "omniac/response_completed"
+      or method == "omniac/prompt_cancelled"
+    then
+      return
+    end
+  end
 
   if method == "_transport/thread_started" or method == "omniac/session_started" then
     M.set_status("ready", config)
@@ -2046,12 +2075,14 @@ function M.handle_notification(message, config)
     state.tool_activity = nil
     state.cancel_requested = false
     state.suppress_current_turn = false
+    state.active_turn_id = turn_id
     M.set_status("working", config)
     return
   end
 
   if method == "omniac/prompt_cancelled" then
     state.cancel_requested = false
+    state.active_turn_id = turn_id or state.active_turn_id
     M.set_status("ready", config)
     M.set_activity("Cancelled current turn.", config)
     return
@@ -2133,6 +2164,7 @@ function M.handle_notification(message, config)
         M.set_activity(activity, config)
       end
     end
+    state.active_turn_id = turn_id or state.active_turn_id
     return
   end
 
