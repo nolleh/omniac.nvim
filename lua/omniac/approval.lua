@@ -426,7 +426,7 @@ local function select_permission_option(params, reply, config, notice_index, not
   vim.schedule(function()
     permission_dialog.open(options, {
       prompt = permission_summary(params),
-      body = permission_details(params),
+      body = permission_body(params),
     }, function(choice)
       update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
       reply(selected_permission_response(choice))
@@ -773,7 +773,7 @@ function M.review_permission_request(params, callback, config)
       { optionId = "reject_once", name = "Reject" },
     }, {
       prompt = permission_summary(params),
-      body = permission_details(params),
+      body = permission_body(params),
     }, function(choice)
       update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
       if callback then

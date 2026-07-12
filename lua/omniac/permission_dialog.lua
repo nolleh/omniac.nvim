@@ -9,8 +9,10 @@ local PERMISSION_MARKDOWN_RENDER_CONFIG = {
 }
 
 local state = {
-  buf = nil,
-  win = nil,
+  body_buf = nil,
+  body_win = nil,
+  selector_buf = nil,
+  selector_win = nil,
   selected = 1,
   options = {},
   callback = nil,
@@ -79,15 +81,21 @@ local function close(choice)
   local callback = state.callback
   state.callback = nil
 
-  if valid_win(state.win) then
-    pcall(vim.api.nvim_win_close, state.win, true)
+  for _, win in ipairs({ state.selector_win, state.body_win }) do
+    if valid_win(win) then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
   end
-  if valid_buf(state.buf) then
-    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
+  for _, buf in ipairs({ state.selector_buf, state.body_buf }) do
+    if valid_buf(buf) then
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
   end
 
-  state.buf = nil
-  state.win = nil
+  state.body_buf = nil
+  state.body_win = nil
+  state.selector_buf = nil
+  state.selector_win = nil
   state.selected = 1
   state.options = {}
   state.prompt = ""
@@ -101,15 +109,21 @@ end
 function M.dismiss()
   state.callback = nil
 
-  if valid_win(state.win) then
-    pcall(vim.api.nvim_win_close, state.win, true)
+  for _, win in ipairs({ state.selector_win, state.body_win }) do
+    if valid_win(win) then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
   end
-  if valid_buf(state.buf) then
-    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
+  for _, buf in ipairs({ state.selector_buf, state.body_buf }) do
+    if valid_buf(buf) then
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
   end
 
-  state.buf = nil
-  state.win = nil
+  state.body_buf = nil
+  state.body_win = nil
+  state.selector_buf = nil
+  state.selector_win = nil
   state.selected = 1
   state.options = {}
   state.prompt = ""
@@ -118,11 +132,15 @@ end
 
 local function cleanup_existing()
   state.callback = nil
-  if valid_win(state.win) then
-    pcall(vim.api.nvim_win_close, state.win, true)
+  for _, win in ipairs({ state.selector_win, state.body_win }) do
+    if valid_win(win) then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
   end
-  if valid_buf(state.buf) then
-    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
+  for _, buf in ipairs({ state.selector_buf, state.body_buf }) do
+    if valid_buf(buf) then
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
   end
 
   local existing = vim.fn.bufnr("omniac://permission")
@@ -130,16 +148,18 @@ local function cleanup_existing()
     pcall(vim.api.nvim_buf_delete, existing, { force = true })
   end
 
-  state.buf = nil
-  state.win = nil
+  state.body_buf = nil
+  state.body_win = nil
+  state.selector_buf = nil
+  state.selector_win = nil
   state.selected = 1
   state.options = {}
   state.prompt = ""
   state.body = ""
 end
 
-local function render_permission_markdown()
-  if not valid_buf(state.buf) then
+local function render_permission_markdown(buf, win)
+  if not valid_buf(buf) then
     return
   end
 
@@ -160,11 +180,11 @@ local function render_permission_markdown()
   if type(renderer.render) == "function" then
     local ok_state, renderer_state = pcall(require, "render-markdown.state")
     if ok_state and type(renderer_state) == "table" and type(renderer_state.cache) == "table" then
-      renderer_state.cache[state.buf] = nil
+      renderer_state.cache[buf] = nil
     end
     pcall(renderer.render, {
-      buf = state.buf,
-      win = state.win,
+      buf = buf,
+      win = win,
       event = "OmniacPermissionRender",
       config = PERMISSION_MARKDOWN_RENDER_CONFIG,
     })
@@ -173,53 +193,76 @@ local function render_permission_markdown()
   end
 end
 
-local function render()
-  if not valid_buf(state.buf) then
+local function render_selector()
+  if not valid_buf(state.selector_buf) then
     return
   end
 
-  local width = valid_win(state.win) and vim.api.nvim_win_get_width(state.win) or 58
-  local inner_width = math.max(1, width - 4)
   local lines = {}
   local marks = {}
 
-  local function add(text, group)
-    table.insert(lines, "  " .. fit(text, inner_width))
-    if group then
-      table.insert(marks, { #lines - 1, 0, -1, group })
-    end
-  end
-
-  add(state.prompt, "OmniacPermissionTitle")
-  if state.body ~= "" then
-    add("", nil)
-    for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
-      table.insert(lines, "  " .. line)
-      if line ~= "" then
-        table.insert(marks, { #lines - 1, 0, -1, "OmniacPermissionText" })
-      end
-    end
-  end
-  add("", nil)
   for index, option in ipairs(state.options) do
-    local prefix = index == state.selected and "> " or "  "
-    add(
-      prefix .. tostring(index) .. ". " .. option_label(option),
-      index == state.selected and "OmniacPermissionSelected" or "OmniacPermissionText"
+    table.insert(lines, tostring(index) .. ". " .. option_label(option))
+    table.insert(
+      marks,
+      { line = #lines, group = index == state.selected and "OmniacPermissionSelected" or "OmniacPermissionText" }
     )
   end
-  add("", nil)
-  add("[Enter] choose   [1-9] choose   [j/k] move   [q] reject", "OmniacPermissionMuted")
 
-  vim.bo[state.buf].readonly = false
-  vim.bo[state.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
-  vim.bo[state.buf].modifiable = false
-  vim.bo[state.buf].readonly = true
-  vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
+  table.insert(lines, "")
+  table.insert(marks, { line = #lines, group = nil })
+  table.insert(lines, "[Enter] choose   [1-9] choose   [j/k] move   [q] reject")
+  table.insert(marks, { line = #lines, group = "OmniacPermissionMuted" })
+
+  vim.bo[state.selector_buf].readonly = false
+  vim.bo[state.selector_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.selector_buf, 0, -1, false, lines)
+  vim.bo[state.selector_buf].modifiable = false
+  vim.bo[state.selector_buf].readonly = true
+  vim.api.nvim_buf_clear_namespace(state.selector_buf, ns, 0, -1)
   for _, mark in ipairs(marks) do
-    vim.api.nvim_buf_add_highlight(state.buf, ns, mark[4], mark[1], mark[2], mark[3])
+    if mark.group then
+      vim.api.nvim_buf_add_highlight(state.selector_buf, ns, mark.group, mark.line - 1, 0, -1)
+    end
   end
+end
+
+local function render_selector_selection()
+  if not valid_buf(state.selector_buf) then
+    return
+  end
+
+  vim.api.nvim_buf_clear_namespace(state.selector_buf, ns, 0, -1)
+  for index = 1, #state.options do
+    local group = index == state.selected and "OmniacPermissionSelected" or "OmniacPermissionText"
+    vim.api.nvim_buf_add_highlight(state.selector_buf, ns, group, index - 1, 0, -1)
+  end
+  if #state.options > 0 then
+    vim.api.nvim_buf_add_highlight(state.selector_buf, ns, "OmniacPermissionMuted", #state.options + 1, 0, -1)
+  end
+end
+
+local function render_body()
+  if not valid_buf(state.body_buf) then
+    return
+  end
+
+  local lines = { state.prompt }
+  if state.body ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "> Review request details below.")
+    table.insert(lines, "")
+    for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
+      table.insert(lines, line)
+    end
+  end
+
+  vim.bo[state.body_buf].readonly = false
+  vim.bo[state.body_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.body_buf, 0, -1, false, lines)
+  vim.bo[state.body_buf].modifiable = false
+  vim.bo[state.body_buf].readonly = true
+  render_permission_markdown(state.body_buf, state.body_win)
 end
 
 local function move(delta)
@@ -232,7 +275,7 @@ local function move(delta)
   elseif state.selected > #state.options then
     state.selected = 1
   end
-  render()
+  render_selector_selection()
 end
 
 local function choose(index)
@@ -260,27 +303,36 @@ function M.open(options, opts, callback)
   state.selected = #state.options > 0 and 1 or 0
 
   local width = math.min(math.max(58, math.floor(vim.o.columns * 0.36)), math.max(42, vim.o.columns - 8))
-  local body_lines = #vim.split(state.body, "\n", { plain = true, trimempty = false })
-  if state.body == "" then
-    body_lines = 0
+  local body_text_lines = 1
+  if state.body ~= "" then
+    body_text_lines = body_text_lines + 1 + #vim.split(state.body, "\n", { plain = true, trimempty = false })
   end
-  local height = math.min(math.max(6, body_lines + #state.options + 5), math.max(6, vim.o.lines - 8))
-  local row = math.max(0, math.floor((vim.o.lines - height - 4) / 3))
+  local selector_lines = math.max(3, #state.options + 2)
+  local max_total = math.max(6, vim.o.lines - 8)
+  local gap = 1
+  local selector_height = math.min(selector_lines, max_total)
+  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - gap))
+  local total_height = body_height + selector_height + gap
+  if total_height > max_total then
+    selector_height = math.max(3, max_total - body_height - gap)
+    total_height = body_height + selector_height + gap
+  end
+  local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
 
-  state.buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.buf].buftype = "nofile"
-  vim.bo[state.buf].bufhidden = "wipe"
-  vim.bo[state.buf].swapfile = false
-  vim.bo[state.buf].filetype = "markdown"
-  vim.bo[state.buf].modifiable = false
-  vim.bo[state.buf].readonly = true
-  pcall(vim.api.nvim_buf_set_name, state.buf, "omniac://permission")
+  state.body_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[state.body_buf].buftype = "nofile"
+  vim.bo[state.body_buf].bufhidden = "wipe"
+  vim.bo[state.body_buf].swapfile = false
+  vim.bo[state.body_buf].filetype = "markdown"
+  vim.bo[state.body_buf].modifiable = false
+  vim.bo[state.body_buf].readonly = true
+  pcall(vim.api.nvim_buf_set_name, state.body_buf, "omniac://permission")
 
-  state.win = vim.api.nvim_open_win(state.buf, true, {
+  state.body_win = vim.api.nvim_open_win(state.body_buf, false, {
     relative = "editor",
     width = width,
-    height = height,
+    height = body_height,
     row = row,
     col = col,
     style = "minimal",
@@ -288,16 +340,41 @@ function M.open(options, opts, callback)
     title = " Permission ",
     title_pos = "center",
   })
-  vim.wo[state.win].wrap = false
-  vim.wo[state.win].cursorline = false
-  vim.wo[state.win].signcolumn = "no"
-  vim.wo[state.win].winhighlight = "FloatBorder:OmniacPermissionBorder,FloatTitle:OmniacPermissionTitle"
+  vim.wo[state.body_win].wrap = false
+  vim.wo[state.body_win].cursorline = false
+  vim.wo[state.body_win].signcolumn = "no"
+  vim.wo[state.body_win].winhighlight = "FloatBorder:OmniacPermissionBorder,FloatTitle:OmniacPermissionTitle"
+
+  state.selector_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[state.selector_buf].buftype = "nofile"
+  vim.bo[state.selector_buf].bufhidden = "wipe"
+  vim.bo[state.selector_buf].swapfile = false
+  vim.bo[state.selector_buf].filetype = "omniac-permission"
+  vim.bo[state.selector_buf].modifiable = false
+  vim.bo[state.selector_buf].readonly = true
+  pcall(vim.api.nvim_buf_set_name, state.selector_buf, "omniac://permission-selector")
+
+  state.selector_win = vim.api.nvim_open_win(state.selector_buf, true, {
+    relative = "editor",
+    width = width,
+    height = selector_height,
+    row = row + body_height + gap,
+    col = col,
+    style = "minimal",
+    border = "rounded",
+    title = " Select ",
+    title_pos = "center",
+  })
+  vim.wo[state.selector_win].wrap = false
+  vim.wo[state.selector_win].cursorline = false
+  vim.wo[state.selector_win].signcolumn = "no"
+  vim.wo[state.selector_win].winhighlight = "FloatBorder:OmniacPermissionBorder,FloatTitle:OmniacPermissionTitle"
 
   local function map(lhs, fn)
     vim.keymap.set({ "n", "i" }, lhs, function()
       stop_insert()
       fn()
-    end, { buffer = state.buf, nowait = true, silent = true })
+    end, { buffer = state.selector_buf, nowait = true, silent = true })
   end
 
   map("<CR>", choose)
@@ -321,21 +398,34 @@ function M.open(options, opts, callback)
   end
 
   vim.api.nvim_create_autocmd("BufWipeout", {
-    buffer = state.buf,
+    buffer = state.selector_buf,
     once = true,
     callback = function()
       state.callback = nil
-      state.buf = nil
-      state.win = nil
+      state.selector_buf = nil
+      state.selector_win = nil
     end,
   })
 
-  render()
-  render_permission_markdown()
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    buffer = state.body_buf,
+    once = true,
+    callback = function()
+      state.callback = nil
+      state.body_buf = nil
+      state.body_win = nil
+    end,
+  })
+
+  render_body()
+  render_selector()
   stop_insert()
   vim.schedule(function()
-    if valid_win(state.win) then
-      render_permission_markdown()
+    if valid_win(state.body_win) then
+      render_permission_markdown(state.body_buf, state.body_win)
+    end
+    if valid_win(state.selector_win) then
+      render_selector_selection()
       stop_insert()
     end
   end)
