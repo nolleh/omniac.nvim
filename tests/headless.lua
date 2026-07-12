@@ -2326,6 +2326,26 @@ run("cancel failure allows retry", function()
   assert_equal(cancels, 2, "failed cancel should allow a later esc retry")
 end)
 
+run("cancelled turn restores working activity on restart", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  ui.handle_notification({ method = "omniac/prompt_cancelled", params = {} }, { ui = { chat_width = 48 } })
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Working") ~= nil, "restarted turn should restore working activity")
+  assert_true(activity:match("Cancelled current turn") == nil, "restarted turn should clear cancelled activity")
+end)
+
 run("cancel suppresses late current-turn tool output", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil

@@ -1842,7 +1842,7 @@ function M.set_status(status, config)
     state.tool_activity = nil
     state.cancel_requested = false
   end
-  if state.status ~= "connecting" and state.status ~= "working" then
+  if state.status == "working" or state.status ~= "connecting" then
     state.transient_activity = nil
   end
   render_chat(config)
