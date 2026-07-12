@@ -250,11 +250,10 @@ local function render_body()
   local lines = { state.prompt }
   if state.body ~= "" then
     table.insert(lines, "")
-    table.insert(lines, "> Review request details below.")
-    table.insert(lines, "")
     for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
       table.insert(lines, line)
     end
+    table.insert(lines, "")
   end
 
   vim.bo[state.body_buf].readonly = false
@@ -305,7 +304,7 @@ function M.open(options, opts, callback)
   local width = math.min(math.max(58, math.floor(vim.o.columns * 0.36)), math.max(42, vim.o.columns - 8))
   local body_text_lines = 1
   if state.body ~= "" then
-    body_text_lines = body_text_lines + 1 + #vim.split(state.body, "\n", { plain = true, trimempty = false })
+    body_text_lines = body_text_lines + 2 + #vim.split(state.body, "\n", { plain = true, trimempty = false })
   end
   local selector_lines = math.max(3, #state.options + 2)
   local max_total = math.max(6, vim.o.lines - 8)

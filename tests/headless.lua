@@ -1364,7 +1364,9 @@ run("permission request shows JSON-RPC details in chat and selector", function()
     return vim.fn.bufnr("omniac://permission") ~= -1
   end)
   local dialog_buf = vim.fn.bufnr("omniac://permission")
+  local body_lines = vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false)
   dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
+  assert_equal(body_lines[#body_lines], "", "permission body should leave a blank line below cwd")
   feed("1")
   vim.wait(50, function()
     return replied ~= nil
