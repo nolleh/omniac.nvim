@@ -47,7 +47,6 @@ local CHAT_MARKDOWN_RENDER_CONFIG = {
     style = "normal",
   },
 }
-
 local function valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf)
 end
@@ -157,6 +156,8 @@ local function add_mark(marks, line, from, to, group)
   table.insert(marks, { line = line, from = from, to = to, group = group })
 end
 
+local render_chat
+
 local function add_boxed_line(lines, marks, text, size, group)
   local line = boxed_text(text, size)
   table.insert(lines, line)
@@ -210,6 +211,11 @@ local function render_chat_markdown()
   elseif type(renderer.buf_enable) == "function" then
     pcall(renderer.buf_enable)
   end
+end
+
+local function request_chat_render(config, opts)
+  opts = opts or {}
+  render_chat(config or state.config, opts)
 end
 
 local function clear_render_markdown_marks()
@@ -495,7 +501,7 @@ local function header(lines, marks, size)
   add_line(lines, marks, bottom, "OmniacBorder")
 end
 
-local function render_chat(config, opts)
+render_chat = function(config, opts)
   opts = opts or {}
   state.config = config or state.config
   if not valid_buf(state.chat_buf) then
@@ -566,11 +572,15 @@ local function render_chat(config, opts)
 
   vim.bo[state.chat_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.chat_buf, ns, 0, -1)
-  clear_render_markdown_marks()
+  if not opts.skip_markdown then
+    clear_render_markdown_marks()
+  end
   vim.api.nvim_buf_set_lines(state.chat_buf, 0, -1, false, lines)
   vim.bo[state.chat_buf].modifiable = false
   vim.bo[state.chat_buf].modified = false
-  start_chat_treesitter()
+  if not opts.skip_markdown then
+    start_chat_treesitter()
+  end
 
   for _, mark in ipairs(marks) do
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
@@ -1927,7 +1937,7 @@ function M.add_tool_result(params, config)
     exitCode = params.exitCode,
     expanded = false,
   })
-  render_chat(config)
+  request_chat_render(config, { immediate = true })
   focus_input()
 end
 
@@ -1941,7 +1951,7 @@ function M.add_message(role, text, config, opts)
   if role ~= "Omniac" then
     state.streaming_message_index = nil
   end
-  render_chat(config)
+  request_chat_render(config, { immediate = true })
   focus_input()
 end
 
@@ -1955,7 +1965,7 @@ function M.add_notice(role, text, config)
     text = text or "",
   })
   local index = #state.messages
-  render_chat(config)
+  request_chat_render(config, { immediate = true })
   focus_input()
   return index
 end
@@ -1965,7 +1975,7 @@ function M.update_notice(index, text, config)
     return
   end
   state.messages[index].text = text or state.messages[index].text or ""
-  render_chat(config)
+  request_chat_render(config, { immediate = true })
   focus_input()
 end
 
@@ -1997,7 +2007,7 @@ function M.append_response_chunk(text, config)
 
   state.messages[index].complete = false
   state.messages[index].text = (state.messages[index].text or "") .. text
-  render_chat(config, { skip_markdown = true })
+  request_chat_render(config, { skip_markdown = true })
 end
 
 function M.complete_response(config, opts)
@@ -2006,7 +2016,7 @@ function M.complete_response(config, opts)
   if index and state.messages[index] and state.messages[index].role == "Omniac" then
     state.messages[index].complete = true
     state.messages[index].stop_footer = opts.stop_footer
-    render_chat(config)
+    request_chat_render(config, { immediate = true })
   end
   state.streaming_message_index = nil
 end
