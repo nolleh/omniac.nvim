@@ -358,6 +358,10 @@ local function stop_tool_activity_timer()
   end
 end
 
+local function is_terminal_tool_activity()
+  return state.tool_activity and (state.tool_activity:match("^Completed ") or state.tool_activity:match("^Failed "))
+end
+
 local function schedule_tool_activity_clear()
   stop_tool_activity_timer()
 
@@ -368,7 +372,7 @@ local function schedule_tool_activity_clear()
     0,
     vim.schedule_wrap(function()
       state.tool_activity_timer = nil
-      if state.status == "working" and state.tool_activity and state.tool_activity:match("^Completed ") then
+      if state.status == "working" and is_terminal_tool_activity() then
         state.tool_activity = nil
         render_activity()
       end
@@ -377,7 +381,7 @@ local function schedule_tool_activity_clear()
 end
 
 local function clear_completed_tool_activity()
-  if state.status == "working" and state.tool_activity and state.tool_activity:match("^Completed ") then
+  if state.status == "working" and is_terminal_tool_activity() then
     stop_tool_activity_timer()
     state.tool_activity = nil
     render_activity()
@@ -1966,7 +1970,7 @@ function M.set_tool_activity(params, config)
 
   local exit = params.exitCode ~= nil and (" exit " .. tostring(params.exitCode)) or ""
   state.tool_activity = string.format("%s %s: %s%s", prefix, kind, title, exit)
-  if status == "completed" then
+  if status == "completed" or status == "failed" then
     schedule_tool_activity_clear()
   else
     stop_tool_activity_timer()
