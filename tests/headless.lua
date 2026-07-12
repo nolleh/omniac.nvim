@@ -134,6 +134,16 @@ run("diff review can deny edited proposed buffer with :q", function()
   assert_equal(result.accepted, false, "edited review should still be denied by :q")
 end)
 
+run("diff review opens in normal mode", function()
+  package.loaded["omniac.diff"] = nil
+  local diff = require("omniac.diff")
+
+  vim.cmd("startinsert")
+  diff.open_review("/tmp/omniac-test.txt", { "old" }, { "new" }, {})
+
+  assert_true(not vim.fn.mode():match("^i"), "diff review should leave insert mode when it opens")
+end)
+
 run("session dialog flattens multiline session titles", function()
   package.loaded["omniac.session_dialog"] = nil
   local dialog = require("omniac.session_dialog")
@@ -489,6 +499,43 @@ run("tool result output is collapsed and toggled", function()
   assert_true(expanded:match("%-2 lines") ~= nil, "expanded output should show collapse hint")
 end)
 
+run("completed tool results return activity to working", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(_) end)
+
+  ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
+  ui.handle_notification({
+    method = "omniac/tool_activity",
+    params = {
+      kind = "execute",
+      status = "completed",
+      title = "run tests",
+      exitCode = 0,
+    },
+  }, { ui = { chat_width = 48 } })
+  ui.handle_notification({
+    method = "omniac/tool_result",
+    params = {
+      kind = "execute",
+      status = "completed",
+      title = "run tests",
+      output = "ok\n",
+      exitCode = 0,
+    },
+  }, { ui = { chat_width = 48 } })
+
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Working") ~= nil, "completed tool result should return to working activity")
+  assert_true(activity:match("Completed execute: run tests") == nil, "completed tool activity should not linger")
+end)
+
 run("compact tool results hide noisy completed output", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -802,6 +849,46 @@ run("chat and input redraw after user vertical resize", function()
 
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
+end)
+
+run("closing a normal window does not change the preserved omniac width", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+
+  local ui = require("omniac.ui")
+  vim.api.nvim_set_option_value("columns", 180, {})
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  vim.cmd("vsplit")
+  vim.cmd("enew")
+  ui.resize(100)
+  assert_equal(vim.api.nvim_win_get_width(chat_win), 100, "manual resize should update the omniac width")
+
+  vim.cmd("close")
+  vim.cmd("doautocmd WinResized")
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 58 },
+  }, function(_) end)
+
+  assert_equal(
+    vim.api.nvim_win_get_width(chat_win),
+    100,
+    "closing a normal window should not change the preserved width"
+  )
 end)
 
 run("completed assistant messages keep turn separators after reopen", function()
