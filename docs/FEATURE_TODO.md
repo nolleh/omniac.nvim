@@ -11,7 +11,7 @@ This file tracks Omniac-facing product and interaction work that is independent 
 ## UX Safety
 
 - [ ] Prevent ambient floating windows opened by normal typing, completion, or file navigation from interrupting the Omniac experience.
-- [ ] Make `Esc` behavior context-aware so it closes transient UI without accidentally stopping an active chat turn.
+- [x] Make `Esc` behavior context-aware so it closes transient UI without accidentally stopping an active chat turn.
 - [ ] Audit keymaps and popup handlers that can steal focus while the input is active.
 
 ## Prompt Context
