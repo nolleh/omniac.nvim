@@ -1956,17 +1956,6 @@ function M.open(config, submit)
     nowait = true,
     desc = "Recall next Omniac prompt",
   })
-  vim.keymap.set("i", "<Esc>", function()
-    if cancel_active_turn() then
-      return ""
-    end
-    return "<Esc>"
-  end, {
-    buffer = state.input_buf,
-    expr = true,
-    nowait = true,
-    desc = "Cancel active Omniac turn",
-  })
   vim.keymap.set("n", "<Esc>", function()
     cancel_active_turn()
   end, {

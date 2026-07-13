@@ -2718,7 +2718,7 @@ run("enter completes and submits dollar skill", function()
   assert_equal(submitted, "$imagegen", "enter should complete and submit the dollar skill")
 end)
 
-run("esc cancels active turn once", function()
+run("insert esc exits insert mode before normal esc cancels active turn", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
   local ui = require("omniac.ui")
@@ -2733,13 +2733,17 @@ run("esc cancels active turn once", function()
   }, function() end)
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
-  feed("i<Esc><Esc><Esc>")
+  feed("i<Esc>")
+  assert_equal(cancels, 0, "insert esc should not cancel the active turn")
+  assert_equal(vim.api.nvim_get_mode().mode, "n", "insert esc should return to normal mode")
+
+  feed("<Esc><Esc>")
   vim.cmd("redraw")
   vim.wait(50, function()
     return cancels > 0
   end)
 
-  assert_equal(cancels, 1, "esc should send one cancel request while working")
+  assert_equal(cancels, 1, "normal esc should send one cancel request while working")
 end)
 
 run("cancel failure allows retry", function()
@@ -2764,6 +2768,9 @@ run("cancel failure allows retry", function()
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 48 } })
   feed("i<Esc>")
+  assert_equal(cancels, 0, "insert esc should not send the first cancel request")
+
+  feed("<Esc>")
   vim.cmd("redraw")
   vim.wait(50, function()
     return cancels >= 1
@@ -2834,7 +2841,7 @@ run("cancel suppresses late current-turn tool output", function()
   ui.open(config, function() end)
 
   ui.handle_notification({ method = "omniac/prompt_started", params = {} }, config)
-  feed("i<Esc>")
+  feed("i<Esc><Esc>")
   vim.cmd("redraw")
 
   ui.handle_notification({
