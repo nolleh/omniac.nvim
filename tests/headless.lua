@@ -1441,6 +1441,42 @@ run("permission selector leaves insert mode and stays read-only", function()
   dialog.dismiss()
 end)
 
+run("permission selector continues below a single bordered card", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.permission_dialog"] = nil
+  local dialog = require("omniac.permission_dialog")
+
+  dialog.open({
+    { optionId = "allow_once", name = "Allow Once" },
+    { optionId = "reject_once", name = "Reject" },
+  }, { prompt = "Permission requested: execute" }, function(_) end)
+
+  local body_buf = vim.fn.bufnr("omniac://permission")
+  local selector_buf = vim.fn.bufnr("omniac://permission-selector")
+  local body_win = vim.fn.win_findbuf(body_buf)[1]
+  local selector_win = vim.fn.win_findbuf(selector_buf)[1]
+  local body_config = vim.api.nvim_win_get_config(body_win)
+  local selector_config = vim.api.nvim_win_get_config(selector_win)
+  local selector_lines = vim.api.nvim_buf_get_lines(selector_buf, 0, -1, false)
+  local selected_hl = vim.api.nvim_get_hl(0, { name = "OmniacPermissionSelected" })
+
+  assert_true(body_config.border ~= nil, "permission body should keep the single dialog outline")
+  assert_equal(body_config.title_pos, "left", "permission title should use native left alignment")
+  assert_equal(selector_config.border, nil, "permission actions should not render a second outline")
+  assert_equal(selector_config.col, body_config.col + 1, "permission actions should align with the card content")
+  assert_equal(
+    selector_config.row,
+    body_config.row + body_config.height + 2,
+    "permission actions should continue directly below the card"
+  )
+  assert_true(selector_lines[1]:match("^› 1  Allow Once") ~= nil, "selected permission action should use a cursor")
+  assert_equal(selected_hl.fg, tonumber("11111b", 16), "selected permission action should use the session foreground")
+  assert_equal(selected_hl.bg, tonumber("94e2d5", 16), "selected permission action should use the session background")
+  assert_equal(selected_hl.bold, true, "selected permission action should match the bold session selection")
+
+  dialog.dismiss()
+end)
+
 run("permission dialog uses markdown rendering for the body", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.permission_dialog"] = nil

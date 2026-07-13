@@ -35,10 +35,10 @@ local function stop_insert()
 end
 
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "OmniacPermissionBorder", { fg = "#89dceb" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionTitle", { fg = "#f9e2af", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacPermissionText", { fg = "#cdd6f4" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionMuted", { fg = "#7f849c" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionBorder", { link = "FloatBorder" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionTitle", { link = "FloatTitle" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionText", { link = "NormalFloat" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionMuted", { link = "Comment" })
   vim.api.nvim_set_hl(0, "OmniacPermissionSelected", { fg = "#11111b", bg = "#94e2d5", bold = true })
 end
 
@@ -202,7 +202,8 @@ local function render_selector()
   local marks = {}
 
   for index, option in ipairs(state.options) do
-    table.insert(lines, tostring(index) .. ". " .. option_label(option))
+    local prefix = index == state.selected and "› " or "  "
+    table.insert(lines, prefix .. tostring(index) .. "  " .. option_label(option))
     table.insert(
       marks,
       { line = #lines, group = index == state.selected and "OmniacPermissionSelected" or "OmniacPermissionText" }
@@ -211,7 +212,7 @@ local function render_selector()
 
   table.insert(lines, "")
   table.insert(marks, { line = #lines, group = nil })
-  table.insert(lines, "[Enter] choose   [1-9] choose   [j/k] move   [q] reject")
+  table.insert(lines, "enter select  ·  1-9 select  ·  j/k move  ·  q deny")
   table.insert(marks, { line = #lines, group = "OmniacPermissionMuted" })
 
   vim.bo[state.selector_buf].readonly = false
@@ -307,14 +308,13 @@ function M.open(options, opts, callback)
     body_text_lines = body_text_lines + 2 + #vim.split(state.body, "\n", { plain = true, trimempty = false })
   end
   local selector_lines = math.max(3, #state.options + 2)
-  local max_total = math.max(6, vim.o.lines - 8)
-  local gap = 1
+  local max_total = math.max(8, vim.o.lines - 8)
   local selector_height = math.min(selector_lines, max_total)
-  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - gap))
-  local total_height = body_height + selector_height + gap
+  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - 2))
+  local total_height = body_height + selector_height + 2
   if total_height > max_total then
-    selector_height = math.max(3, max_total - body_height - gap)
-    total_height = body_height + selector_height + gap
+    selector_height = math.max(3, max_total - body_height - 2)
+    total_height = body_height + selector_height + 2
   end
   local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
@@ -337,7 +337,7 @@ function M.open(options, opts, callback)
     style = "minimal",
     border = "rounded",
     title = " Permission ",
-    title_pos = "center",
+    title_pos = "left",
   })
   vim.wo[state.body_win].wrap = false
   vim.wo[state.body_win].cursorline = false
@@ -357,17 +357,15 @@ function M.open(options, opts, callback)
     relative = "editor",
     width = width,
     height = selector_height,
-    row = row + body_height + gap,
-    col = col,
+    row = row + body_height + 2,
+    col = col + 1,
     style = "minimal",
-    border = "rounded",
-    title = " Select ",
-    title_pos = "center",
+    border = "none",
   })
   vim.wo[state.selector_win].wrap = false
   vim.wo[state.selector_win].cursorline = false
   vim.wo[state.selector_win].signcolumn = "no"
-  vim.wo[state.selector_win].winhighlight = "FloatBorder:OmniacPermissionBorder,FloatTitle:OmniacPermissionTitle"
+  vim.wo[state.selector_win].winhighlight = "NormalFloat:NormalFloat"
 
   local function map(lhs, fn)
     vim.keymap.set({ "n", "i" }, lhs, function()
