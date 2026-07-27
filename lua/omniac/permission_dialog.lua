@@ -18,6 +18,8 @@ local state = {
   callback = nil,
   prompt = "",
   body = "",
+  cancel_label = "deny",
+  title = "Permission",
 }
 
 local function valid_buf(buf)
@@ -100,6 +102,8 @@ local function close(choice)
   state.options = {}
   state.prompt = ""
   state.body = ""
+  state.cancel_label = "deny"
+  state.title = "Permission"
 
   if callback then
     callback(choice)
@@ -128,6 +132,8 @@ function M.dismiss()
   state.options = {}
   state.prompt = ""
   state.body = ""
+  state.cancel_label = "deny"
+  state.title = "Permission"
 end
 
 local function cleanup_existing()
@@ -156,6 +162,8 @@ local function cleanup_existing()
   state.options = {}
   state.prompt = ""
   state.body = ""
+  state.cancel_label = "deny"
+  state.title = "Permission"
 end
 
 local function render_permission_markdown(buf, win)
@@ -212,7 +220,7 @@ local function render_selector()
 
   table.insert(lines, "")
   table.insert(marks, { line = #lines, group = nil })
-  table.insert(lines, "enter select  ·  1-9 select  ·  j/k move  ·  q deny")
+  table.insert(lines, "enter select  ·  1-9 select  ·  j/k move  ·  q " .. state.cancel_label)
   table.insert(marks, { line = #lines, group = "OmniacPermissionMuted" })
 
   vim.bo[state.selector_buf].readonly = false
@@ -296,11 +304,14 @@ end
 function M.open(options, opts, callback)
   setup_highlights()
   cleanup_existing()
+  opts = opts or {}
   state.options = type(options) == "table" and options or {}
   state.callback = callback
-  state.prompt = normalize_text((opts or {}).prompt or "Permission requested")
-  state.body = normalize_body((opts or {}).body or (opts or {}).details or "")
-  state.selected = #state.options > 0 and 1 or 0
+  state.prompt = normalize_text(opts.prompt or "Permission requested")
+  state.body = normalize_body(opts.body or opts.details or "")
+  state.cancel_label = normalize_text(opts.cancel_label or "deny")
+  state.title = normalize_text(opts.title or "Permission")
+  state.selected = #state.options > 0 and math.min(math.max(tonumber(opts.selected) or 1, 1), #state.options) or 0
 
   local width = math.min(math.max(58, math.floor(vim.o.columns * 0.36)), math.max(42, vim.o.columns - 8))
   local body_text_lines = 1
@@ -336,7 +347,7 @@ function M.open(options, opts, callback)
     col = col,
     style = "minimal",
     border = "rounded",
-    title = " Permission ",
+    title = " " .. state.title .. " ",
     title_pos = "left",
   })
   vim.wo[state.body_win].wrap = false

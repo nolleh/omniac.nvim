@@ -1754,6 +1754,32 @@ run("status renders ACP session mode", function()
   assert_true(line:match("Code") ~= nil, "status should include the current ACP mode")
 end)
 
+run("status renders the current ACP session model", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function() end)
+
+  ui.handle_notification({
+    method = "omniac/session_model_update",
+    params = {
+      currentModelId = "gpt-5-mini",
+      currentModelName = "GPT-5 Mini",
+    },
+  }, {
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  })
+
+  local status_buf = vim.fn.bufnr("omniac://status")
+  local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+  assert_true(line:match("GPT%-5 Mini") ~= nil, "status should include the current ACP model")
+end)
+
 run("ACP protocol file logs follow debug option", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")
@@ -1845,6 +1871,79 @@ run("ACP mode config options cycle with set_config_option", function()
     return #updates > 0 and updates[#updates].currentModeName == "Agent"
   end)
   assert_equal(updates[#updates].currentModeName, "Agent", "mode update should expose the selected mode name")
+end)
+
+run("ACP model config options change with set_config_option", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local request
+  local updates = {}
+
+  client:on_notification(function(message)
+    if message.method == "omniac/session_model_update" then
+      table.insert(updates, message.params)
+    end
+  end)
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function(_, method, params, callback)
+      request = { method = method, params = params }
+      callback(nil, {
+        configOptions = {
+          {
+            id = "model",
+            category = "model",
+            type = "select",
+            currentValue = params.value,
+            options = {
+              { value = "gpt-5", name = "GPT-5" },
+              { value = "gpt-5-mini", name = "GPT-5 Mini" },
+            },
+          },
+        },
+      })
+    end,
+  }
+  client:_apply_session_state({
+    configOptions = {
+      {
+        id = "model",
+        category = "model",
+        type = "select",
+        currentValue = "gpt-5",
+        options = {
+          { value = "gpt-5", name = "GPT-5" },
+          { value = "gpt-5-mini", name = "GPT-5 Mini" },
+        },
+      },
+    },
+  })
+
+  vim.wait(50, function()
+    return #updates > 0
+  end)
+  assert_equal(client:get_session_model().currentModelId, "gpt-5", "model state should expose the current model")
+  assert_equal(#client:get_session_model().availableModels, 2, "model state should expose selectable models")
+  assert_equal(updates[#updates].currentModelName, "GPT-5", "model update should expose the selected model name")
+
+  local selected
+  client:set_session_model("GPT-5 Mini", function(err, _, model_id)
+    assert_equal(err, nil, "setting an advertised model should succeed")
+    selected = model_id
+  end)
+
+  vim.wait(50, function()
+    return #updates > 1
+  end)
+  assert_equal(request.method, "session/set_config_option", "model changes should use set_config_option")
+  assert_equal(request.params.configId, "model", "request should target the model config option")
+  assert_equal(request.params.value, "gpt-5-mini", "model names should resolve to their option value")
+  assert_equal(selected, "gpt-5-mini", "callback should expose the selected model id")
+  assert_equal(client:get_session_model().currentModelId, "gpt-5-mini", "selected model should update local state")
+  assert_equal(updates[#updates].currentModelName, "GPT-5 Mini", "model update should follow model changes")
 end)
 
 run("ACP permission-like config modes are ignored", function()
@@ -2476,6 +2575,7 @@ run("slash input opens command suggestions below chat", function()
 
   local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
   assert_true(lines:match("/exit") ~= nil, "local exit command should be listed")
+  assert_true(lines:match("/model") ~= nil, "local model command should be listed")
   assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
   assert_true(lines:match("/plan") ~= nil, "agent command should be listed")
   assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
@@ -2638,6 +2738,143 @@ run("slash exit closes chat without submitting", function()
   assert_equal(has_window_for_buffer_name("omniac"), false, "chat window should close")
 end)
 
+run("slash model argument changes the ACP session model without submitting", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac"] = nil
+  package.loaded["omniac.ui"] = nil
+  for _, name in ipairs({
+    "Omniac",
+    "OmniacConnect",
+    "OmniacDisconnect",
+    "OmniacExit",
+    "OmniacSession",
+    "OmniacSessionNew",
+    "OmniacSessionLoad",
+    "OmniacSessionResume",
+    "OmniacAsk",
+    "OmniacResize",
+    "OmniacDebug",
+    "OmniacAskFiles",
+    "OmniacDiff",
+    "OmniacDiffAccept",
+    "OmniacDiffDeny",
+  }) do
+    pcall(vim.api.nvim_del_user_command, name)
+  end
+
+  local omniac = require("omniac")
+  omniac.setup({
+    backend = { kind = "acp" },
+    agent = { cmd = { "custom-acp" } },
+    ui = { chat_width = 48 },
+  })
+  local selected
+  omniac.backend = {
+    get_session_model = function()
+      return {
+        currentModelId = "gpt-5",
+        availableModels = {
+          { id = "gpt-5", name = "GPT-5" },
+          { id = "gpt-5-mini", name = "GPT-5 Mini" },
+        },
+      }
+    end,
+    set_session_model = function(_, model, callback)
+      selected = model
+      callback(nil, {}, model)
+    end,
+  }
+  local submitted = false
+  omniac.ask = function()
+    submitted = true
+  end
+
+  omniac.open_chat()
+  feed("i/model gpt-5-mini<CR>")
+  vim.cmd("redraw")
+
+  assert_equal(selected, "gpt-5-mini", "/model should pass its argument to the ACP backend")
+  assert_equal(submitted, false, "/model should not be submitted as a prompt")
+  assert_equal(omniac.config.agent.model, "gpt-5-mini", "selected model should be retained in config")
+end)
+
+run("slash model opens an approval-style model selector", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac"] = nil
+  package.loaded["omniac.ui"] = nil
+  package.loaded["omniac.model_dialog"] = nil
+  package.loaded["omniac.permission_dialog"] = nil
+  for _, name in ipairs({
+    "Omniac",
+    "OmniacConnect",
+    "OmniacDisconnect",
+    "OmniacExit",
+    "OmniacSession",
+    "OmniacSessionNew",
+    "OmniacSessionLoad",
+    "OmniacSessionResume",
+    "OmniacAsk",
+    "OmniacResize",
+    "OmniacDebug",
+    "OmniacAskFiles",
+    "OmniacDiff",
+    "OmniacDiffAccept",
+    "OmniacDiffDeny",
+  }) do
+    pcall(vim.api.nvim_del_user_command, name)
+  end
+
+  local omniac = require("omniac")
+  omniac.setup({
+    backend = { kind = "acp" },
+    agent = { cmd = { "custom-acp" } },
+    ui = { chat_width = 48 },
+  })
+  local selected
+  omniac.backend = {
+    get_session_model = function()
+      return {
+        currentModelId = "gpt-5-mini",
+        availableModels = {
+          { id = "gpt-5", name = "GPT-5" },
+          { id = "gpt-5-mini", name = "GPT-5 Mini" },
+        },
+      }
+    end,
+    set_session_model = function(_, model, callback)
+      selected = model
+      callback(nil, {}, model)
+    end,
+  }
+
+  omniac.open_chat()
+  feed("i/model<CR>")
+  vim.wait(50, function()
+    return vim.fn.bufnr("omniac://permission-selector") ~= -1
+  end)
+
+  local body_buf = vim.fn.bufnr("omniac://permission")
+  local selector_buf = vim.fn.bufnr("omniac://permission-selector")
+  local body_win = vim.fn.win_findbuf(body_buf)[1]
+  local body_config = vim.api.nvim_win_get_config(body_win)
+  local body = table.concat(vim.api.nvim_buf_get_lines(body_buf, 0, -1, false), "\n")
+  local choices = table.concat(vim.api.nvim_buf_get_lines(selector_buf, 0, -1, false), "\n")
+
+  assert_equal(body_config.title[1][1], " Model ", "model selector should use a model title")
+  assert_true(body:match("Current model: gpt%-5%-mini") ~= nil, "model selector should show the current model")
+  assert_true(choices:match("› 2  GPT%-5 Mini  %(current%)") ~= nil, "current model should start selected")
+  assert_true(choices:match("GPT%-5 Mini") ~= nil, "available models should be shown in the list")
+  assert_true(choices:match("q close") ~= nil, "model selector should describe q as close")
+
+  feed("1")
+  vim.wait(50, function()
+    return selected ~= nil
+  end)
+
+  assert_equal(selected, "gpt-5", "choosing a model should update the ACP session")
+  assert_equal(omniac.config.agent.model, "gpt-5", "chosen model should be retained in config")
+end)
+
 run("enter completes file mention without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -2681,6 +2918,29 @@ run("tab completes slash input without submitting", function()
   assert_true(lines:match("/resume") ~= nil, "tab should complete the slash command input text")
   assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
   assert_equal(submitted, nil, "tab completion should not submit")
+end)
+
+run("tab completes local model command without submitting", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local submitted
+
+  ui.open({
+    agent = { cmd = { "codex-acp" } },
+    ui = { chat_width = 48 },
+  }, function(text)
+    submitted = text
+  end)
+
+  feed("i/mo<Tab>")
+  vim.cmd("redraw")
+
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+  assert_true(lines:match("/model") ~= nil, "tab should complete /mo to the local model command")
+  assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "model completion should keep input focused")
+  assert_equal(submitted, nil, "model completion should not submit")
 end)
 
 run("tab completes file mention input without submitting", function()

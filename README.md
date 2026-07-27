@@ -105,6 +105,7 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacSessionLoad {sessionId}` loads an ACP session and replays its history when the agent advertises `loadSession`
 - `:OmniacSessionResume {sessionId}` resumes an ACP session without replaying history when the agent advertises `sessionCapabilities.resume`
 - `:Omniac` opens a Neovim chat/input/status UI
+- `/model` opens a model selector for the active session; `/model <model>` changes it directly
 - `:OmniacResize {width}` resizes the Omniac side UI as one body
 - `:OmniacAsk` sends the built prompt through the active backend when connected
 - `Ctrl-V` in the Omniac input attaches a PNG or JPEG image from the macOS clipboard when the ACP agent advertises image prompts; otherwise it falls back to normal text paste
@@ -129,3 +130,6 @@ Start Neovim with `scripts/dev.lua` to load this plugin with the default Codex c
 
 - [Feature TODO](docs/FEATURE_TODO.md): Omniac input, history, safety, and UX work.
 - [Protocol TODO](docs/PROTOCOL_TODO.md): ACP implementation scope and remaining work.
+
+
+

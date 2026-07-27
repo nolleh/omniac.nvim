@@ -41,6 +41,7 @@ local state = {
   transient_activity = nil,
   available_commands = {},
   session_mode = nil,
+  session_model = nil,
   mode_cycle_handler = nil,
   relayout_pending = false,
   user_width = nil,
@@ -679,13 +680,17 @@ local function render_status()
 
   local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or target_width()
   local mode = state.session_mode and (state.session_mode.currentModeName or state.session_mode.currentModeId)
+  local model = state.session_model and (state.session_model.currentModelName or state.session_model.currentModelId)
   local left = " Omniac "
   local middle = "  " .. state.status .. " "
   local mode_capsule = mode and mode ~= "" and ("  " .. mode .. " ") or ""
+  local model_capsule = model and model ~= "" and ("  " .. model .. " ") or ""
   local right = "  " .. agent_name(state.config) .. " "
-  local spacer =
-    string.rep(" ", math.max(1, win_width - vim.fn.strdisplaywidth(left .. middle .. mode_capsule .. right)))
-  local line = left .. middle .. mode_capsule .. spacer .. right
+  local spacer = string.rep(
+    " ",
+    math.max(1, win_width - vim.fn.strdisplaywidth(left .. middle .. mode_capsule .. model_capsule .. right))
+  )
+  local line = left .. middle .. mode_capsule .. model_capsule .. spacer .. right
 
   vim.bo[state.status_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.status_buf, ns, 0, -1)
@@ -709,6 +714,10 @@ local function render_status()
   if mode_capsule ~= "" then
     col = col + #" "
     add_capsule(" " .. mode .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  end
+  if model_capsule ~= "" then
+    col = col + #" "
+    add_capsule(" " .. model .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
   end
   col = col + #spacer + #" "
   add_capsule(" " .. agent_name(state.config) .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
@@ -1012,6 +1021,18 @@ local function local_commands()
     {
       name = "exit",
       description = "Close Omniac chat",
+    },
+    {
+      name = "model",
+      description = "Choose the model for the active session",
+    },
+    {
+      name = "model",
+      description = "Choose the model for the active session",
+    },
+    {
+      name = "model",
+      description = "Choose the model for the active session",
     },
     {
       name = "resume",
@@ -2090,6 +2111,15 @@ function M.set_session_mode(mode)
   render_status()
 end
 
+function M.set_session_model(model)
+  if type(model) == "table" then
+    state.session_model = model
+  else
+    state.session_model = nil
+  end
+  render_status()
+end
+
 function M.set_tool_activity(params, config)
   params = params or {}
   local status = params.status or "running"
@@ -2361,6 +2391,11 @@ function M.handle_notification(message, config)
 
   if method == "omniac/session_mode_update" then
     M.set_session_mode(params)
+    return
+  end
+
+  if method == "omniac/session_model_update" then
+    M.set_session_model(params)
     return
   end
 

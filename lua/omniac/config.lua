@@ -10,6 +10,7 @@ M.defaults = {
     args = {},
     env = {},
     cwd = nil,
+    model = nil,
     mode_id = "read-only",
     auto_initialize = true,
     pty = false,

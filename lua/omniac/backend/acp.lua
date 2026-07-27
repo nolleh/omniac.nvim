@@ -248,6 +248,41 @@ local function mode_state_from_config_options(config_options)
   return nil
 end
 
+local function model_state_from_config_options(config_options)
+  if type(config_options) ~= "table" then
+    return nil
+  end
+
+  for _, option in ipairs(config_options) do
+    if
+      type(option) == "table"
+      and (option.category == "model" or option.id == "model")
+      and option.type == "select"
+      and type(option.options) == "table"
+    then
+      local models = {}
+      for _, value in ipairs(option.options) do
+        local id = type(value) == "table" and (value.value or value.id) or value
+        if type(id) == "string" and id ~= "" then
+          table.insert(models, {
+            id = id,
+            name = type(value) == "table" and (value.name or id) or id,
+            description = type(value) == "table" and value.description or nil,
+          })
+        end
+      end
+
+      return {
+        configId = option.id,
+        currentModelId = option.currentValue or option.current_value,
+        availableModels = models,
+      }
+    end
+  end
+
+  return nil
+end
+
 local function mode_state_from_modes(modes)
   if type(modes) ~= "table" then
     return nil
@@ -293,6 +328,20 @@ local function mode_name(mode_state)
   for _, mode in ipairs(mode_state.availableModes or {}) do
     if mode.id == current then
       return mode.name or mode.id
+    end
+  end
+  return current
+end
+
+local function model_name(model_state)
+  if type(model_state) ~= "table" then
+    return nil
+  end
+
+  local current = model_state.currentModelId
+  for _, model in ipairs(model_state.availableModels or {}) do
+    if model.id == current then
+      return model.name or model.id
     end
   end
   return current
@@ -977,6 +1026,23 @@ function M.new(config)
     })
   end
 
+  function state:_emit_session_model_update()
+    if not self.session_model then
+      return
+    end
+
+    self:_emit_notification({
+      method = "omniac/session_model_update",
+      params = {
+        sessionId = self.session_id,
+        configId = self.session_model.configId,
+        currentModelId = self.session_model.currentModelId,
+        currentModelName = model_name(self.session_model),
+        availableModels = self.session_model.availableModels or {},
+      },
+    })
+  end
+
   function state:_apply_session_state(result)
     if type(result) ~= "table" then
       return
@@ -987,19 +1053,79 @@ function M.new(config)
       or result.config_options
       or session.configOptions
       or session.config_options
+    if type(config_options) == "table" then
+      self.config_options = config_options
+    end
+
+    local model_state = model_state_from_config_options(config_options)
+    if model_state then
+      self.session_model = model_state
+      self:_emit_session_model_update()
+    end
+
     local mode_state = mode_state_from_config_options(config_options)
     if mode_state then
-      self.config_options = config_options
       self.session_mode = mode_state
       self:_emit_session_mode_update()
+    else
+      mode_state = mode_state_from_modes(result.modes or session.modes)
+      if mode_state then
+        self.session_mode = mode_state
+        self:_emit_session_mode_update()
+      end
+    end
+  end
+
+  function state:get_session_model()
+    return deepcopy(self.session_model)
+  end
+
+  function state:set_session_model(model_id, callback)
+    callback = callback or function() end
+    local model_state = self.session_model
+    if not self.transport or not self.running then
+      callback({ message = "ACP transport is not running" })
+      return
+    end
+    if not self.session_id then
+      callback({ message = "ACP session is not ready" })
+      return
+    end
+    if not model_state or not model_state.configId then
+      callback({ message = "agent did not advertise a model config option" })
       return
     end
 
-    mode_state = mode_state_from_modes(result.modes or session.modes)
-    if mode_state then
-      self.session_mode = mode_state
-      self:_emit_session_mode_update()
+    local selected
+    for _, model in ipairs(model_state.availableModels or {}) do
+      if model.id == model_id or model.name == model_id then
+        selected = model.id
+        break
+      end
+      if model.id:lower() == model_id:lower() or model.name:lower() == model_id:lower() then
+        selected = model.id
+        break
+      end
     end
+    if not selected then
+      callback({ message = "unknown model: " .. tostring(model_id) })
+      return
+    end
+
+    self.transport:request("session/set_config_option", {
+      sessionId = self.session_id,
+      configId = model_state.configId,
+      value = selected,
+    }, function(err, result)
+      if not err then
+        model_state.currentModelId = selected
+        self:_apply_session_state(result)
+        if self.session_model == model_state then
+          self:_emit_session_model_update()
+        end
+      end
+      callback(err, result, selected)
+    end)
   end
 
   function state:set_session_mode(mode_id, callback)

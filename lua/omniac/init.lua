@@ -6,6 +6,7 @@ local acp_backend = require("omniac.backend.acp")
 local ui = require("omniac.ui")
 local approval = require("omniac.approval")
 local session_dialog = require("omniac.session_dialog")
+local model_dialog = require("omniac.model_dialog")
 local filesystem = require("omniac.filesystem")
 
 local M = {
@@ -147,8 +148,27 @@ local function register_command(name, fn, opts)
 end
 
 local function slash_command(text)
-  local command = tostring(text or ""):match("^%s*/([%w_-]+)%s*$")
-  return command and command:lower() or nil
+  local command, arguments = tostring(text or ""):match("^%s*/([%w_-]+)%s*(.-)%s*$")
+  if not command or arguments:find("\n", 1, true) then
+    return nil, nil
+  end
+  return command:lower(), arguments
+end
+
+local function model_activity(model_state)
+  if type(model_state) ~= "table" then
+    return "The agent did not advertise selectable models."
+  end
+
+  local current = model_state.currentModelId or "unknown"
+  local available = {}
+  for _, model in ipairs(model_state.availableModels or {}) do
+    table.insert(available, model.id)
+  end
+  if #available == 0 then
+    return "Current model: " .. current
+  end
+  return string.format("Current model: %s · Available: %s", current, table.concat(available, ", "))
 end
 
 local function connect_session(action, session_id)
@@ -331,7 +351,7 @@ function M.open_chat()
   end)
 
   ui.open(M.config, function(text, attachments)
-    local command = slash_command(text)
+    local command, arguments = slash_command(text)
     if command == "exit" and #(attachments or {}) == 0 then
       M.exit()
       return
@@ -343,6 +363,64 @@ function M.open_chat()
       if not ok then
         ui.add_message("Error", err, M.config)
         ui.set_status("error", M.config)
+      end
+      return
+    end
+    if command == "model" and #(attachments or {}) == 0 then
+      if M.config.backend and M.config.backend.kind == "acp" then
+        if not M.backend or not M.backend.get_session_model then
+          ui.set_activity("Model selection is not available until the ACP session is ready.", M.config)
+          return
+        end
+        if arguments == "" then
+          local model_state = M.backend:get_session_model()
+          if
+            not model_dialog.open(model_state, function(choice)
+              if not choice then
+                return
+              end
+              M.backend:set_session_model(choice.id, function(err, _, selected)
+                if err then
+                  ui.set_activity(tostring(err.message or err.error or err), M.config)
+                  return
+                end
+                M.config.agent.model = selected
+                ui.set_session_model({
+                  currentModelId = selected,
+                  currentModelName = selected,
+                })
+                ui.set_activity("Model changed to " .. selected .. ".", M.config)
+              end)
+            end)
+          then
+            ui.set_activity(model_activity(model_state), M.config)
+          end
+          return
+        end
+        M.backend:set_session_model(arguments, function(err, _, selected)
+          if err then
+            ui.set_activity(tostring(err.message or err.error or err), M.config)
+            return
+          end
+          M.config.agent.model = selected
+          ui.set_session_model({
+            currentModelId = selected,
+            currentModelName = selected,
+          })
+          ui.set_activity("Model changed to " .. selected .. ".", M.config)
+        end)
+        return
+      end
+
+      if arguments == "" then
+        ui.set_activity("Current model: " .. tostring(M.config.agent.model or "default"), M.config)
+      else
+        M.config.agent.model = arguments
+        ui.set_session_model({
+          currentModelId = arguments,
+          currentModelName = arguments,
+        })
+        ui.set_activity("Model changed to " .. arguments .. ".", M.config)
       end
       return
     end
