@@ -66,6 +66,15 @@ local function valid_win(win)
   return win and vim.api.nvim_win_is_valid(win)
 end
 
+local function floating_win(win)
+  if not valid_win(win) then
+    return false
+  end
+
+  local ok, win_config = pcall(vim.api.nvim_win_get_config, win)
+  return ok and win_config.relative ~= ""
+end
+
 local function width(config)
   local value = ((config or {}).ui or {}).chat_width or 58
   return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
@@ -586,6 +595,19 @@ render_chat = function(config, opts)
     return
   end
 
+  local previous_view
+  local should_follow = false
+  if valid_win(state.chat_win) then
+    local cursor = vim.api.nvim_win_get_cursor(state.chat_win)
+    local is_active = vim.api.nvim_get_current_win() == state.chat_win
+    local mode = is_active and vim.fn.mode(1) or ""
+    previous_view = vim.api.nvim_win_call(state.chat_win, vim.fn.winsaveview)
+    should_follow = opts.follow == true
+      and is_active
+      and mode:match("^[vV\22]") == nil
+      and cursor[1] >= vim.api.nvim_buf_line_count(state.chat_buf)
+  end
+
   local win_width = valid_win(state.chat_win) and vim.api.nvim_win_get_width(state.chat_win) or target_width()
   local text_width = math.max(28, win_width - 6)
   local lines = {}
@@ -668,8 +690,15 @@ render_chat = function(config, opts)
     render_chat_markdown()
   end
 
-  if valid_win(state.chat_win) and #lines > 0 then
+  if should_follow and valid_win(state.chat_win) and #lines > 0 then
     pcall(vim.api.nvim_win_set_cursor, state.chat_win, { #lines, 0 })
+  elseif previous_view and valid_win(state.chat_win) then
+    local line_count = math.max(#lines, 1)
+    previous_view.lnum = math.min(previous_view.lnum, line_count)
+    previous_view.topline = math.min(previous_view.topline, line_count)
+    pcall(vim.api.nvim_win_call, state.chat_win, function()
+      vim.fn.winrestview(previous_view)
+    end)
   end
 end
 
@@ -1775,7 +1804,7 @@ function M.close()
   stop_tool_activity_timer()
   vim.api.nvim_clear_autocmds({
     group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed", "WinEnter", "FocusGained" },
+    event = { "VimResized", "WinResized", "WinClosed" },
   })
   close_command_window()
   if valid_win(state.input_win) then
@@ -2041,22 +2070,23 @@ function M.open(config, submit)
     buffer = state.input_buf,
     callback = clamp_input_cursor,
   })
-  vim.api.nvim_clear_autocmds({ group = augroup, event = { "VimResized", "WinResized" } })
+  vim.api.nvim_clear_autocmds({
+    group = augroup,
+    event = { "VimResized", "WinResized", "WinClosed", "WinEnter", "FocusGained" },
+  })
   vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
     group = augroup,
     callback = schedule_relayout,
   })
-  vim.api.nvim_create_autocmd({ "WinEnter", "FocusGained" }, {
-    group = augroup,
-    callback = function()
-      if M.is_open() then
-        schedule_relayout()
-      end
-    end,
-  })
   vim.api.nvim_create_autocmd("WinClosed", {
     group = augroup,
-    callback = schedule_relayout,
+    callback = function(args)
+      local closed_win = tonumber(args.match)
+      if closed_win and floating_win(closed_win) then
+        return
+      end
+      schedule_relayout()
+    end,
   })
 
   if resize_aux_windows then
@@ -2187,7 +2217,7 @@ function M.add_tool_result(params, config)
     exitCode = params.exitCode,
     expanded = false,
   })
-  request_chat_render(config, { immediate = true })
+  request_chat_render(config, { immediate = true, follow = true })
   focus_input()
 end
 
@@ -2204,7 +2234,7 @@ function M.add_message(role, text, config, opts)
   if role ~= "Omniac" then
     state.streaming_message_index = nil
   end
-  request_chat_render(config, { immediate = true })
+  request_chat_render(config, { immediate = true, follow = true })
   focus_input()
 end
 
@@ -2218,7 +2248,7 @@ function M.add_notice(role, text, config)
     text = text or "",
   })
   local index = #state.messages
-  request_chat_render(config, { immediate = true })
+  request_chat_render(config, { immediate = true, follow = true })
   focus_input()
   return index
 end
@@ -2228,7 +2258,7 @@ function M.update_notice(index, text, config)
     return
   end
   state.messages[index].text = text or state.messages[index].text or ""
-  request_chat_render(config, { immediate = true })
+  request_chat_render(config, { immediate = true, follow = true })
   focus_input()
 end
 
@@ -2262,7 +2292,7 @@ function M.append_response_chunk(text, config)
 
   state.messages[index].complete = false
   state.messages[index].text = (state.messages[index].text or "") .. text
-  request_chat_render(config, { skip_markdown = true })
+  request_chat_render(config, { skip_markdown = true, follow = true })
 end
 
 function M.complete_response(config, opts)
@@ -2271,7 +2301,7 @@ function M.complete_response(config, opts)
   if index and state.messages[index] and state.messages[index].role == "Omniac" then
     state.messages[index].complete = true
     state.messages[index].stop_footer = opts.stop_footer
-    request_chat_render(config, { immediate = true })
+    request_chat_render(config, { immediate = true, follow = true })
   end
   state.streaming_message_index = nil
 end

@@ -901,6 +901,160 @@ run("streaming response defers markdown rendering until complete", function()
   package.loaded["render-markdown"] = nil
 end)
 
+run("streaming preserves chat view while another window is active", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local config = { ui = { chat_width = 48 } }
+
+  ui.open(config, function(_) end)
+  ui.add_message(
+    "Omniac",
+    table.concat(
+      vim.tbl_map(function(index)
+        return "history line " .. index
+      end, vim.fn.range(1, 40)),
+      "\n"
+    ),
+    config
+  )
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  vim.api.nvim_win_set_cursor(chat_win, { 5, 0 })
+  vim.api.nvim_win_call(chat_win, function()
+    vim.cmd("normal! zt")
+  end)
+  local before_view = vim.api.nvim_win_call(chat_win, vim.fn.winsaveview)
+  assert_true(vim.api.nvim_get_current_win() ~= chat_win, "another Omniac window should remain active")
+
+  ui.append_response_chunk("new streamed response", config)
+
+  local after_cursor = vim.api.nvim_win_get_cursor(chat_win)
+  local after_view = vim.api.nvim_win_call(chat_win, vim.fn.winsaveview)
+  assert_equal(after_cursor[1], 5, "streaming should preserve an inactive chat cursor")
+  assert_equal(after_view.topline, before_view.topline, "streaming should preserve an inactive chat view")
+end)
+
+run("streaming follows an active chat cursor on the last line", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local config = { ui = { chat_width = 48 } }
+
+  ui.open(config, function(_) end)
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  vim.api.nvim_set_current_win(chat_win)
+  vim.api.nvim_win_set_cursor(chat_win, { vim.api.nvim_buf_line_count(chat_buf), 0 })
+  ui.append_response_chunk(string.rep("streamed text ", 20), config)
+
+  assert_equal(
+    vim.api.nvim_win_get_cursor(chat_win)[1],
+    vim.api.nvim_buf_line_count(chat_buf),
+    "active chat should follow new content from its previous last line"
+  )
+end)
+
+run("streaming preserves an active visual selection away from the last line", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  local ui = require("omniac.ui")
+  local config = { ui = { chat_width = 48 } }
+
+  ui.open(config, function(_) end)
+  ui.add_message(
+    "Omniac",
+    table.concat(
+      vim.tbl_map(function(index)
+        return "history line " .. index
+      end, vim.fn.range(1, 40)),
+      "\n"
+    ),
+    config
+  )
+
+  local chat_buf = vim.fn.bufnr("omniac")
+  local chat_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == chat_buf then
+      chat_win = win
+      break
+    end
+  end
+  assert_true(chat_win ~= nil, "chat window should exist")
+
+  vim.api.nvim_set_current_win(chat_win)
+  vim.api.nvim_win_set_cursor(chat_win, { 5, 0 })
+  vim.cmd("normal! v")
+  assert_equal(vim.fn.mode(1), "v", "chat should be in visual mode")
+
+  ui.append_response_chunk("new streamed response", config)
+
+  assert_equal(vim.api.nvim_win_get_cursor(chat_win)[1], 5, "streaming should preserve the visual cursor")
+  vim.cmd("normal! v")
+end)
+
+run("focus changes and notification floats do not relayout chat", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac.ui"] = nil
+  package.loaded["render-markdown"] = nil
+
+  local render_calls = 0
+  package.preload["render-markdown"] = function()
+    return {
+      initialized = true,
+      render = function()
+        render_calls = render_calls + 1
+      end,
+    }
+  end
+
+  local ui = require("omniac.ui")
+  ui.open({ ui = { chat_width = 48 } }, function(_) end)
+  local before = render_calls
+
+  vim.cmd("doautocmd FocusGained")
+  vim.wait(20, function()
+    return false
+  end)
+  assert_equal(render_calls, before, "FocusGained should not relayout chat")
+
+  local float_buf = vim.api.nvim_create_buf(false, true)
+  local float_win = vim.api.nvim_open_win(float_buf, false, {
+    relative = "editor",
+    row = 1,
+    col = 1,
+    width = 10,
+    height = 1,
+    style = "minimal",
+  })
+  vim.api.nvim_win_close(float_win, true)
+  vim.wait(20, function()
+    return false
+  end)
+  assert_equal(render_calls, before, "closing a floating notification window should not relayout chat")
+
+  package.preload["render-markdown"] = nil
+  package.loaded["render-markdown"] = nil
+end)
+
 run("response stop reasons render only actionable UI", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
