@@ -73,125 +73,6 @@ local function as_lines(value)
   return nil
 end
 
-local function first_string(value, keys)
-  if type(value) ~= "table" then
-    return nil
-  end
-
-  for _, key in ipairs(keys) do
-    if type(value[key]) == "string" and value[key] ~= "" then
-      return value[key]
-    end
-  end
-
-  return nil
-end
-
-local function first_value(value, keys)
-  if type(value) ~= "table" then
-    return nil
-  end
-
-  for _, key in ipairs(keys) do
-    if value[key] ~= nil then
-      return value[key]
-    end
-  end
-
-  return nil
-end
-
-local function find_change(params)
-  if type(params) ~= "table" then
-    return {}
-  end
-
-  for _, key in ipairs({ "change", "fileChange", "file_change" }) do
-    if type(params[key]) == "table" then
-      return params[key]
-    end
-  end
-
-  for _, key in ipairs({ "changes", "fileChanges", "file_changes", "edits" }) do
-    if type(params[key]) == "table" and type(params[key][1]) == "table" then
-      return params[key][1]
-    end
-  end
-
-  return params
-end
-
-local function patch_path(patch)
-  if type(patch) ~= "string" then
-    return nil
-  end
-
-  for line in patch:gmatch("([^\n]*)\n?") do
-    local path = line:match("^%+%+%+%s+b/(.+)$") or line:match("^%+%+%+%s+(.+)$")
-    if path and path ~= "/dev/null" then
-      return path
-    end
-  end
-
-  return nil
-end
-
-local function apply_patch(original, patch)
-  if type(patch) ~= "string" then
-    return nil
-  end
-
-  local result = {}
-  local source_index = 1
-  local in_hunk = false
-
-  for line in (patch .. "\n"):gmatch("(.-)\n") do
-    local old_start = line:match("^@@ %-(%d+)")
-    if old_start then
-      old_start = tonumber(old_start)
-      while source_index < old_start do
-        table.insert(result, original[source_index] or "")
-        source_index = source_index + 1
-      end
-      in_hunk = true
-    elseif in_hunk then
-      local marker = line:sub(1, 1)
-      local body = line:sub(2)
-      if marker == " " then
-        table.insert(result, original[source_index] or body)
-        source_index = source_index + 1
-      elseif marker == "-" then
-        source_index = source_index + 1
-      elseif marker == "+" then
-        table.insert(result, body)
-      elseif marker == "\\" then
-        -- no newline marker
-      else
-        in_hunk = false
-      end
-    end
-  end
-
-  while source_index <= #original do
-    table.insert(result, original[source_index])
-    source_index = source_index + 1
-  end
-
-  return result
-end
-
-local function approval_payload(method, accepted)
-  if method == "applyPatchApproval" then
-    return {
-      decision = accepted and "approved_for_session" or "denied",
-    }
-  end
-
-  return {
-    decision = accepted and "acceptForSession" or "reject",
-  }
-end
-
 local function first_option_id(request)
   local options = request and request.options or {}
   if type(options) ~= "table" then
@@ -584,101 +465,38 @@ local function write_lines(path, lines)
   end
 end
 
-function M.review_request(method, params, reply, resolve, config)
-  if type(resolve) == "table" and config == nil then
-    config = resolve
-    resolve = nil
-  end
-
+function M.review_acp_permission(params, reply, config)
   local tool_call = params and params.toolCall
-  if method == "session/request_permission" then
-    local notice_index, notice_text = show_permission_text(params, config)
-    if type(tool_call) ~= "table" then
-      select_permission_option(params, reply, config, notice_index, notice_text)
-      return
-    end
-
-    if tool_call.kind ~= "edit" then
-      select_permission_option(params, reply, config, notice_index, notice_text)
-      return
-    end
-
-    local tool_call_id = tool_call.toolCallId or tostring(vim.loop.now())
-    local pending = {
-      tool_call_id = tool_call_id,
-      params = params,
-      reply = reply,
-      config = config,
-      notice_index = notice_index,
-      notice_text = notice_text,
-      opened = false,
-      replied = false,
-    }
-    pending_acp_permissions[pending.tool_call_id] = pending
-
-    local payload = diff_payload(tool_call) or pending_acp_diffs[pending.tool_call_id]
-    if payload then
-      open_permission_diff(pending, payload)
-    else
-      schedule_edit_permission_fallback(pending)
-    end
+  local notice_index, notice_text = show_permission_text(params, config)
+  if type(tool_call) ~= "table" then
+    select_permission_option(params, reply, config, notice_index, notice_text)
     return
   end
 
-  local change = find_change(params)
-  local patch = first_string(change, { "patch", "diff", "unifiedDiff", "unified_diff" })
-    or first_string(params, { "patch", "diff", "unifiedDiff", "unified_diff" })
-  local path = first_string(change, {
-    "path",
-    "filePath",
-    "file_path",
-    "targetFile",
-    "target_file",
-    "old_file_path",
-    "new_file_path",
-  }) or patch_path(patch) or "Omniac change"
-
-  local before = as_lines(first_value(change, {
-    "oldContent",
-    "old_content",
-    "before",
-    "beforeContent",
-    "old_file_contents",
-  }))
-  local after = as_lines(first_value(change, {
-    "newContent",
-    "new_content",
-    "after",
-    "afterContent",
-    "content",
-    "contents",
-    "new_file_contents",
-  }))
-
-  if not before and path and vim.fn.filereadable(path) == 1 then
-    before = vim.fn.readfile(path)
-  end
-  before = before or {}
-
-  if not after and patch then
-    after = apply_patch(before, patch)
-  end
-
-  if not after then
-    vim.api.nvim_echo({
-      { "[omniac approval] ignored request without a file diff", "WarningMsg" },
-    }, true, {})
-    reply(resolve and resolve(false) or approval_payload(method, false))
+  if tool_call.kind ~= "edit" then
+    select_permission_option(params, reply, config, notice_index, notice_text)
     return
   end
 
-  diff.open_review(path, before, after, {
-    title = "Omniac approval: " .. path,
-    origin_win = review_window(),
-    separate_tab = diff_separate_tab(config),
-  }, function(accepted)
-    reply(resolve and resolve(accepted) or approval_payload(method, accepted))
-  end)
+  local tool_call_id = tool_call.toolCallId or tostring(vim.loop.now())
+  local pending = {
+    tool_call_id = tool_call_id,
+    params = params,
+    reply = reply,
+    config = config,
+    notice_index = notice_index,
+    notice_text = notice_text,
+    opened = false,
+    replied = false,
+  }
+  pending_acp_permissions[pending.tool_call_id] = pending
+
+  local payload = diff_payload(tool_call) or pending_acp_diffs[pending.tool_call_id]
+  if payload then
+    open_permission_diff(pending, payload)
+  else
+    schedule_edit_permission_fallback(pending)
+  end
 end
 
 function M.attach_acp_permission_diff(params)
@@ -759,28 +577,6 @@ function M.apply_file_update(params)
     { "[omniac approval] applied completed edit " .. path, "Comment" },
   }, true, {})
   return true
-end
-
-function M.review_acp_permission(params, reply, config)
-  M.review_request("session/request_permission", params, reply, nil, config)
-end
-
-function M.review_permission_request(params, callback, config)
-  local notice_index, notice_text = show_permission_text(params, config)
-  vim.schedule(function()
-    permission_dialog.open({
-      { optionId = "allow_once", name = "Allow Once" },
-      { optionId = "reject_once", name = "Reject" },
-    }, {
-      prompt = permission_summary(params),
-      body = permission_body(params),
-    }, function(choice)
-      update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
-      if callback then
-        callback(choice ~= nil and choice.optionId == "allow_once")
-      end
-    end)
-  end)
 end
 
 return M

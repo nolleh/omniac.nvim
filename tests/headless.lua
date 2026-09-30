@@ -75,6 +75,54 @@ local function has_window_for_buffer_name(name)
   return false
 end
 
+run("defaults use an ACP agent without backend selection", function()
+  package.loaded["omniac.config"] = nil
+  local defaults = require("omniac.config").defaults
+
+  assert_equal(defaults.agent.cmd[1], "codex-acp", "default command should speak ACP")
+  assert_equal(defaults.backend, nil, "backend selection should not be configurable")
+  assert_equal(defaults.agent.auto_initialize, nil, "legacy transport initialization should be removed")
+end)
+
+run("stdio transport exposes protocol primitives only", function()
+  package.loaded["omniac.transport.stdio"] = nil
+  local client = require("omniac.transport.stdio").new({})
+
+  assert_true(type(client.request) == "function", "transport should expose JSON-RPC requests")
+  assert_true(type(client.respond) == "function", "transport should expose JSON-RPC responses")
+  assert_equal(client.thread_start, nil, "transport should not expose Codex thread startup")
+  assert_equal(client.turn_start, nil, "transport should not expose Codex turn startup")
+  assert_equal(client.prompt, nil, "transport should not expose Codex prompt handling")
+end)
+
+run("stdio transport sends JSON-RPC 2.0 request and response envelopes", function()
+  package.loaded["omniac.transport.stdio"] = nil
+  local client = require("omniac.transport.stdio").new({})
+  local sent = {}
+
+  client.running = true
+  client.jobid = 1
+  client._send_raw = function(_, payload)
+    table.insert(sent, payload)
+  end
+
+  client:request("initialize", {})
+  client:respond("server-request", {})
+  client:_dispatch_message({
+    jsonrpc = "2.0",
+    id = "agent-request",
+    method = "client/unknown",
+    params = {},
+  })
+
+  assert_equal(sent[1].jsonrpc, "2.0", "requests should declare JSON-RPC 2.0")
+  assert_equal(sent[1].method, "initialize", "request method should be preserved")
+  assert_equal(sent[2].jsonrpc, "2.0", "responses should declare JSON-RPC 2.0")
+  assert_equal(sent[2].id, "server-request", "response id should be preserved")
+  assert_equal(sent[3].jsonrpc, "2.0", "automatic responses should declare JSON-RPC 2.0")
+  assert_equal(sent[3].id, "agent-request", "automatic response id should be preserved")
+end)
+
 run("diff review accepts with :w", function()
   package.loaded["omniac.diff"] = nil
   local diff = require("omniac.diff")
@@ -1258,39 +1306,6 @@ run("chat keeps its initial open width across external split churn", function()
   package.loaded["render-markdown"] = nil
 end)
 
-run("thread started clears stale chat history", function()
-  cleanup_omniac_buffers()
-  package.loaded["omniac.ui"] = nil
-  package.loaded["render-markdown"] = nil
-
-  local ui = require("omniac.ui")
-  ui.open({
-    agent = { cmd = { "codex-acp" } },
-    ui = { chat_width = 58 },
-  }, function(_) end)
-
-  ui.add_message("You", "old user message", { ui = { chat_width = 58 } })
-  ui.add_message("Omniac", "old assistant reply", { ui = { chat_width = 58 } })
-
-  local chat_buf = vim.fn.bufnr("omniac")
-  local before = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
-  assert_true(before:match("old user message") ~= nil, "precondition should render old user text")
-  assert_true(before:match("old assistant reply") ~= nil, "precondition should render old assistant text")
-
-  ui.handle_notification({
-    method = "_transport/thread_started",
-    params = { method = "thread/start" },
-  }, { ui = { chat_width = 58 } })
-
-  local after = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
-  assert_true(after:match("old user message") == nil, "thread start should clear old user text")
-  assert_true(after:match("old assistant reply") == nil, "thread start should clear old assistant text")
-  assert_true(after:match("Status: ready") ~= nil, "thread start should show a fresh ready state")
-
-  package.preload["render-markdown"] = nil
-  package.loaded["render-markdown"] = nil
-end)
-
 run("chat relayouts while error state is active", function()
   cleanup_omniac_buffers()
   package.loaded["omniac.ui"] = nil
@@ -1406,7 +1421,6 @@ run("omniac resize command resizes the side ui as one body", function()
   local omniac = require("omniac")
   vim.api.nvim_set_option_value("columns", 180, {})
   omniac.setup({
-    backend = { kind = "acp" },
     agent = { cmd = { "codex-acp" } },
     ui = { chat_width = 58 },
   })
@@ -1616,7 +1630,10 @@ run("permission selector continues below a single bordered card", function()
 
   assert_true(body_config.border ~= nil, "permission body should keep the single dialog outline")
   assert_equal(body_config.title_pos, "left", "permission title should use native left alignment")
-  assert_equal(selector_config.border, nil, "permission actions should not render a second outline")
+  assert_true(
+    selector_config.border == nil or selector_config.border == "none",
+    "permission actions should not render a second outline"
+  )
   assert_equal(selector_config.col, body_config.col + 1, "permission actions should align with the card content")
   assert_equal(
     selector_config.row,
@@ -1691,32 +1708,6 @@ run("permission dialog uses markdown rendering for the body", function()
   dialog.dismiss()
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
-end)
-
-run("permission profile requests require a user choice", function()
-  cleanup_omniac_buffers()
-  package.loaded["omniac.approval"] = nil
-  package.loaded["omniac.permission_dialog"] = nil
-  local approval = require("omniac.approval")
-
-  local decided = nil
-  approval.review_permission_request({
-    kind = "permissions",
-    description = "Grant turn permissions for this request?",
-  }, function(accepted)
-    decided = accepted
-  end, { ui = { chat_width = 48 } })
-
-  vim.wait(50, function()
-    return vim.fn.bufnr("omniac://permission") ~= -1
-  end)
-  assert_equal(decided, nil, "permission request should wait for explicit input")
-
-  feed("q")
-  vim.wait(50, function()
-    return decided ~= nil
-  end)
-  assert_equal(decided, false, "rejecting the permission request should deny it")
 end)
 
 run("edit permission without diff falls back to selector", function()
@@ -1959,6 +1950,25 @@ run("ACP protocol file logs follow debug option", function()
 
   pcall(vim.fn.delete, off_dir, "rf")
   pcall(vim.fn.delete, on_dir, "rf")
+end)
+
+run("ACP close marks the subprocess exit as intentional", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local transport_closed = false
+
+  client.running = true
+  client.transport = {
+    close = function()
+      transport_closed = true
+    end,
+  }
+
+  client:close()
+
+  assert_equal(client.closing, true, "close should mark the following exit as intentional")
+  assert_equal(transport_closed, true, "close should stop the ACP transport")
 end)
 
 run("ACP mode config options cycle with set_config_option", function()
@@ -2525,7 +2535,7 @@ run("ACP list sessions requests even without advertised capability", function()
   assert_equal(listed[1].sessionId, "sess_1", "session/list results should be returned")
 end)
 
-run("ACP list sessions stops on JSON null cursor", function()
+run("ACP list sessions returns the first page without blocking on pagination", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")
   local client = acp.new({})
@@ -2539,34 +2549,24 @@ run("ACP list sessions stops on JSON null cursor", function()
         method = method,
         params = params,
       })
-      if #requests == 1 then
-        callback(nil, {
-          sessions = {
-            { sessionId = "sess_1" },
-          },
-          nextCursor = "cursor_2",
-        })
-        return
-      end
-
       callback(nil, {
         sessions = {
-          { sessionId = "sess_2" },
+          { sessionId = "sess_1" },
         },
-        nextCursor = vim.NIL,
+        nextCursor = "cursor_2",
       })
     end,
   }
 
   client:list_sessions(function(err, sessions)
-    assert_equal(err, nil, "list_sessions should not fail on JSON null cursor")
+    assert_equal(err, nil, "list_sessions should return the first page")
     listed = sessions
   end)
 
-  assert_equal(#requests, 2, "JSON null nextCursor should terminate pagination")
-  assert_equal(requests[2].params.cursor, "cursor_2", "second page should use the first cursor")
-  assert_equal(#listed, 2, "sessions from both pages should be collected")
-  assert_equal(listed[2].sessionId, "sess_2", "second page sessions should be included")
+  assert_equal(#requests, 1, "session selection should not wait for later pages")
+  assert_equal(requests[1].params.cursor, nil, "session selection should request the latest page")
+  assert_equal(#listed, 1, "sessions from the first page should be returned")
+  assert_equal(listed[1].sessionId, "sess_1", "the recent session should be included")
 end)
 
 run("ACP select session falls back when list request fails", function()
@@ -2872,8 +2872,7 @@ run("slash exit closes chat without submitting", function()
 
   local omniac = require("omniac")
   omniac.setup({
-    backend = { kind = "codex" },
-    agent = { cmd = { "codex" } },
+    agent = { cmd = { "custom-acp" } },
     ui = { chat_width = 48 },
   })
   local submitted = false
@@ -2918,7 +2917,6 @@ run("slash model argument changes the ACP session model without submitting", fun
 
   local omniac = require("omniac")
   omniac.setup({
-    backend = { kind = "acp" },
     agent = { cmd = { "custom-acp" } },
     ui = { chat_width = 48 },
   })
@@ -2980,7 +2978,6 @@ run("slash model opens an approval-style model selector", function()
 
   local omniac = require("omniac")
   omniac.setup({
-    backend = { kind = "acp" },
     agent = { cmd = { "custom-acp" } },
     ui = { chat_width = 48 },
   })

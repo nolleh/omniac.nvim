@@ -91,21 +91,6 @@ local function capture_user_width()
   end
 end
 
-local function reset_chat_state()
-  state.messages = {}
-  state.streaming_message_index = nil
-  state.tool_activity = nil
-  state.transient_activity = nil
-  state.cancel_requested = false
-  state.suppress_current_turn = false
-  state.active_turn_id = nil
-  if state.tool_activity_timer then
-    state.tool_activity_timer:stop()
-    state.tool_activity_timer:close()
-    state.tool_activity_timer = nil
-  end
-end
-
 local function agent_name(config)
   local cmd = ((config or state.config or {}).agent or {}).cmd or {}
   if type(cmd) == "table" then
@@ -2335,15 +2320,12 @@ function M.handle_notification(message, config)
     end
   end
 
-  if method == "_transport/thread_started" or method == "omniac/session_started" then
-    if method == "_transport/thread_started" then
-      reset_chat_state()
-    end
+  if method == "omniac/session_started" then
     M.set_status("ready", config)
     return
   end
 
-  if method == "thread/started" or method == "turn/started" or method == "omniac/prompt_started" then
+  if method == "omniac/prompt_started" then
     state.streaming_message_index = nil
     state.tool_activity = nil
     state.cancel_requested = false
@@ -2365,11 +2347,6 @@ function M.handle_notification(message, config)
     state.cancel_requested = false
     state.suppress_current_turn = false
     M.set_activity(params.message or "Cancel failed.", config)
-    return
-  end
-
-  if method == "turn/completed" then
-    M.set_status("ready", config)
     return
   end
 
@@ -2446,7 +2423,7 @@ function M.handle_notification(message, config)
     return
   end
 
-  if method == "omniac/error" or method == "turn/error" or method == "_transport/error" then
+  if method == "omniac/error" then
     M.add_message("Error", vim.inspect(params), config)
     M.set_status("error", config)
   end

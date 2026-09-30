@@ -12,7 +12,7 @@ append_optional_plugin(vim.env.OMNIAC_RENDER_MARKDOWN_PATH or "~/.local/share/nv
 append_optional_plugin(vim.env.OMNIAC_TREESITTER_PATH or "~/.local/share/nvim/lazy/nvim-treesitter")
 pcall(vim.cmd, "runtime plugin/render-markdown.lua")
 
-local agent_cmd = { "codex", "app-server" }
+local agent_cmd = { "codex-acp" }
 
 if vim.env.ACPCLIENT_AGENT_CMD and vim.env.ACPCLIENT_AGENT_CMD ~= "" then
   agent_cmd = vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })

@@ -2,17 +2,13 @@ local M = {}
 
 M.defaults = {
   debug = false,
-  backend = {
-    kind = "auto",
-  },
   agent = {
-    cmd = { "codex", "app-server" },
+    cmd = { "codex-acp" },
     args = {},
     env = {},
     cwd = nil,
     model = nil,
     mode_id = "read-only",
-    auto_initialize = true,
     pty = false,
     session = {
       action = "new",

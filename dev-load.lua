@@ -18,12 +18,12 @@ append_optional_plugin(vim.env.OMNIAC_TREESITTER_PATH or "~/.local/share/nvim/la
 pcall(vim.cmd, "runtime plugin/render-markdown.lua")
 
 require("omniac").setup({
-  debug = false,
+  debug = true,
   agent = {
     cmd = vim.env.ACPCLIENT_AGENT_CMD
         and vim.env.ACPCLIENT_AGENT_CMD ~= ""
         and vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })
-      or { "codex", "app-server" },
+      or { "codex-acp" },
   },
 })
 

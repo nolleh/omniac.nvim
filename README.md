@@ -4,6 +4,15 @@ Neovim plugin for ACP-compatible agents and agentic coding workflows.
 
 ## Installation
 
+Install an ACP agent first. The default command is `codex-acp`:
+
+```sh
+npm install -g @agentclientprotocol/codex-acp
+codex-acp login
+```
+
+You can use another ACP-compatible agent by setting `agent.cmd` to its executable and arguments.
+
 Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
@@ -22,9 +31,6 @@ With options:
 {
   "nolleh/omniac.nvim",
   opts = {
-    backend = {
-      kind = "acp",
-    },
     agent = {
       cmd = { "codex-acp" },
       mode_id = "read-only",
@@ -64,16 +70,14 @@ Use a project-local working directory and enable debug logging:
 
 ### Options
 
-| Option                                 | Default                     | Description                                                                           |
-| -------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------- |
-| `debug`                                | `false`                     | Enables extra debug notifications and debug-log inspection.                           |
-| `backend.kind`                         | `"auto"`                    | Backend selection. Use `"acp"` to force ACP mode.                                     |
-| `agent.cmd`                            | `{ "codex", "app-server" }` | Agent subprocess command. In ACP mode, the default is rewritten to `{ "codex-acp" }`. |
+| Option                                 | Default           | Description                                                                           |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------- |
+| `debug`                                | `false`           | Enables extra debug notifications and debug-log inspection.                           |
+| `agent.cmd`                            | `{ "codex-acp" }` | ACP agent subprocess command.                                                         |
 | `agent.args`                           | `{}`                        | Additional agent arguments.                                                           |
 | `agent.env`                            | `{}`                        | Environment variables passed to the agent subprocess.                                 |
 | `agent.cwd`                            | `nil`                       | Working directory for the agent subprocess.                                           |
 | `agent.mode_id`                        | `"read-only"`               | Initial ACP agent mode.                                                               |
-| `agent.auto_initialize`                | `true`                      | Sends the legacy initialize flow automatically. ACP mode disables this internally.    |
 | `agent.pty`                            | `false`                     | Runs the subprocess through a PTY when supported.                                     |
 | `agent.session.action`                 | `"new"`                     | ACP session startup action: `"new"`, `"load"`, `"resume"`, or `"select"`.            |
 | `agent.session.id`                     | `nil`                       | ACP session ID used when `agent.session.action` is `"load"` or `"resume"`.            |
@@ -107,7 +111,7 @@ Use a project-local working directory and enable debug logging:
 - `:Omniac` opens a Neovim chat/input/status UI
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
 - `:OmniacResize {width}` resizes the Omniac side UI as one body
-- `:OmniacAsk` sends the built prompt through the active backend when connected
+- `:OmniacAsk` sends the built prompt to the active ACP agent when connected
 - `Ctrl-V` in the Omniac input attaches a PNG or JPEG image from the macOS clipboard when the ACP agent advertises image prompts; otherwise it falls back to normal text paste
 - visual selections can be included in prompts
 - file mentions can be formatted into prompts
@@ -124,12 +128,9 @@ Use a project-local working directory and enable debug logging:
 
 ## Dev
 
-Start Neovim with `scripts/dev.lua` to load this plugin with the default Codex command already configured.
+Start Neovim with `scripts/dev.lua` to load this plugin with the default `codex-acp` command already configured.
 
 ## TODO
 
 - [Feature TODO](docs/FEATURE_TODO.md): Omniac input, history, safety, and UX work.
 - [Protocol TODO](docs/PROTOCOL_TODO.md): ACP implementation scope and remaining work.
-
-
-

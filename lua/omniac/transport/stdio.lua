@@ -24,13 +24,6 @@ local function deepcopy(value)
   return value
 end
 
-local function json_null()
-  if vim.NIL ~= nil then
-    return vim.NIL
-  end
-  return nil
-end
-
 function M.new(config)
   local state = {
     config = config or {},
@@ -40,8 +33,6 @@ function M.new(config)
     next_id = 1,
     pending = {},
     sent_echoes = {},
-    thread_id = nil,
-    permission_profile = nil,
     request_handler = nil,
     notification_handler = nil,
     response_handler = nil,
@@ -122,7 +113,10 @@ function M.new(config)
       end
       replied = true
 
-      local response = { id = message.id }
+      local response = {
+        jsonrpc = "2.0",
+        id = message.id,
+      }
       if err then
         response.error = err
       else
@@ -297,55 +291,6 @@ function M.new(config)
       cwd = agent.cwd,
     })
 
-    if self.config.agent.auto_initialize ~= false then
-      self:initialize(function(err, result)
-        if err then
-          self:_emit(self.notification_handler, {
-            method = "_transport/error",
-            params = {
-              message = "initialize failed",
-              error = err,
-            },
-          })
-          return
-        end
-
-        if result and result.capabilities ~= nil then
-          self:_emit(self.notification_handler, {
-            method = "_transport/initialize",
-            params = result,
-          })
-        end
-
-        self:notify("initialized", {})
-
-        self:thread_start({}, function(thread_err, thread_result)
-          if thread_err then
-            self:_emit(self.notification_handler, {
-              method = "_transport/error",
-              params = {
-                message = "thread/start failed",
-                error = thread_err,
-              },
-            })
-            return
-          end
-
-          if thread_result and thread_result.thread then
-            self.thread_id = thread_result.thread.id or thread_result.thread.threadId or thread_result.threadId
-          end
-          if thread_result and thread_result.permissionProfile then
-            self.permission_profile = thread_result.permissionProfile
-          end
-
-          self:_emit(self.notification_handler, {
-            method = "_transport/thread_started",
-            params = thread_result,
-          })
-        end)
-      end)
-    end
-
     return self
   end
 
@@ -358,6 +303,7 @@ function M.new(config)
     end
 
     self:_send_raw({
+      jsonrpc = "2.0",
       id = id,
       method = method,
       params = params or {},
@@ -366,122 +312,11 @@ function M.new(config)
     return id
   end
 
-  function state:notify(method, params)
-    self:_send_raw({
-      method = method,
-      params = params or {},
-    })
-  end
-
-  function state:initialize(callback)
-    local client = self.config.client or {}
-    local params = {
-      clientInfo = {
-        name = client.name or "omniac.nvim",
-        title = client.title or "omniac.nvim",
-        version = client.version or "0.1.0",
-      },
-      capabilities = vim.tbl_deep_extend("force", {
-        experimentalApi = true,
-      }, client.capabilities or {}),
-    }
-
-    return self:request("initialize", params, callback)
-  end
-
-  function state:thread_start(params, callback)
-    local payload = deepcopy(params or {})
-    payload.model = payload.model ~= nil and payload.model or self.config.agent.model or json_null()
-    payload.modelProvider = payload.modelProvider ~= nil and payload.modelProvider or json_null()
-    payload.cwd = payload.cwd ~= nil and payload.cwd or (self.config.agent.cwd or json_null())
-    payload.approvalPolicy = payload.approvalPolicy ~= nil and payload.approvalPolicy or json_null()
-    payload.approvalsReviewer = payload.approvalsReviewer ~= nil and payload.approvalsReviewer or json_null()
-    payload.sandbox = payload.sandbox ~= nil and payload.sandbox or json_null()
-    payload.permissions = payload.permissions ~= nil and payload.permissions or json_null()
-    payload.config = payload.config ~= nil and payload.config or json_null()
-    payload.serviceName = payload.serviceName ~= nil and payload.serviceName or json_null()
-    payload.baseInstructions = payload.baseInstructions ~= nil and payload.baseInstructions or json_null()
-    payload.developerInstructions = payload.developerInstructions ~= nil and payload.developerInstructions
-      or json_null()
-    payload.personality = payload.personality ~= nil and payload.personality or json_null()
-    payload.ephemeral = payload.ephemeral ~= nil and payload.ephemeral or json_null()
-    payload.sessionStartSource = payload.sessionStartSource ~= nil and payload.sessionStartSource or json_null()
-    payload.threadSource = payload.threadSource ~= nil and payload.threadSource or json_null()
-    payload.environments = payload.environments ~= nil and payload.environments or json_null()
-    payload.dynamicTools = payload.dynamicTools ~= nil and payload.dynamicTools or json_null()
-    payload.mockExperimentalField = payload.mockExperimentalField ~= nil and payload.mockExperimentalField
-      or json_null()
-    payload.experimentalRawEvents = payload.experimentalRawEvents ~= nil and payload.experimentalRawEvents or false
-    payload.persistExtendedHistory = payload.persistExtendedHistory ~= nil and payload.persistExtendedHistory or false
-    payload.serviceTier = payload.serviceTier ~= nil and payload.serviceTier or json_null()
-    payload.clientInfo = payload.clientInfo or json_null()
-
-    return self:request("thread/start", payload, callback)
-  end
-
-  function state:turn_start(text, params, callback)
-    local thread_id = params and params.threadId or self.thread_id
-    local payload = deepcopy(params or {})
-
-    local function send_turn()
-      local active_thread_id = payload.threadId or self.thread_id
-      if not active_thread_id then
-        error("omniac: no thread id available; thread/start must complete first")
-      end
-
-      payload.threadId = active_thread_id
-      payload.input = payload.input
-        or {
-          {
-            type = "text",
-            text = text,
-            text_elements = {},
-          },
-        }
-      payload.responsesapiClientMetadata = payload.responsesapiClientMetadata ~= nil
-          and payload.responsesapiClientMetadata
-        or json_null()
-      payload.environments = payload.environments ~= nil and payload.environments or json_null()
-      payload.cwd = payload.cwd ~= nil and payload.cwd or json_null()
-      payload.approvalPolicy = payload.approvalPolicy ~= nil and payload.approvalPolicy or json_null()
-      payload.approvalsReviewer = payload.approvalsReviewer ~= nil and payload.approvalsReviewer or json_null()
-      payload.sandboxPolicy = payload.sandboxPolicy ~= nil and payload.sandboxPolicy or json_null()
-      payload.permissions = payload.permissions ~= nil and payload.permissions or json_null()
-      payload.model = payload.model ~= nil and payload.model or self.config.agent.model or json_null()
-      payload.effort = payload.effort ~= nil and payload.effort or json_null()
-      payload.summary = payload.summary ~= nil and payload.summary or json_null()
-      payload.personality = payload.personality ~= nil and payload.personality or json_null()
-      payload.outputSchema = payload.outputSchema ~= nil and payload.outputSchema or json_null()
-      payload.collaborationMode = payload.collaborationMode ~= nil and payload.collaborationMode or json_null()
-      return self:request("turn/start", payload, callback)
-    end
-
-    if thread_id then
-      return send_turn()
-    end
-
-    return self:thread_start({}, function(err, result)
-      if err then
-        if callback then
-          callback(err, nil, result)
-        end
-        return
-      end
-
-      if result and result.thread then
-        self.thread_id = result.thread.id or result.thread.threadId or result.threadId
-      end
-
-      send_turn()
-    end)
-  end
-
-  function state:prompt(text, params, callback)
-    return self:turn_start(text, params, callback)
-  end
-
   function state:respond(id, result, err)
-    local response = { id = id }
+    local response = {
+      jsonrpc = "2.0",
+      id = id,
+    }
     if err then
       response.error = err
     else

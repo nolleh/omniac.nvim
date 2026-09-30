@@ -25,7 +25,7 @@ require("omniac").setup({
     cmd = vim.env.ACPCLIENT_AGENT_CMD
         and vim.env.ACPCLIENT_AGENT_CMD ~= ""
         and vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })
-      or { "codex", "app-server" },
+      or { "codex-acp" },
   },
 })
 

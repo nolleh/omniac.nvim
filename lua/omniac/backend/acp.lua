@@ -108,10 +108,6 @@ local function json_null()
   return nil
 end
 
-local function is_json_null(value)
-  return vim.NIL ~= nil and value == vim.NIL
-end
-
 local function log_path(config)
   config = config or {}
   if not config.debug then
@@ -516,6 +512,7 @@ function M.new(config)
     config = config or {},
     transport = nil,
     running = false,
+    closing = false,
     request_handler = nil,
     notification_handler = nil,
     response_handler = nil,
@@ -601,7 +598,6 @@ function M.new(config)
   function state:_transport_config()
     local cfg = deepcopy(self.config)
     cfg.agent = deepcopy(cfg.agent or {})
-    cfg.agent.auto_initialize = false
     return cfg
   end
 
@@ -878,14 +874,10 @@ function M.new(config)
     return action, session_id
   end
 
-  function state:_list_sessions(callback, cursor, collected)
-    collected = collected or {}
+  function state:_list_sessions(callback)
     local params = {
       cwd = ((self.config.agent or {}).cwd or vim.loop.cwd()),
     }
-    if cursor then
-      params.cursor = cursor
-    end
 
     self.transport:request("session/list", params, function(err, result)
       if err then
@@ -893,17 +885,7 @@ function M.new(config)
         return
       end
 
-      for _, session in ipairs((result and result.sessions) or {}) do
-        table.insert(collected, session)
-      end
-
-      local next_cursor = result and (result.nextCursor or result.next_cursor)
-      if next_cursor and not is_json_null(next_cursor) and next_cursor ~= "" then
-        self:_list_sessions(callback, next_cursor, collected)
-        return
-      end
-
-      callback(nil, collected)
+      callback(nil, (result and result.sessions) or {})
     end)
   end
 
@@ -1288,6 +1270,7 @@ function M.new(config)
       return self
     end
 
+    self.closing = false
     self.transport = transport.new(self:_transport_config())
     self.transport
       :on_notification(function(message)
@@ -1452,6 +1435,7 @@ function M.new(config)
   end
 
   function state:close()
+    self.closing = true
     if self.transport then
       self.transport:close()
     end

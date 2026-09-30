@@ -18,7 +18,7 @@ This file tracks what is already working and what still needs to be implemented 
 
 - [x] Send `initialize` with `protocolVersion`, `clientInfo`, and `clientCapabilities`.
 - [x] Default ACP client capabilities to no client-side file-system or terminal access.
-- [x] Disable legacy transport auto-initialization when running through the ACP backend.
+- [x] Keep ACP initialization and session startup in the ACP client layer.
 - [ ] Persist and use negotiated agent capabilities from the `initialize` response.
 - [ ] Validate protocol-version compatibility before continuing session startup.
 
@@ -106,7 +106,6 @@ This file tracks what is already working and what still needs to be implemented 
 
 - [x] Configure an initial `agent.mode_id`.
 - [x] Send `session/set_mode` after session creation when a mode id is configured.
-- [x] Pass `INITIAL_AGENT_MODE` for agents that read the initial mode from the environment.
 - [ ] Render available modes from agent capabilities.
 - [ ] Let users switch modes during an active session.
 - [ ] Handle mode-change notifications from `session/update`.
@@ -143,14 +142,6 @@ This file tracks what is already working and what still needs to be implemented 
 ## Schema
 
 - [x] Use camelCase for ACP request fields currently sent by the backend.
-- [x] Keep compatibility extraction for snake_case and legacy agent response fields.
+- [x] Keep compatibility extraction for snake_case agent response fields.
 - [ ] Generate or validate Lua-side protocol shapes from the official ACP schema.
 - [ ] Add focused tests for each supported request, response, and notification shape.
-
-## Legacy Codex App-Server Compatibility
-
-- [x] Auto-select between `codex app-server` and `codex-acp`.
-- [x] Support Codex app-server `thread/start` / `turn/start` startup and prompt flow.
-- [x] Support Codex app-server response streaming for agent message events.
-- [x] Support Codex app-server file-change, patch, and command approval review for known request shapes.
-- [x] Keep legacy app-server behavior out of the ACP backend.

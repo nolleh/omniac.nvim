@@ -1,7 +1,6 @@
 local config = require("omniac.config")
 local selection = require("omniac.selection")
 local mentions = require("omniac.mentions")
-local transport = require("omniac.transport")
 local acp_backend = require("omniac.backend.acp")
 local ui = require("omniac.ui")
 local approval = require("omniac.approval")
@@ -11,54 +10,8 @@ local filesystem = require("omniac.filesystem")
 
 local M = {
   config = config.defaults,
-  transport = nil,
   backend = nil,
-  response_buffer = "",
 }
-
-local function extract_text(value, seen)
-  if type(value) == "string" then
-    return value
-  end
-
-  if type(value) ~= "table" then
-    return nil
-  end
-
-  seen = seen or {}
-  if seen[value] then
-    return nil
-  end
-  seen[value] = true
-
-  for _, key in ipairs({ "text", "delta", "message", "content", "value" }) do
-    local found = extract_text(value[key], seen)
-    if found and found ~= "" then
-      return found
-    end
-  end
-
-  local content_items = value.contentItems or value.content_items
-  if type(content_items) == "table" then
-    for _, item in ipairs(content_items) do
-      local found = extract_text(item, seen)
-      if found and found ~= "" then
-        return found
-      end
-    end
-  end
-
-  for _, item in pairs(value) do
-    if type(item) == "table" or type(item) == "string" then
-      local found = extract_text(item, seen)
-      if found and found ~= "" then
-        return found
-      end
-    end
-  end
-
-  return nil
-end
 
 local function build_prompt(extra)
   local ctx = selection.get_context()
@@ -100,49 +53,6 @@ local function build_prompt_items(text, attachments)
   return items
 end
 
-local function build_granted_permissions(profile)
-  if not profile then
-    return {
-      fileSystem = nil,
-      network = nil,
-    }
-  end
-
-  return {
-    fileSystem = profile.fileSystem,
-    network = profile.network,
-  }
-end
-
-local function first_tool_answer(question)
-  if not question or not question.options or #question.options == 0 then
-    return { answers = {} }
-  end
-
-  local option = question.options[1]
-  if option and option.label then
-    return { answers = { option.label } }
-  end
-
-  return { answers = {} }
-end
-
-local function is_default_codex_command(cmd)
-  return vim.deep_equal(cmd, { "codex", "app-server" })
-end
-
-local function resolve_backend_kind(kind)
-  if kind and kind ~= "auto" then
-    return kind
-  end
-
-  if vim.fn.executable("codex-acp") == 1 then
-    return "acp"
-  end
-
-  return "codex"
-end
-
 local function register_command(name, fn, opts)
   vim.api.nvim_create_user_command(name, fn, opts or {})
 end
@@ -172,7 +82,7 @@ local function model_activity(model_state)
 end
 
 local function connect_session(action, session_id)
-  if M.backend or M.transport then
+  if M.backend then
     M.disconnect()
   end
   ui.set_status("connecting", M.config)
@@ -188,19 +98,6 @@ end
 
 function M.setup(opts)
   M.config = config.merge(opts)
-  M.config.backend = M.config.backend or {}
-  M.config.backend.kind = resolve_backend_kind(M.config.backend.kind)
-  if M.config.backend.kind == "acp" and is_default_codex_command(M.config.agent and M.config.agent.cmd or {}) then
-    M.config.agent.cmd = { "codex-acp" }
-  end
-  if M.config.backend.kind == "acp" then
-    M.config.agent.auto_initialize = false
-    M.config.agent.env = M.config.agent.env or {}
-    M.config.agent.env.INITIAL_AGENT_MODE = M.config.agent.env.INITIAL_AGENT_MODE
-      or M.config.agent.mode_id
-      or "read-only"
-  end
-  M.response_buffer = ""
 
   local function connect()
     M.connect()
@@ -224,9 +121,8 @@ function M.setup(opts)
       return
     end
 
-    local active = M.backend or M.transport
-    if active and active.get_debug_log then
-      vim.notify(vim.inspect(active:get_debug_log()), vim.log.levels.INFO, { title = "omniac debug" })
+    if M.backend and M.backend.get_debug_log then
+      vim.notify(vim.inspect(M.backend:get_debug_log()), vim.log.levels.INFO, { title = "omniac debug" })
     else
       vim.notify("no active transport", vim.log.levels.WARN, { title = "omniac debug" })
     end
@@ -290,15 +186,6 @@ end
 
 function M.open_chat()
   ui.set_cancel_handler(function()
-    if not (M.config.backend and M.config.backend.kind == "acp") then
-      ui.handle_notification({
-        method = "omniac/prompt_cancel_failed",
-        params = {
-          message = "Cancel is not available for this backend.",
-        },
-      }, M.config)
-      return
-    end
     if not M.backend or not M.backend.cancel then
       ui.handle_notification({
         method = "omniac/prompt_cancel_failed",
@@ -331,11 +218,6 @@ function M.open_chat()
   end)
 
   ui.set_mode_cycle_handler(function()
-    if not (M.config.backend and M.config.backend.kind == "acp") then
-      ui.set_activity("Session modes are not available.", M.config)
-      return
-    end
-
     if not M.backend or not M.backend.cycle_session_mode then
       ui.set_activity("Session modes are not available.", M.config)
       return
@@ -367,66 +249,52 @@ function M.open_chat()
       return
     end
     if command == "model" and #(attachments or {}) == 0 then
-      if M.config.backend and M.config.backend.kind == "acp" then
-        if not M.backend or not M.backend.get_session_model then
-          ui.set_activity("Model selection is not available until the ACP session is ready.", M.config)
-          return
-        end
-        if arguments == "" then
-          local model_state = M.backend:get_session_model()
-          if
-            not model_dialog.open(model_state, function(choice)
-              if not choice then
-                return
-              end
-              M.backend:set_session_model(choice.id, function(err, _, selected)
-                if err then
-                  ui.set_activity(tostring(err.message or err.error or err), M.config)
-                  return
-                end
-                M.config.agent.model = selected
-                ui.set_session_model({
-                  currentModelId = selected,
-                  currentModelName = selected,
-                })
-                ui.set_activity("Model changed to " .. selected .. ".", M.config)
-              end)
-            end)
-          then
-            ui.set_activity(model_activity(model_state), M.config)
-          end
-          return
-        end
-        M.backend:set_session_model(arguments, function(err, _, selected)
-          if err then
-            ui.set_activity(tostring(err.message or err.error or err), M.config)
-            return
-          end
-          M.config.agent.model = selected
-          ui.set_session_model({
-            currentModelId = selected,
-            currentModelName = selected,
-          })
-          ui.set_activity("Model changed to " .. selected .. ".", M.config)
-        end)
+      if not M.backend or not M.backend.get_session_model then
+        ui.set_activity("Model selection is not available until the ACP session is ready.", M.config)
         return
       end
-
       if arguments == "" then
-        ui.set_activity("Current model: " .. tostring(M.config.agent.model or "default"), M.config)
-      else
-        M.config.agent.model = arguments
-        ui.set_session_model({
-          currentModelId = arguments,
-          currentModelName = arguments,
-        })
-        ui.set_activity("Model changed to " .. arguments .. ".", M.config)
+        local model_state = M.backend:get_session_model()
+        if
+          not model_dialog.open(model_state, function(choice)
+            if not choice then
+              return
+            end
+            M.backend:set_session_model(choice.id, function(err, _, selected)
+              if err then
+                ui.set_activity(tostring(err.message or err.error or err), M.config)
+                return
+              end
+              M.config.agent.model = selected
+              ui.set_session_model({
+                currentModelId = selected,
+                currentModelName = selected,
+              })
+              ui.set_activity("Model changed to " .. selected .. ".", M.config)
+            end)
+          end)
+        then
+          ui.set_activity(model_activity(model_state), M.config)
+        end
+        return
       end
+      M.backend:set_session_model(arguments, function(err, _, selected)
+        if err then
+          ui.set_activity(tostring(err.message or err.error or err), M.config)
+          return
+        end
+        M.config.agent.model = selected
+        ui.set_session_model({
+          currentModelId = selected,
+          currentModelName = selected,
+        })
+        ui.set_activity("Model changed to " .. selected .. ".", M.config)
+      end)
       return
     end
 
     ui.submit(text, M.config, attachments)
-    if not M.backend and not M.transport then
+    if not M.backend then
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.connect)
       if not ok then
@@ -442,7 +310,7 @@ function M.open_chat()
     end
   end)
 
-  if M.config.backend and M.config.backend.kind == "acp" and not M.backend then
+  if not M.backend then
     ui.set_status("connecting", M.config)
     local ok, err = pcall(M.connect)
     if not ok then
@@ -462,7 +330,7 @@ function M.select_session()
     connect_session(selection.action or "new", selection.id)
   end
 
-  if M.config.backend and M.config.backend.kind == "acp" and M.backend then
+  if M.backend then
     local completed = false
     local timer = vim.loop.new_timer()
     timer:start(5000, 0, function()
@@ -519,7 +387,7 @@ end
 
 function M.ask(extra, attachments)
   local prompt = build_prompt(extra)
-  if M.config.backend and M.config.backend.kind == "acp" and M.backend then
+  if M.backend then
     local params = nil
     if attachments and #attachments > 0 then
       params = {
@@ -531,20 +399,6 @@ function M.ask(extra, attachments)
         vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "omniac response" })
         ui.add_message("Error", tostring(err.message or err.error or err), M.config)
         ui.set_status("error", M.config)
-        return
-      end
-
-      if result and M.config.debug then
-        vim.notify(vim.inspect(result), vim.log.levels.INFO, { title = "omniac response" })
-      end
-    end)
-    return prompt
-  end
-
-  if M.transport then
-    M.transport:prompt(prompt, nil, function(err, result)
-      if err then
-        vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "omniac response" })
         return
       end
 
@@ -583,130 +437,64 @@ end
 
 function M.connect(opts)
   opts = opts or {}
-  if M.config.backend and M.config.backend.kind == "acp" then
-    local cfg = M.config
-    if opts.session then
-      cfg = vim.deepcopy(M.config)
-      cfg.agent = cfg.agent or {}
-      cfg.agent.session = vim.tbl_extend("force", cfg.agent.session or {}, opts.session)
-    end
-    cfg.session_selector = function(sessions, selector_opts, callback)
-      session_dialog.open(sessions, selector_opts, callback)
-    end
-
-    local client = acp_backend.new(cfg)
-    client
-      :on_request(function(message, reply)
-        local method = message and message.method
-        local params = message and message.params or {}
-
-        local function logged_reply(result, err)
-          return reply(result, err)
-        end
-
-        if method == "session/request_permission" then
-          approval.review_acp_permission(params, logged_reply, cfg)
-          return
-        end
-
-        if method == "fs/read_text_file" or method == "fs/write_text_file" then
-          local result, err = filesystem.handle_request(method, params)
-          logged_reply(result, err)
-          return
-        end
-
-        logged_reply({})
-      end)
-      :on_notification(function(message)
-        local method = message and message.method
-        local params = message and message.params or {}
-
-        ui.handle_notification(message, cfg)
-
-        if method == "omniac/permission_diff" then
-          approval.attach_acp_permission_diff(params)
-          return
-        end
-
-        if method == "omniac/file_update" then
-          approval.apply_file_update(params)
-          return
-        end
-
-        if method == "omniac/edit_failed" then
-          return
-        end
-
-        if method == "omniac/response" then
-          return
-        end
-
-        if method == "omniac/error" then
-          vim.notify(
-            tostring(params.message or params.error or "omniac error"),
-            vim.log.levels.ERROR,
-            { title = "omniac error" }
-          )
-        end
-      end)
-      :on_exit(function(code, signal)
-        ui.set_status("closed", cfg)
-        vim.notify(
-          string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
-          vim.log.levels.WARN,
-          { title = "omniac exit" }
-        )
-        if M.backend == client then
-          M.backend = nil
-        end
-      end)
-
-    M.backend = client:start()
-    return M.backend
+  local cfg = M.config
+  if opts.session then
+    cfg = vim.deepcopy(M.config)
+    cfg.agent = cfg.agent or {}
+    cfg.agent.session = vim.tbl_extend("force", cfg.agent.session or {}, opts.session)
+  end
+  cfg.session_selector = function(sessions, selector_opts, callback)
+    session_dialog.open(sessions, selector_opts, callback)
   end
 
-  local client = transport.new(M.config)
+  local client = acp_backend.new(cfg)
   client
+    :on_request(function(message, reply)
+      local method = message and message.method
+      local params = message and message.params or {}
+
+      local function logged_reply(result, err)
+        return reply(result, err)
+      end
+
+      if method == "session/request_permission" then
+        approval.review_acp_permission(params, logged_reply, cfg)
+        return
+      end
+
+      if method == "fs/read_text_file" or method == "fs/write_text_file" then
+        local result, err = filesystem.handle_request(method, params)
+        logged_reply(result, err)
+        return
+      end
+
+      logged_reply({})
+    end)
     :on_notification(function(message)
       local method = message and message.method
       local params = message and message.params or {}
 
-      ui.handle_notification(message, M.config)
+      ui.handle_notification(message, cfg)
 
-      if method == "thread/started" or method == "turn/started" then
-        M.response_buffer = ""
+      if method == "omniac/permission_diff" then
+        approval.attach_acp_permission_diff(params)
         return
       end
 
-      if
-        method == "item/agentMessage/delta"
-        or method == "item/agentMessage/final"
-        or method == "item/agentMessage/completed"
-      then
-        local text = extract_text(params)
-        if text and text ~= "" then
-          M.response_buffer = M.response_buffer .. text
-        end
+      if method == "omniac/file_update" then
+        approval.apply_file_update(params)
         return
       end
 
-      if method == "turn/completed" then
-        local text = M.response_buffer
-        M.response_buffer = ""
-
-        if text and text ~= "" then
-          ui.add_message("Omniac", text, M.config)
-          return
-        end
-
-        local summary = extract_text(params)
-        if summary and summary ~= "" then
-          ui.add_message("Omniac", summary, M.config)
-        end
+      if method == "omniac/edit_failed" then
         return
       end
 
-      if method == "turn/error" or method == "_transport/error" then
+      if method == "omniac/response" then
+        return
+      end
+
+      if method == "omniac/error" then
         vim.notify(
           tostring(params.message or params.error or "omniac error"),
           vim.log.levels.ERROR,
@@ -714,106 +502,28 @@ function M.connect(opts)
         )
       end
     end)
-    :on_request(function(message, reply)
-      local method = message and message.method
-      local params = message and message.params or {}
-
-      if M.config.debug then
-        vim.notify("server request: " .. tostring(method), vim.log.levels.WARN, { title = "omniac request" })
-      end
-
-      if method == "item/fileChange/requestApproval" or method == "applyPatchApproval" then
-        approval.review_request(method, params, reply, nil, M.config)
-        return
-      end
-
-      if method == "item/commandExecution/requestApproval" then
-        approval.review_request(method, params, reply, nil, M.config)
-        return
-      end
-
-      if method == "item/permissions/requestApproval" then
-        approval.review_permission_request(params, function(accepted)
-          local profile = M.transport and M.transport.permission_profile or nil
-          reply({
-            permissions = accepted and build_granted_permissions(profile) or {
-              fileSystem = nil,
-              network = nil,
-            },
-            scope = "turn",
-            strictAutoReview = false,
-          })
-        end, M.config)
-        return
-      end
-
-      if method == "item/tool/requestUserInput" then
-        local answers = {}
-        for _, question in ipairs(params.questions or {}) do
-          answers[question.id] = first_tool_answer(question)
-        end
-        reply({
-          answers = answers,
-        })
-        return
-      end
-
-      if method == "item/tool/call" then
-        reply({
-          success = false,
-          contentItems = {
-            {
-              type = "inputText",
-              text = "tool call not implemented by omniac.nvim yet",
-            },
-          },
-        })
-        return
-      end
-
-      if method == "mcpServer/elicitation/request" then
-        reply({
-          answers = {},
-        })
-        return
-      end
-
-      if M.config.debug then
-        vim.notify(
-          "Unhandled server request method: " .. tostring(method),
-          vim.log.levels.WARN,
-          { title = "omniac request" }
-        )
-      end
-      reply({
-        decision = "acceptForSession",
-      })
-    end)
     :on_exit(function(code, signal)
-      ui.set_status("closed", M.config)
+      if client.closing or M.backend ~= client then
+        return
+      end
+
+      ui.set_status("closed", cfg)
       vim.notify(
         string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
         vim.log.levels.WARN,
         { title = "omniac exit" }
       )
-      if M.transport == client then
-        M.transport = nil
-      end
+      M.backend = nil
     end)
 
-  M.transport = client:start()
-  return M.transport
+  M.backend = client:start()
+  return M.backend
 end
 
 function M.disconnect()
   if M.backend then
     M.backend:close()
     M.backend = nil
-  end
-
-  if M.transport then
-    M.transport:close()
-    M.transport = nil
   end
 end
 
