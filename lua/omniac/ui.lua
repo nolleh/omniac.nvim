@@ -31,6 +31,10 @@ local state = {
   input_history_pending_text = nil,
   input_history_pending_cursor = nil,
   streaming_message_index = nil,
+  chat_render_pending = false,
+  chat_render_generation = 0,
+  chat_render_config = nil,
+  chat_render_opts = nil,
   config = nil,
   submit = nil,
   cancel_handler = nil,
@@ -53,6 +57,7 @@ local state = {
 local INPUT_MIN_DISPLAY_LINES = 3
 local INPUT_MAX_DISPLAY_LINES = 10
 local ACTIVITY_MAX_DISPLAY_LINES = 3
+local CHAT_STREAM_RENDER_DELAY_MS = 24
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
 local CHAT_MARKDOWN_RENDER_CONFIG = {
@@ -187,6 +192,14 @@ local function add_mark(marks, line, from, to, group)
   table.insert(marks, { line = line, from = from, to = to, group = group })
 end
 
+local function materialize_message_text(message)
+  if message.pending_chunks and #message.pending_chunks > 0 then
+    message.text = (message.text or "") .. table.concat(message.pending_chunks)
+    message.pending_chunks = {}
+  end
+  return message.text or ""
+end
+
 local render_chat
 
 local function add_boxed_line(lines, marks, text, size, group)
@@ -246,7 +259,39 @@ end
 
 local function request_chat_render(config, opts)
   opts = opts or {}
-  render_chat(config or state.config, opts)
+  config = config or state.config
+  if opts.immediate then
+    state.chat_render_generation = state.chat_render_generation + 1
+    state.chat_render_pending = false
+    state.chat_render_config = nil
+    state.chat_render_opts = nil
+    render_chat(config, opts)
+    return
+  end
+
+  state.chat_render_config = config
+  local pending = state.chat_render_opts or {}
+  pending.follow = pending.follow == true or opts.follow == true
+  pending.skip_markdown = pending.skip_markdown ~= false and opts.skip_markdown == true
+  state.chat_render_opts = pending
+  if state.chat_render_pending then
+    return
+  end
+
+  state.chat_render_pending = true
+  state.chat_render_generation = state.chat_render_generation + 1
+  local generation = state.chat_render_generation
+  vim.defer_fn(function()
+    if generation ~= state.chat_render_generation then
+      return
+    end
+    local pending_config = state.chat_render_config or state.config
+    local pending_opts = state.chat_render_opts or {}
+    state.chat_render_pending = false
+    state.chat_render_config = nil
+    state.chat_render_opts = nil
+    render_chat(pending_config, pending_opts)
+  end, CHAT_STREAM_RENDER_DELAY_MS)
 end
 
 local function clear_render_markdown_marks()
@@ -630,18 +675,19 @@ render_chat = function(config, opts)
     add_line(lines, marks, box_line("╰", "─", "╯", win_width), "OmniacBorder")
   else
     for _, message in ipairs(state.messages) do
+      local text = materialize_message_text(message)
       local group = message.role == "You" and "OmniacUserBubble" or nil
       if message.role == "Error" then
         group = "OmniacError"
       end
 
       if message.role == "You" then
-        for _, line in ipairs(wrapped(message.text, text_width)) do
+        for _, line in ipairs(wrapped(text, text_width)) do
           add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
         end
         add_message_separator()
       else
-        local message_text = message.type == "tool_result" and tool_result_text(message) or message.text
+        local message_text = message.type == "tool_result" and tool_result_text(message) or text
         if message.type ~= "tool_result" then
           message_text = unwrap_markdown_fences(message_text)
         end
@@ -1893,6 +1939,10 @@ end
 function M.close()
   stop_activity_timer()
   stop_tool_activity_timer()
+  state.chat_render_generation = state.chat_render_generation + 1
+  state.chat_render_pending = false
+  state.chat_render_config = nil
+  state.chat_render_opts = nil
   vim.api.nvim_clear_autocmds({
     group = augroup,
     event = { "VimResized", "WinResized", "WinClosed" },
@@ -2390,14 +2440,17 @@ function M.append_response_chunk(text, config)
     table.insert(state.messages, {
       role = "Omniac",
       text = "",
+      pending_chunks = {},
       complete = false,
     })
     index = #state.messages
     state.streaming_message_index = index
   end
 
-  state.messages[index].complete = false
-  state.messages[index].text = (state.messages[index].text or "") .. text
+  local message = state.messages[index]
+  message.complete = false
+  message.pending_chunks = message.pending_chunks or {}
+  table.insert(message.pending_chunks, text)
   request_chat_render(config, { skip_markdown = true, follow = true })
 end
 

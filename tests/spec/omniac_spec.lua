@@ -96,6 +96,22 @@ describe("omniac.nvim", function()
     assert_equal(sent[3].id, "agent-request", "automatic response id should be preserved")
   end)
 
+  it("stdio transport keeps large debug chunks as summaries", function()
+    package.loaded["omniac.transport.stdio"] = nil
+    local client = require("omniac.transport.stdio").new({ debug = true })
+    local notifications = {}
+    client:on_notification(function(message)
+      table.insert(notifications, message)
+    end)
+
+    client:_debug("stdout_chunk", { lines = { string.rep("x", 10000), "tail" } })
+
+    local entry = client:get_debug_log()[1]
+    assert_equal(entry.payload.line_count, 2, "debug summary should retain the line count")
+    assert_equal(entry.payload.bytes, 10004, "debug summary should retain the byte count")
+    assert_equal(#notifications, 0, "debug bookkeeping should not emit protocol notifications")
+  end)
+
   it("selection references preserve source range and unsaved text", function()
     package.loaded["omniac.selection"] = nil
     local selection = require("omniac.selection")
@@ -1215,6 +1231,32 @@ describe("omniac.nvim", function()
     package.loaded["render-markdown"] = nil
   end)
 
+  it("streaming coalesces queued chunks into one chat render", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { ui = { chat_width = 48 } }
+
+    ui.open(config, function(_) end)
+    local chat_buf = vim.fn.bufnr("omniac")
+    local render_count = 0
+    vim.api.nvim_buf_attach(chat_buf, false, {
+      on_lines = function()
+        render_count = render_count + 1
+      end,
+    })
+
+    ui.append_response_chunk("one ", config)
+    ui.append_response_chunk("two ", config)
+    ui.append_response_chunk("three", config)
+
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("one two three") ~= nil
+    end)
+    assert_equal(render_count, 1, "queued chunks should update the chat buffer once")
+  end)
+
   it("streaming preserves chat view while another window is active", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
@@ -1251,6 +1293,10 @@ describe("omniac.nvim", function()
     assert_true(vim.api.nvim_get_current_win() ~= chat_win, "another Omniac window should remain active")
 
     ui.append_response_chunk("new streamed response", config)
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("new streamed response") ~= nil
+    end)
 
     local after_cursor = vim.api.nvim_win_get_cursor(chat_win)
     local after_view = vim.api.nvim_win_call(chat_win, vim.fn.winsaveview)
@@ -1278,6 +1324,10 @@ describe("omniac.nvim", function()
     vim.api.nvim_set_current_win(chat_win)
     vim.api.nvim_win_set_cursor(chat_win, { vim.api.nvim_buf_line_count(chat_buf), 0 })
     ui.append_response_chunk(string.rep("streamed text ", 20), config)
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("streamed text") ~= nil
+    end)
 
     assert_equal(
       vim.api.nvim_win_get_cursor(chat_win)[1],
@@ -1320,6 +1370,10 @@ describe("omniac.nvim", function()
     assert_equal(vim.fn.mode(1), "v", "chat should be in visual mode")
 
     ui.append_response_chunk("new streamed response", config)
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("new streamed response") ~= nil
+    end)
 
     assert_equal(vim.api.nvim_win_get_cursor(chat_win)[1], 5, "streaming should preserve the visual cursor")
     vim.cmd("normal! v")
@@ -1434,6 +1488,10 @@ describe("omniac.nvim", function()
     }, { ui = { chat_width = 48 } })
 
     local chat_buf = vim.fn.bufnr("omniac")
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("plain assistant line") ~= nil
+    end)
     local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
     assert_true(chat:match("\n  plain assistant line%s+\n") ~= nil, "assistant prose should keep horizontal padding")
   end)
@@ -1455,6 +1513,10 @@ describe("omniac.nvim", function()
     }, { ui = { chat_width = 48 } })
 
     local chat_buf = vim.fn.bufnr("omniac")
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("intentionally long enough") ~= nil
+    end)
     local lines = vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)
     local prose_lines = 0
     local prose_text = {}
@@ -2309,8 +2371,17 @@ describe("omniac.nvim", function()
       logs = { dir = on_dir },
     })
     on_client:_debug("request", { method = "session/new", params = {} })
+    on_client:_debug("notification", {
+      method = "session/update",
+      params = { update = { sessionUpdate = "agent_message_chunk", content = "hello" } },
+    })
+    vim.wait(100, function()
+      local paths = vim.fn.globpath(on_dir, "acp-*.jsonl", false, true)
+      return #paths == 1 and #vim.fn.readfile(paths[1]) == 2
+    end)
     local on_logs = vim.fn.globpath(on_dir, "acp-*.jsonl", false, true)
     assert_equal(#on_logs, 1, "debug=true should write ACP protocol files")
+    assert_equal(#vim.fn.readfile(on_logs[1]), 2, "queued protocol events should flush together without loss")
 
     pcall(vim.fn.delete, off_dir, "rf")
     pcall(vim.fn.delete, on_dir, "rf")
@@ -2709,6 +2780,21 @@ describe("omniac.nvim", function()
             },
           },
         })
+        client:_handle_notification({
+          method = "session/update",
+          params = {
+            update = {
+              sessionUpdate = "agent_message_chunk",
+              content = {
+                {
+                  type = "text",
+                  text = " world",
+                },
+              },
+            },
+          },
+        })
+        assert_equal(#client.response_chunks, 2, "streamed response chunks should accumulate without string copying")
         callback(nil, {
           stopReason = "max_tokens",
         })
@@ -2729,6 +2815,24 @@ describe("omniac.nvim", function()
     assert_true(completed ~= nil, "streamed prompt should emit response_completed")
     assert_equal(completed.params.stopReason, "max_tokens", "completion event should include stop reason")
     assert_equal(client.last_stop_reason, "max_tokens", "client should remember last stop reason")
+  end)
+
+  it("ACP replay chunks do not accumulate as an active response", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local client = acp.new({})
+
+    client:_handle_notification({
+      method = "session/update",
+      params = {
+        update = {
+          sessionUpdate = "agent_message_chunk",
+          content = { { type = "text", text = string.rep("history", 1000) } },
+        },
+      },
+    })
+
+    assert_equal(#client.response_chunks, 0, "session replay should not retain history in the live response buffer")
   end)
 
   it("ACP empty prompt result still emits response_completed", function()

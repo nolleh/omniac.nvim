@@ -24,6 +24,39 @@ local function deepcopy(value)
   return value
 end
 
+local function line_summary(lines)
+  local bytes = 0
+  for _, line in ipairs(lines or {}) do
+    bytes = bytes + #tostring(line or "")
+  end
+  return {
+    line_count = #(lines or {}),
+    bytes = bytes,
+  }
+end
+
+local function debug_payload_summary(event, payload)
+  if event == "stdout_chunk" or event == "stderr_chunk" then
+    return line_summary(type(payload) == "table" and payload.lines or {})
+  end
+  if event == "ignored_echo" then
+    return { bytes = #tostring(payload or "") }
+  end
+  if event == "recv" and type(payload) == "table" then
+    local params = type(payload.params) == "table" and payload.params or {}
+    local update = type(params.update) == "table" and params.update or params
+    return {
+      id = payload.id,
+      method = payload.method,
+      sessionUpdate = update.sessionUpdate or update.type,
+      toolCallId = update.toolCallId,
+      hasResult = payload.result ~= nil,
+      hasError = payload.error ~= nil,
+    }
+  end
+  return payload
+end
+
 function M.new(config)
   local state = {
     config = config or {},
@@ -74,18 +107,12 @@ function M.new(config)
   function state:_debug(event, payload)
     local entry = {
       event = event,
-      payload = payload,
+      payload = debug_payload_summary(event, payload),
       time = vim.loop.now(),
     }
     table.insert(self.debug_log, entry)
     if #self.debug_log > 200 then
       table.remove(self.debug_log, 1)
-    end
-    if self.config.debug then
-      self:_emit(self.notification_handler, {
-        method = "_transport/debug",
-        params = entry,
-      })
     end
   end
 

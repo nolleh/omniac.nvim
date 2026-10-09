@@ -129,6 +129,25 @@ local function log_path(config)
   return log_config._path
 end
 
+local protocol_log_queues = {}
+local protocol_log_scheduled = {}
+
+local function flush_protocol_log(path)
+  local lines = protocol_log_queues[path]
+  protocol_log_queues[path] = nil
+  protocol_log_scheduled[path] = nil
+  if lines and #lines > 0 then
+    pcall(vim.fn.writefile, lines, path, "a")
+  end
+end
+
+local function flush_pending_protocol_log(config)
+  local path = config and config.logs and config.logs._path
+  if path and protocol_log_queues[path] then
+    flush_protocol_log(path)
+  end
+end
+
 local function append_protocol_log(config, event, payload)
   local path = log_path(config)
   if not path then
@@ -142,8 +161,36 @@ local function append_protocol_log(config, event, payload)
   }
   local ok, encoded = pcall(vim.json.encode, entry)
   if ok then
-    pcall(vim.fn.writefile, { encoded }, path, "a")
+    protocol_log_queues[path] = protocol_log_queues[path] or {}
+    table.insert(protocol_log_queues[path], encoded)
+    if not protocol_log_scheduled[path] then
+      protocol_log_scheduled[path] = true
+      vim.schedule(function()
+        flush_protocol_log(path)
+      end)
+    end
   end
+end
+
+local function debug_payload_summary(event, payload)
+  if type(payload) ~= "table" then
+    return payload
+  end
+
+  if event == "notification" or event == "request" or event == "response" then
+    local params = type(payload.params) == "table" and payload.params or {}
+    local update = type(params.update) == "table" and params.update or params
+    return {
+      id = payload.id,
+      method = payload.method,
+      sessionUpdate = update.sessionUpdate or update.type,
+      toolCallId = update.toolCallId,
+      hasResult = payload.result ~= nil,
+      hasError = payload.error ~= nil,
+    }
+  end
+
+  return payload
 end
 
 local function sorted_keys(value)
@@ -538,7 +585,7 @@ function M.new(config)
     response_handler = nil,
     exit_handler = nil,
     session_id = nil,
-    response_buffer = "",
+    response_chunks = {},
     response_emitted = false,
     response_streamed = false,
     pending_prompt = nil,
@@ -588,18 +635,12 @@ function M.new(config)
     append_protocol_log(self.config, event, payload)
     local entry = {
       event = event,
-      payload = payload,
+      payload = debug_payload_summary(event, payload),
       time = vim.loop.now(),
     }
     table.insert(self.debug_log, entry)
     if #self.debug_log > 200 then
       table.remove(self.debug_log, 1)
-    end
-    if self.config.debug then
-      self:_emit_notification({
-        method = "_transport/debug",
-        params = entry,
-      })
     end
   end
 
@@ -833,8 +874,10 @@ function M.new(config)
       if update_type == "agent_message_chunk" or update_type == "agentMessageChunk" then
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then
-          self.response_buffer = self.response_buffer .. text
-          self.response_streamed = true
+          if self.active_turn_id ~= nil then
+            table.insert(self.response_chunks, text)
+            self.response_streamed = true
+          end
           self:_emit_notification({
             method = "omniac/response_chunk",
             params = {
@@ -850,8 +893,10 @@ function M.new(config)
       if update_type == "agent_message_final" or update_type == "agentMessageFinal" then
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then
-          self.response_buffer = self.response_buffer .. text
-          self.response_streamed = true
+          if self.active_turn_id ~= nil then
+            table.insert(self.response_chunks, text)
+            self.response_streamed = true
+          end
           self:_emit_notification({
             method = "omniac/response_chunk",
             params = {
@@ -1295,8 +1340,8 @@ function M.new(config)
     self.response_emitted = true
     self.last_stop_reason = result and (result.stopReason or result.stop_reason) or nil
 
-    local text = self.response_buffer
-    self.response_buffer = ""
+    local text = table.concat(self.response_chunks)
+    self.response_chunks = {}
 
     if (not text or text == "") and result then
       text = extract_response_result_text(result)
@@ -1336,6 +1381,7 @@ function M.new(config)
         },
       })
     end
+    self.active_turn_id = nil
   end
 
   function state:start()
@@ -1347,6 +1393,9 @@ function M.new(config)
     self.transport = transport.new(self:_transport_config())
     self.transport
       :on_notification(function(message)
+        if message and message.method == "_transport/debug" then
+          return
+        end
         self:_debug("notification", message)
         self:_handle_notification(message)
       end)
@@ -1359,10 +1408,11 @@ function M.new(config)
           code = code,
           signal = signal,
         })
+        flush_pending_protocol_log(self.config)
         self.running = false
         self.transport = nil
         self.session_id = nil
-        self.response_buffer = ""
+        self.response_chunks = {}
         self.response_streamed = false
         self.pending_prompt = nil
         self.edit_tool_calls = {}
@@ -1477,7 +1527,7 @@ function M.new(config)
     local function send_prompt()
       self.turn_sequence = self.turn_sequence + 1
       self.active_turn_id = self.turn_sequence
-      self.response_buffer = ""
+      self.response_chunks = {}
       self.response_emitted = false
       self.response_streamed = false
       self:_emit_notification({
@@ -1524,10 +1574,11 @@ function M.new(config)
     if self.transport then
       self.transport:close()
     end
+    flush_pending_protocol_log(self.config)
     self.running = false
     self.transport = nil
     self.session_id = nil
-    self.response_buffer = ""
+    self.response_chunks = {}
     self.response_emitted = false
     self.response_streamed = false
     self.edit_tool_calls = {}
