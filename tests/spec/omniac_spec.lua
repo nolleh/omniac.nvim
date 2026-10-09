@@ -1129,7 +1129,7 @@ describe("omniac.nvim", function()
     assert_true(collapsed:match("Ran printf ok") ~= nil, "compact mode should keep short named output")
   end)
 
-  it("welcome header renders the robot mascot and ASCII OMNIAC wordmark", function()
+  it("welcome header renders a compact pixel robot and readable wordmark", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
 
@@ -1140,8 +1140,21 @@ describe("omniac.nvim", function()
     }, function(_) end)
 
     local chat = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr("omniac"), 0, -1, false), "\n")
-    assert_true(chat:find("▄██▄", 1, true) ~= nil, "welcome header should show the compact robot mascot")
-    assert_true(chat:find("(_) |", 1, true) ~= nil, "welcome header should render the ASCII OMNIAC wordmark")
+    assert_true(chat:find("████", 1, true) ~= nil, "welcome header should show the block-pixel robot")
+    assert_true(chat:find("O M N I A C", 1, true) ~= nil, "welcome header should show the wordmark")
+    local sprite_rows = 0
+    local widest_row = 0
+    for line in chat:gmatch("[^\n]+") do
+      local pixels = line:gsub("█", "X"):gsub("▀", "X"):gsub("▄", "X")
+      local first = pixels:find("X", 1, true)
+      if first then
+        local last = #pixels - pixels:reverse():find("X", 1, true) + 1
+        sprite_rows = sprite_rows + 1
+        widest_row = math.max(widest_row, last - first + 1)
+      end
+    end
+    assert_equal(sprite_rows, 6, "two vertical pixels should fit in each terminal row")
+    assert_equal(widest_row, 10, "the full robot should stay compact")
     assert_true(
       chat:find("▄▄▄▄▄▄▄", 1, true) == nil,
       "welcome header should remove the previous large graphic"

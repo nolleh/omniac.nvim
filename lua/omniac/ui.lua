@@ -147,8 +147,10 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacMuted", { fg = "#7f849c" })
   vim.api.nvim_set_hl(0, "OmniacAccent", { fg = "#f9e2af", bold = true })
   vim.api.nvim_set_hl(0, "OmniacGraphic", { fg = "#e7825a", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacGraphicShade", { fg = "#89dceb" })
-  vim.api.nvim_set_hl(0, "OmniacWordmark", { fg = "#f9e2af", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacGraphicShade", { fg = "#94e2d5", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacGraphicCoralOverMint", { fg = "#e7825a", bg = "#94e2d5" })
+  vim.api.nvim_set_hl(0, "OmniacGraphicMintOverCoral", { fg = "#94e2d5", bg = "#e7825a" })
+  vim.api.nvim_set_hl(0, "OmniacWordmark", { fg = "#f9e2af", bold = true, italic = true })
   vim.api.nvim_set_hl(0, "OmniacUser", { fg = "#89b4fa", bold = true })
   vim.api.nvim_set_hl(0, "OmniacUserBubble", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacAssistant", { fg = "#cba6f7", bold = true })
@@ -601,38 +603,87 @@ local function header(lines, marks, size)
   add_boxed_line(lines, marks, "Welcome back " .. user .. "!", box_width, "OmniacAccent")
   add_boxed_line(lines, marks, "", box_width, nil)
 
-  local mascot = {
-    "       ▄██▄       ",
-    "    ▄████████▄    ",
-    "  ▄███      ███▄  ",
-    " ▐██  ▪  ▪  ██▌ ",
-    "  ██    ▄    ██  ",
-    "   ▀████████▀   ",
-    "    ▄██████▄    ",
-    "    ██    ██    ",
-  }
-  for index, line in ipairs(mascot) do
-    add_boxed_line(lines, marks, line, box_width, "OmniacGraphic")
-    if index == 4 then
-      local left_padding = math.floor((box_width - 2 - vim.fn.strdisplaywidth(line)) / 2)
-      local ear_start = line:find("▐", 1, true)
-      local ear_end = line:find("▌", 1, true)
-      local left_ear_start = #"│" + left_padding + ear_start - 1
-      local right_ear_start = #"│" + left_padding + ear_end - 1
-      add_mark(marks, #lines, left_ear_start, left_ear_start + #"▐", "OmniacGraphicShade")
-      add_mark(marks, #lines, right_ear_start, right_ear_start + #"▌", "OmniacGraphicShade")
+  local sprite_width = 10
+  local sprite_height = 12
+  local sprite = {}
+  for row = 1, sprite_height do
+    sprite[row] = {}
+    for column = 1, sprite_width do
+      sprite[row][column] = " "
     end
   end
 
-  local wordmark = {
-    "   ___  __  __ _   _ ___   _    ___",
-    "  / _ \\/  \\/  | \\ | |_ _| / \\  / __|",
-    " | (_) | |\\/| |  \\| || |/ _ \\| (__",
-    "  \\___/|_|  |_|_|\\_|___/_/ \\_\\___|",
-  }
-  for _, line in ipairs(wordmark) do
-    add_boxed_line(lines, marks, line, box_width, "OmniacWordmark")
+  local function fill_rect(left, top, right, bottom, color)
+    for row = top, bottom do
+      for column = left, right do
+        sprite[row][column] = color
+      end
+    end
   end
+
+  -- Keep the full robot close to the reference's tall 5:6 silhouette.
+  fill_rect(5, 1, 6, 1, "mint")
+  fill_rect(5, 2, 6, 2, "coral")
+  fill_rect(3, 3, 8, 3, "coral")
+  fill_rect(2, 4, 9, 7, "coral")
+  fill_rect(1, 5, 1, 6, "mint")
+  fill_rect(10, 5, 10, 6, "mint")
+  fill_rect(4, 5, 4, 6, " ")
+  fill_rect(7, 5, 7, 6, " ")
+  fill_rect(3, 8, 8, 8, "coral")
+  fill_rect(3, 10, 8, 11, "coral")
+  fill_rect(2, 11, 2, 11, "coral")
+  fill_rect(9, 11, 9, 11, "coral")
+  fill_rect(5, 10, 6, 11, "mint")
+  fill_rect(4, 12, 4, 12, "coral")
+  fill_rect(7, 12, 7, 12, "coral")
+
+  local function pixel_glyph(top, bottom)
+    if top == " " and bottom == " " then
+      return " ", nil
+    end
+    if top == bottom then
+      return "█", top == "mint" and "OmniacGraphicShade" or nil
+    end
+    if top == " " then
+      return "▄", bottom == "mint" and "OmniacGraphicShade" or nil
+    end
+    if bottom == " " then
+      return "▀", top == "mint" and "OmniacGraphicShade" or nil
+    end
+    return "▀", top == "mint" and "OmniacGraphicMintOverCoral" or "OmniacGraphicCoralOverMint"
+  end
+
+  for row = 1, sprite_height, 2 do
+    local glyphs = {}
+    local groups = {}
+    for column = 1, sprite_width do
+      glyphs[column], groups[column] = pixel_glyph(sprite[row][column], sprite[row + 1][column])
+    end
+
+    local line = table.concat(glyphs)
+    add_boxed_line(lines, marks, line, box_width, "OmniacGraphic")
+    local left_padding = math.floor((box_width - 2 - vim.fn.strdisplaywidth(line)) / 2)
+    local byte_offset = #"│" + left_padding
+    local run_group
+    local run_start
+    for column = 1, sprite_width do
+      local group = groups[column]
+      if group ~= run_group then
+        if run_group then
+          add_mark(marks, #lines, run_start, byte_offset, run_group)
+        end
+        run_group = group
+        run_start = group and byte_offset or nil
+      end
+      byte_offset = byte_offset + #glyphs[column]
+    end
+    if run_group then
+      add_mark(marks, #lines, run_start, byte_offset, run_group)
+    end
+  end
+
+  add_boxed_line(lines, marks, "O M N I A C", box_width, "OmniacWordmark")
 
   add_boxed_line(lines, marks, "", box_width, nil)
   add_boxed_line(
