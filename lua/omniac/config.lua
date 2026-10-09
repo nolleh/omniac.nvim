@@ -8,6 +8,7 @@ M.defaults = {
     session = "<leader>ar",
     buffer = "<leader>ab",
     reference = "<leader>as",
+    tree_add = "<leader>as",
     diff_accept = "<leader>aa",
     diff_deny = "<leader>ad",
   },

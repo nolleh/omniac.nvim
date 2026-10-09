@@ -7,6 +7,7 @@ local approval = require("omniac.approval")
 local session_dialog = require("omniac.session_dialog")
 local model_dialog = require("omniac.model_dialog")
 local filesystem = require("omniac.filesystem")
+local tree = require("omniac.tree")
 
 local M = {
   config = config.defaults,
@@ -24,8 +25,13 @@ local default_keymaps = {
 }
 
 local installed_keymaps = {}
+local tree_keymap_group
 
 local function clear_installed_keymaps()
+  if tree_keymap_group then
+    pcall(vim.api.nvim_del_augroup_by_id, tree_keymap_group)
+    tree_keymap_group = nil
+  end
   for _, mapping in ipairs(installed_keymaps) do
     local current = vim.fn.maparg(mapping.lhs, mapping.mode, false, true)
     if type(current) == "table" and current.desc == mapping.desc then
@@ -59,6 +65,35 @@ local function setup_keymaps()
       })
     end
   end
+
+  local tree_lhs = configured.tree_add
+  if type(tree_lhs) == "string" and tree_lhs ~= "" and vim.fn.maparg(tree_lhs, "n") == "" then
+    tree_keymap_group = vim.api.nvim_create_augroup("OmniacTreeKeymaps", { clear = true })
+    local function map_tree_buffer(bufnr)
+      vim.api.nvim_buf_call(bufnr, function()
+        if vim.fn.maparg(tree_lhs, "n", false, true).buffer ~= 1 then
+          vim.keymap.set("n", tree_lhs, "<cmd>OmniacTreeAdd<cr>", {
+            buffer = bufnr,
+            desc = "Omniac: Add selected tree path",
+            silent = true,
+          })
+        end
+      end)
+    end
+    vim.api.nvim_create_autocmd("FileType", {
+      group = tree_keymap_group,
+      pattern = { "NvimTree", "neo-tree", "oil", "minifiles" },
+      callback = function(event)
+        map_tree_buffer(event.buf)
+      end,
+    })
+    local supported_tree_filetypes = { "NvimTree", "neo-tree", "oil", "minifiles" }
+    for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(bufnr) and vim.tbl_contains(supported_tree_filetypes, vim.bo[bufnr].filetype) then
+        map_tree_buffer(bufnr)
+      end
+    end
+  end
 end
 
 local function build_prompt(extra)
@@ -83,7 +118,10 @@ local function reference_label(reference)
   else
     path = vim.fn.fnamemodify(path, ":.")
   end
-  return string.format("%s:%d-%d", path, reference.startLine, reference.endLine)
+  if reference.startLine and reference.endLine then
+    return string.format("%s:%d-%d", path, reference.startLine, reference.endLine)
+  end
+  return path
 end
 
 local function build_prompt_items(text, attachments)
@@ -105,14 +143,20 @@ local function build_prompt_items(text, attachments)
     elseif type(attachment) == "table" and attachment.type == "reference" then
       if attachment.pathOnly then
         local filename = vim.fn.fnamemodify(attachment.path, ":t")
-        table.insert(items, {
-          type = "text",
-          text = string.format(
+        local instruction
+        if attachment.startLine and attachment.endLine then
+          instruction = string.format(
             "Please inspect lines %d-%d in %s.",
             attachment.startLine,
             attachment.endLine,
             reference_label(attachment)
-          ),
+          )
+        else
+          instruction = string.format("Please inspect the referenced file: %s.", reference_label(attachment))
+        end
+        table.insert(items, {
+          type = "text",
+          text = instruction,
         })
         table.insert(items, {
           type = "resource_link",
@@ -286,6 +330,30 @@ function M.setup(opts)
     attach_reference(reference_item)
   end
 
+  local function tree_add()
+    local paths, err = tree.get_selected_paths()
+    if not paths or #paths == 0 then
+      vim.notify(tostring(err or "No file selected in tree"), vim.log.levels.WARN, { title = "omniac" })
+      return
+    end
+
+    local references = {}
+    for _, path in ipairs(paths) do
+      local uri = vim.uri_from_fname(path)
+      table.insert(references, {
+        type = "reference",
+        path = path,
+        uri = uri,
+        filetype = "",
+        pathOnly = true,
+      })
+    end
+    M.open_chat()
+    for _, reference_item in ipairs(references) do
+      ui.attach_reference(reference_item, M.config)
+    end
+  end
+
   local function diff(cmd)
     local path = vim.fn.expand(cmd.args)
     if path == "" then
@@ -327,6 +395,7 @@ function M.setup(opts)
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
   register_command("OmniacReference", reference, { range = true })
   register_command("OmniacReferenceBuffer", reference_buffer, {})
+  register_command("OmniacTreeAdd", tree_add, {})
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
   register_command("OmniacDiffAccept", function()
     require("omniac.diff").accept_current_review()

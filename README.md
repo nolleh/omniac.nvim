@@ -29,6 +29,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
       session = "<leader>ar",
       buffer = "<leader>ab",
       reference = "<leader>as",
+      tree_add = "<leader>as",
       diff_accept = "<leader>aa",
       diff_deny = "<leader>ad",
     },
@@ -36,7 +37,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
-Omniac registers these defaults when `setup()` runs. They follow the corresponding `claudecode.nvim` keys, skip keys that are already mapped, and can be changed by setting a different value or disabled per action with `false`. Set `keymaps = false` to disable all Omniac mappings. Omniac currently has no direct equivalent for Claude Code's `--continue` or file-tree add; session selection is available through `<leader>ar`, and model selection is available with `/model` in the chat.
+Omniac registers these defaults when `setup()` runs. They follow the corresponding `claudecode.nvim` keys, skip keys that are already mapped, and can be changed by setting a different value or disabled per action with `false`. Set `keymaps = false` to disable all Omniac mappings. `<leader>as` sends a visual selection, and in supported file-tree buffers it adds the file under the cursor (`nvim-tree`, `neo-tree`, `oil.nvim`, or `mini.files`). Session selection is available through `<leader>ar`, and model selection is available with `/model` in the chat.
 
 With options:
 
