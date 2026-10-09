@@ -11,56 +11,6 @@ local function diff_separate_tab(config)
   return ui.diff_separate_tab == true
 end
 
-local function is_omniac_buffer(name)
-  return name:match("omniac$") or name:match("omniac://")
-end
-
-local function is_review_candidate(win)
-  local buf = vim.api.nvim_win_get_buf(win)
-  local name = vim.api.nvim_buf_get_name(buf)
-  local buftype = vim.bo[buf].buftype
-  local filetype = vim.bo[buf].filetype
-
-  if is_omniac_buffer(name) then
-    return false
-  end
-
-  if buftype ~= "" then
-    return false
-  end
-
-  if filetype == "NvimTree" or filetype == "neo-tree" or filetype == "qf" then
-    return false
-  end
-
-  return true
-end
-
-local function review_window()
-  local current = vim.api.nvim_get_current_win()
-  if vim.api.nvim_win_is_valid(current) and is_review_candidate(current) then
-    return current
-  end
-
-  local best_win = nil
-  local best_width = -1
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if is_review_candidate(win) then
-      local width = vim.api.nvim_win_get_width(win)
-      if width > best_width then
-        best_win = win
-        best_width = width
-      end
-    end
-  end
-
-  if best_win and vim.api.nvim_win_is_valid(best_win) then
-    return best_win
-  end
-
-  return nil
-end
-
 local function as_lines(value)
   if type(value) == "table" then
     return value
@@ -371,7 +321,7 @@ local function open_permission_diff(pending, payload)
   local after = as_lines(payload.newText) or {}
   diff.open_review(payload.path, before, after, {
     title = "Omniac permission: " .. payload.path,
-    origin_win = review_window(),
+    origin_win = diff.select_review_window(),
     separate_tab = diff_separate_tab(pending.config),
   }, function(accepted)
     if pending.replied then
@@ -533,7 +483,7 @@ function M.review_file_update(params, config)
 
   diff.open_review(path, before, after, {
     title = "Omniac file update: " .. path,
-    origin_win = review_window(),
+    origin_win = diff.select_review_window(),
     separate_tab = diff_separate_tab(config),
   }, function(accepted, accepted_lines)
     write_lines(path, accepted and (accepted_lines or after) or before)

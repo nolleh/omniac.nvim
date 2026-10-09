@@ -12,6 +12,31 @@ local fixed_width_filetypes = {
   ["neo-tree"] = true,
 }
 
+local function is_omniac_buffer(name)
+  return name:match("omniac$") or name:match("omniac://")
+end
+
+local function is_review_candidate(win)
+  local buf = vim.api.nvim_win_get_buf(win)
+  local name = vim.api.nvim_buf_get_name(buf)
+  local buftype = vim.bo[buf].buftype
+  local filetype = vim.bo[buf].filetype
+
+  if vim.w[win].omniac_ui or is_omniac_buffer(name) then
+    return false
+  end
+
+  if buftype ~= "" then
+    return false
+  end
+
+  if filetype == "NvimTree" or filetype == "neo-tree" or filetype == "qf" then
+    return false
+  end
+
+  return true
+end
+
 local function is_regular_window(win)
   local ok, config = pcall(vim.api.nvim_win_get_config, win)
   return ok and (not config.relative or config.relative == "")
@@ -243,6 +268,31 @@ local function set_window_cursor(win, line)
   local line_count = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
   local target_line = math.max(1, math.min(line, line_count))
   pcall(vim.api.nvim_win_set_cursor, win, { target_line, 0 })
+end
+
+function M.select_review_window()
+  local current = vim.api.nvim_get_current_win()
+  if vim.api.nvim_win_is_valid(current) and is_review_candidate(current) then
+    return current
+  end
+
+  local best_win = nil
+  local best_width = -1
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if is_review_candidate(win) then
+      local width = vim.api.nvim_win_get_width(win)
+      if width > best_width then
+        best_win = win
+        best_width = width
+      end
+    end
+  end
+
+  if best_win and vim.api.nvim_win_is_valid(best_win) then
+    return best_win
+  end
+
+  return nil
 end
 
 function M.open(before_lines, after_lines, opts)

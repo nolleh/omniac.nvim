@@ -323,32 +323,94 @@ describe("omniac.nvim", function()
     )
     assert_equal(#changes.get("turn"), 0, "latest turn review should remain on the active turn")
 
-    local original_select = vim.ui.select
+    local change_dialog = require("omniac.change_dialog")
+    local original_open = change_dialog.open
     local diff = require("omniac.diff")
     local original_preview = diff.open_preview
-    local selected_prompt
+    local selected_scope
     local previewed
-    vim.ui.select = function(entries, opts, callback)
-      selected_prompt = opts.prompt
+    local original_win = vim.api.nvim_get_current_win()
+    vim.cmd("rightbelow vnew")
+    local input_win = vim.api.nvim_get_current_win()
+    local input_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_name(input_buf, "omniac://change-test-input")
+    vim.bo[input_buf].buftype = "nofile"
+    vim.bo[input_buf].filetype = "omniac-input"
+    vim.w[input_win].omniac_ui = true
+    change_dialog.open = function(entries, opts, callback)
+      selected_scope = opts.scope
       callback(entries[1])
     end
-    diff.open_preview = function(selected_path, before, after)
+    diff.open_preview = function(selected_path, before, after, opts)
       previewed = {
         path = selected_path,
         before = before,
         after = after,
+        origin_win = opts.origin_win,
       }
     end
 
     local opened = changes.open("session", { ui = {} })
-    vim.ui.select = original_select
+    change_dialog.open = original_open
     diff.open_preview = original_preview
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.api.nvim_set_current_win(original_win)
+    end
+    if vim.api.nvim_win_is_valid(input_win) then
+      vim.api.nvim_win_close(input_win, true)
+    end
 
     assert_equal(opened, true, "change browser should open when session changes exist")
-    assert_true(selected_prompt:match("session") ~= nil, "change browser should identify its scope")
+    assert_equal(selected_scope, "session", "change browser should identify its scope")
     assert_equal(previewed.path, path, "selected change should open its file preview")
     assert_equal(previewed.before[1], "before", "preview should use the session baseline")
     assert_equal(previewed.after[1], "final", "preview should use the latest session contents")
+    assert_equal(previewed.origin_win, original_win, "change preview should avoid the Omniac input window")
+  end)
+
+  it("change dialog matches the session picker layout and selects a file", function()
+    package.loaded["omniac.change_dialog"] = nil
+    local dialog = require("omniac.change_dialog")
+    local result
+
+    dialog.open({
+      {
+        path = "/tmp/project/README.md",
+        operation = "modify",
+        source = "acp",
+        turnId = 7,
+      },
+      {
+        path = "/tmp/project/lua/omniac/ui.lua",
+        operation = "add",
+        title = "Build status capsule",
+        turnId = 7,
+      },
+    }, {
+      scope = "session",
+    }, function(selection)
+      result = selection
+    end)
+
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local rendered = table.concat(lines, "\n")
+    assert_true(rendered:match("OMNIAC CHANGES") ~= nil, "change dialog should render a branded heading")
+    assert_true(rendered:match("connection started") ~= nil, "change dialog should explain the session scope")
+    assert_true(rendered:match("README%.md") ~= nil, "change dialog should list changed files")
+    assert_true(rendered:match("ACP edit") ~= nil, "change dialog should render change metadata")
+
+    local footer_rendered = ""
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.bo[buf].filetype == "omniac-changes-footer" then
+        footer_rendered = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+        break
+      end
+    end
+    assert_true(footer_rendered:match("%[Enter%] review") ~= nil, "change actions should render in the footer")
+
+    feed("j")
+    feed("<CR>")
+    assert_equal(result.path, "/tmp/project/lua/omniac/ui.lua", "enter should select the highlighted change")
   end)
 
   it("session dialog flattens multiline session titles", function()
@@ -2145,6 +2207,16 @@ describe("omniac.nvim", function()
     }, function() end)
 
     ui.handle_notification({
+      method = "omniac/session_model_update",
+      params = {
+        currentModelId = "gpt-5-mini",
+        currentModelName = "GPT-5 Mini",
+      },
+    }, {
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 58 },
+    })
+    ui.handle_notification({
       method = "omniac/usage_update",
       params = {
         used = 75000,
@@ -2157,7 +2229,12 @@ describe("omniac.nvim", function()
 
     local status_buf = vim.fn.bufnr("omniac://status")
     local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    local model_start = line:find("GPT-5 Mini", 1, true)
+    local usage_start = line:find("ctx 75%", 1, true)
+    local usage_hl = vim.api.nvim_get_hl(0, { name = "OmniacStatusUsage" })
     assert_true(line:match("ctx 75%%") ~= nil, "status should include context-window usage")
+    assert_true(model_start < usage_start, "context usage should render after the model")
+    assert_equal(usage_hl.bg, tonumber("89b4fa", 16), "context usage should use its own capsule color")
   end)
 
   it("ACP protocol file logs follow debug option", function()

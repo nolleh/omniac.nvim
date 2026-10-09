@@ -1,4 +1,5 @@
 local diff = require("omniac.diff")
+local change_dialog = require("omniac.change_dialog")
 
 local M = {}
 
@@ -115,16 +116,6 @@ local function display_path(path)
   return relative ~= "" and relative or path
 end
 
-local function operation_label(value)
-  return ({
-    add = "A",
-    copy = "C",
-    delete = "D",
-    modify = "M",
-    move = "R",
-  })[value] or "M"
-end
-
 function M.reset(session_id)
   state.session = nil
   ensure_session(session_id)
@@ -200,11 +191,8 @@ function M.open(scope, config)
     return false
   end
 
-  vim.ui.select(available, {
-    prompt = "Omniac changes · " .. scope,
-    format_item = function(item)
-      return string.format("%s  %s", operation_label(item.operation), display_path(item.path))
-    end,
+  change_dialog.open(available, {
+    scope = scope,
   }, function(item)
     if not item then
       return
@@ -217,6 +205,7 @@ function M.open(scope, config)
       }),
       {
         title = "Omniac changes: " .. display_path(item.path),
+        origin_win = diff.select_review_window(),
         separate_tab = config and config.ui and config.ui.diff_separate_tab,
       }
     )

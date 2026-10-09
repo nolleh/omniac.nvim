@@ -80,7 +80,7 @@ This file tracks what is already working and what still needs to be implemented 
 
 - [x] Detect ACP edit updates containing `path`, `oldText`, and `newText`.
 - [x] Open native Neovim diff review UI for edit permission diffs.
-- [x] Apply completed file updates back to disk and loaded buffers.
+- [x] Treat completed agent-owned edit updates as review metadata without reapplying them to disk.
 - [x] Support save-back from `:OmniacDiff` buffers into the target file.
 - [x] Complete async approval through `:OmniacDiffAccept` and `:OmniacDiffDeny`.
 - [x] Support ACP-native `fs/read_text_file`.

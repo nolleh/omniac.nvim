@@ -126,9 +126,10 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacSessionResume {sessionId}` resumes an ACP session without replaying history when the agent advertises `sessionCapabilities.resume`
 - `:Omniac` opens a Neovim chat/input/status UI
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
-- `/changes` reviews files changed in the latest turn; `/changes session` reviews accumulated session changes
+- `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
 - `:OmniacChanges [turn|session]` opens the same read-only change browser
 - change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
+- change review history is kept in memory and starts fresh after `load`, `resume`, or reconnect; use `git diff` as the source of truth for the current working tree
 - `:OmniacResize {width}` resizes the Omniac side UI as one body
 - `:OmniacAsk` sends the built prompt to the active ACP agent when connected
 - `:OmniacReferenceBuffer` attaches the current buffer to the Omniac input; `<leader>ab` is the default mapping

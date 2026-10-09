@@ -163,6 +163,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacStatusModeEdge", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAlt", { fg = "#cdd6f4", bg = "#45475a", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAltEdge", { fg = "#45475a", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusUsage", { fg = "#11111b", bg = "#89b4fa", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusUsageEdge", { fg = "#89b4fa", bold = true })
   vim.api.nvim_set_hl(0, "OmniacCommandName", { fg = "#94e2d5", bold = true })
   vim.api.nvim_set_hl(0, "OmniacCommandText", { fg = "#cdd6f4" })
   vim.api.nvim_set_hl(0, "OmniacCommandMuted", { fg = "#7f849c" })
@@ -715,10 +717,10 @@ local function render_status()
     " ",
     math.max(
       1,
-      win_width - vim.fn.strdisplaywidth(left .. middle .. usage_capsule .. mode_capsule .. model_capsule .. right)
+      win_width - vim.fn.strdisplaywidth(left .. middle .. mode_capsule .. model_capsule .. usage_capsule .. right)
     )
   )
-  local line = left .. middle .. usage_capsule .. mode_capsule .. model_capsule .. spacer .. right
+  local line = left .. middle .. mode_capsule .. model_capsule .. usage_capsule .. spacer .. right
 
   vim.bo[state.status_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.status_buf, ns, 0, -1)
@@ -739,10 +741,6 @@ local function render_status()
   add_capsule(" Omniac ", "OmniacStatusCapsule", "OmniacStatusCapsuleEdge")
   col = col + #" "
   add_capsule(" " .. state.status .. " ", "OmniacStatusMode", "OmniacStatusModeEdge")
-  if usage_capsule ~= "" then
-    col = col + #" "
-    add_capsule(" " .. usage .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
-  end
   if mode_capsule ~= "" then
     col = col + #" "
     add_capsule(" " .. mode .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
@@ -750,6 +748,10 @@ local function render_status()
   if model_capsule ~= "" then
     col = col + #" "
     add_capsule(" " .. model .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  end
+  if usage_capsule ~= "" then
+    col = col + #" "
+    add_capsule(" " .. usage .. " ", "OmniacStatusUsage", "OmniacStatusUsageEdge")
   end
   col = col + #spacer + #" "
   add_capsule(" " .. agent_name(state.config) .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
