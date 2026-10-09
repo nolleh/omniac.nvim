@@ -33,3 +33,19 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 - [x] Track ACP edits and client-mediated file writes by turn and session, with a read-only review browser.
 - [x] Render multiline activity messages safely without disrupting the input layout.
+
+### Post-edit Approval
+
+Add an optional approval workflow for changes that the agent has already applied to the working tree. This is distinct from ACP `session/request_permission`: pre-execution permission decides whether a proposed tool call may run, while post-edit approval decides whether an already-applied result should remain on disk.
+
+- [ ] Keep the existing `/changes` and `/changes session` views read-only by default, and add an explicit entry point for post-edit approval (candidate: `/changes approve [session]`).
+- [ ] At turn completion, build an approval queue from each path's first full `oldText` snapshot and final full `newText` snapshot, deduplicating repeated edits to the same path.
+- [ ] Review multiple changed files sequentially and show a per-file decision state: pending, kept, reverted, skipped, or conflicted.
+- [ ] Let the user keep or revert the current file, then move to the next pending file; add keep-all / revert-all actions only after every target passes the same safety checks.
+- [ ] Keep “accept” non-destructive: it records that the current result is intentionally kept and must not write the file again.
+- [ ] Allow “reject” to restore the recorded baseline only when the current disk content and any loaded buffer still match the recorded final snapshot. If the file changed again, has unsaved buffer edits, or no longer matches the tracked state, mark it conflicted and open a three-way/manual review instead of overwriting it.
+- [ ] Handle operation-specific rollback safely: remove an added file only when its contents still match, restore a deleted file only when the path is still absent, and defer move/copy rollback until both source and destination snapshots are available.
+- [ ] Never replay completed ACP edit notifications through the write path. They remain metadata used to construct the approval queue; all rollback writes must come from an explicit user decision and pass the conflict guard.
+- [ ] Keep approval history connection-local, matching the current change tracker. Clear pending decisions after load, resume, or reconnect, and never infer approval state from replayed session history; `git diff` remains the source of truth across connections.
+- [ ] Surface the final turn summary in chat/activity, including kept, reverted, skipped, and conflicted counts, without blocking the next prompt unless an explicit post-edit approval mode requests it.
+- [ ] Add regression tests for repeated edits to one file, add/delete operations, loaded modified buffers, disk changes made after the turn, multi-file mixed decisions, reconnect/reset behavior, and the guarantee that accept never rewrites content.
