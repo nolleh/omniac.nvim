@@ -24,7 +24,7 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 - [x] Preserve the source path, line range, filetype, modified state, and captured text when forwarding visual selections.
 - [x] Send selected code as ACP embedded context when advertised, with a text fallback for other agents.
-- [ ] Add the current buffer as a pending prompt reference, preserving unsaved contents and using ACP embedded context when supported.
+- [x] Add the current buffer as a pending prompt reference, linking clean on-disk files and preserving modified buffer contents.
 - [ ] Add file-tree integrations that can attach selected paths as prompt references.
 - [ ] Define the exact prompt shape for file references and other mixed text-plus-context input.
 - [ ] Verify the input pipeline still behaves predictably when the user is already in `omniac://input`.

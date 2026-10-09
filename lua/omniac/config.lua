@@ -6,6 +6,7 @@ M.defaults = {
     open = "<leader>ac",
     focus = "<leader>af",
     session = "<leader>ar",
+    buffer = "<leader>ab",
     reference = "<leader>as",
     diff_accept = "<leader>aa",
     diff_deny = "<leader>ad",

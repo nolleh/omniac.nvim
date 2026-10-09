@@ -2930,6 +2930,7 @@ run("visual range command attaches an ACP reference to the next prompt", functio
     "OmniacDebug",
     "OmniacAskFiles",
     "OmniacReference",
+    "OmniacReferenceBuffer",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",
@@ -2987,10 +2988,15 @@ run("visual range command attaches an ACP reference to the next prompt", functio
 
   assert_true(request ~= nil, "submitting should send the referenced prompt")
   assert_equal(request.prompt[1].type, "text", "typed instructions should remain text")
-  assert_equal(request.prompt[2].type, "resource", "selection should use ACP embedded context")
-  assert_equal(request.prompt[2].resource.uri:match("#L2%-L3$") ~= nil, true, "resource should retain its range")
+  assert_equal(request.prompt[2].type, "text", "selection should include instructions to inspect the selected range")
+  assert_true(
+    request.prompt[2].text:find("Please inspect", 1, true) ~= nil,
+    "selection should include instructions to inspect its source"
+  )
+  assert_equal(request.prompt[3].type, "resource", "selection should use ACP embedded context")
+  assert_equal(request.prompt[3].resource.uri:match("#L2%-L3$") ~= nil, true, "resource should retain its range")
   assert_equal(
-    request.prompt[2].resource.text,
+    request.prompt[3].resource.text,
     "local selected = true\nreturn selected",
     "resource should contain the selected buffer text"
   )
@@ -3018,6 +3024,7 @@ run("slash exit closes chat without submitting", function()
     "OmniacDebug",
     "OmniacAskFiles",
     "OmniacReference",
+    "OmniacReferenceBuffer",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",
@@ -3064,6 +3071,7 @@ run("slash model argument changes the ACP session model without submitting", fun
     "OmniacDebug",
     "OmniacAskFiles",
     "OmniacReference",
+    "OmniacReferenceBuffer",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",
@@ -3126,6 +3134,7 @@ run("slash model opens an approval-style model selector", function()
     "OmniacDebug",
     "OmniacAskFiles",
     "OmniacReference",
+    "OmniacReferenceBuffer",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",

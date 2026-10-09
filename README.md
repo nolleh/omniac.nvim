@@ -27,6 +27,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
       open = "<leader>ac",
       focus = "<leader>af",
       session = "<leader>ar",
+      buffer = "<leader>ab",
       reference = "<leader>as",
       diff_accept = "<leader>aa",
       diff_deny = "<leader>ad",
@@ -35,7 +36,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
-Omniac registers these defaults when `setup()` runs. They follow the corresponding `claudecode.nvim` keys, skip keys that are already mapped, and can be changed by setting a different value or disabled per action with `false`. Set `keymaps = false` to disable all Omniac mappings. Omniac currently has no direct equivalent for Claude Code's `--continue`, current-buffer/file-tree add, or diff-review commands outside an active review; session selection is available through `<leader>ar`, and model selection is available with `/model` in the chat.
+Omniac registers these defaults when `setup()` runs. They follow the corresponding `claudecode.nvim` keys, skip keys that are already mapped, and can be changed by setting a different value or disabled per action with `false`. Set `keymaps = false` to disable all Omniac mappings. Omniac currently has no direct equivalent for Claude Code's `--continue` or file-tree add; session selection is available through `<leader>ar`, and model selection is available with `/model` in the chat.
 
 With options:
 
@@ -124,9 +125,11 @@ Use a project-local working directory and enable debug logging:
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
 - `:OmniacResize {width}` resizes the Omniac side UI as one body
 - `:OmniacAsk` sends the built prompt to the active ACP agent when connected
+- `:OmniacReferenceBuffer` attaches the current buffer to the Omniac input; `<leader>ab` is the default mapping
 - `:'<,'>OmniacReference` captures selected lines from the source buffer and attaches them to the Omniac input
 - `Ctrl-V` in the Omniac input attaches a PNG or JPEG image from the macOS clipboard when the ACP agent advertises image prompts; otherwise it falls back to normal text paste
 - visual references preserve their source path, line range, and unsaved buffer text
+- unmodified on-disk buffers are sent as file links; modified buffers include their unsaved contents and are consumed with the next prompt
 - file mentions can be formatted into prompts
 - incoming JSONL messages are parsed, streamed into the UI, and shown with `vim.notify`
 - ACP permission requests and known file-change approval requests open a native diff review UI

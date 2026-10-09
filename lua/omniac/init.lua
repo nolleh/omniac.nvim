@@ -17,6 +17,7 @@ local default_keymaps = {
   { name = "open", mode = "n", command = "Omniac", desc = "Open Omniac" },
   { name = "focus", mode = "n", command = "Omniac", desc = "Focus Omniac" },
   { name = "session", mode = "n", command = "OmniacSession", desc = "Resume Omniac session" },
+  { name = "buffer", mode = "n", command = "OmniacReferenceBuffer", desc = "Add current buffer to Omniac" },
   { name = "reference", mode = "x", command = "OmniacReference", desc = "Send selection to Omniac" },
   { name = "diff_accept", mode = "n", command = "OmniacDiffAccept", desc = "Accept Omniac diff" },
   { name = "diff_deny", mode = "n", command = "OmniacDiffDeny", desc = "Deny Omniac diff" },
@@ -102,23 +103,51 @@ local function build_prompt_items(text, attachments)
         data = attachment.data,
       })
     elseif type(attachment) == "table" and attachment.type == "reference" then
-      local supports_embedded_context = M.backend
-        and M.backend.supports_prompt_capability
-        and M.backend:supports_prompt_capability("embeddedContext")
-      if supports_embedded_context then
+      if attachment.pathOnly then
+        local filename = vim.fn.fnamemodify(attachment.path, ":t")
         table.insert(items, {
-          type = "resource",
-          resource = {
-            uri = attachment.uri,
-            mimeType = "text/plain",
-            text = attachment.text,
-          },
+          type = "text",
+          text = string.format(
+            "Please inspect lines %d-%d in %s.",
+            attachment.startLine,
+            attachment.endLine,
+            reference_label(attachment)
+          ),
+        })
+        table.insert(items, {
+          type = "resource_link",
+          uri = attachment.uri,
+          name = filename ~= "" and filename or "[No Name]",
+          title = reference_label(attachment),
+          mimeType = "text/plain",
+          description = string.format("Source file reference, lines %d-%d.", attachment.startLine, attachment.endLine),
         })
       else
         table.insert(items, {
           type = "text",
-          text = string.format("Referenced code from %s:\n%s", reference_label(attachment), attachment.text or ""),
+          text = string.format(
+            "Please inspect this selected buffer content from %s (unsaved buffer contents are included below).",
+            reference_label(attachment)
+          ),
         })
+        local supports_embedded_context = M.backend
+          and M.backend.supports_prompt_capability
+          and M.backend:supports_prompt_capability("embeddedContext")
+        if supports_embedded_context then
+          table.insert(items, {
+            type = "resource",
+            resource = {
+              uri = attachment.uri,
+              mimeType = "text/plain",
+              text = attachment.text,
+            },
+          })
+        else
+          table.insert(items, {
+            type = "text",
+            text = string.format("Referenced code from %s:\n%s", reference_label(attachment), attachment.text or ""),
+          })
+        end
       end
     end
   end
@@ -217,6 +246,11 @@ function M.setup(opts)
     M.ask_with_files("", paths)
   end
 
+  local function attach_reference(reference_item)
+    M.open_chat()
+    ui.attach_reference(reference_item, M.config)
+  end
+
   local function reference(cmd)
     if not cmd.range or cmd.range == 0 then
       vim.notify("OmniacReference requires a visual selection", vim.log.levels.WARN, { title = "omniac" })
@@ -229,8 +263,27 @@ function M.setup(opts)
       return
     end
 
-    M.open_chat()
-    ui.attach_reference(reference_item, M.config)
+    attach_reference(reference_item)
+  end
+
+  local function reference_buffer()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local bufname = vim.api.nvim_buf_get_name(bufnr)
+    if bufname == "omniac" or bufname:match("^omniac://") then
+      vim.notify("OmniacReferenceBuffer requires a source buffer", vim.log.levels.WARN, { title = "omniac" })
+      return
+    end
+
+    local reference_item, err = selection.reference_from_range(bufnr, 1, vim.api.nvim_buf_line_count(bufnr))
+    if not reference_item then
+      vim.notify(tostring(err or "Unable to capture buffer"), vim.log.levels.WARN, { title = "omniac" })
+      return
+    end
+
+    reference_item.pathOnly = not reference_item.modified
+      and reference_item.path ~= ""
+      and vim.fn.filereadable(reference_item.path) == 1
+    attach_reference(reference_item)
   end
 
   local function diff(cmd)
@@ -273,6 +326,7 @@ function M.setup(opts)
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
   register_command("OmniacReference", reference, { range = true })
+  register_command("OmniacReferenceBuffer", reference_buffer, {})
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
   register_command("OmniacDiffAccept", function()
     require("omniac.diff").accept_current_review()

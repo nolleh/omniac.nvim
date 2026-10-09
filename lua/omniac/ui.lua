@@ -882,7 +882,8 @@ attachment_summary = function(attachments)
       else
         path = vim.fn.fnamemodify(path, ":t")
       end
-      table.insert(parts, string.format("ref: %s:%d-%d", path, attachment.startLine, attachment.endLine))
+      local label = attachment.pathOnly and "file" or "ref"
+      table.insert(parts, string.format("%s: %s:%d-%d", label, path, attachment.startLine, attachment.endLine))
     else
       local size = attachment.byteSize and string.format(" %.1fKB", attachment.byteSize / 1024) or ""
       table.insert(parts, string.format("image %d: %s%s", index, attachment.mimeType or "image", size))

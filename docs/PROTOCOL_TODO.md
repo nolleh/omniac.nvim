@@ -61,8 +61,9 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Send basic text content items in prompts.
 - [x] Send image content items from clipboard paste when the agent advertises `promptCapabilities.image`.
 - [x] Send visual selections as embedded resource content when the agent advertises `promptCapabilities.embeddedContext`.
+- [x] Send resource links for clean on-disk current-buffer references.
 - [x] Extract text from common ACP and agent-specific content shapes.
-- [ ] Support remaining non-text content blocks, including audio and resource links, intentionally.
+- [ ] Support remaining non-text content blocks, including audio, intentionally.
 - [ ] Render user, agent, and thought content distinctly when the update shape exposes them.
 - [ ] Preserve structured content metadata needed for later actions.
 
