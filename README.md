@@ -143,6 +143,16 @@ Use a project-local working directory and enable debug logging:
 
 Start Neovim with `scripts/dev.lua` to load this plugin with the default `codex-acp` command already configured.
 
+Run the test suite with:
+
+```sh
+./test.sh
+```
+
+The tests use Plenary's Busted-compatible test harness in a minimal Neovim environment. The runner uses
+`PLENARY_DIR` when it is set, reuses a lazy.nvim installation when available, and otherwise downloads a
+test-only copy into the user cache directory.
+
 ## TODO
 
 - [Feature TODO](docs/FEATURE_TODO.md): Omniac input, history, safety, and UX work.
