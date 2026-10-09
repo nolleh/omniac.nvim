@@ -1050,6 +1050,10 @@ local function local_commands()
       description = "Close Omniac chat",
     },
     {
+      name = "changes",
+      description = "Review files changed by Omniac",
+    },
+    {
       name = "model",
       description = "Choose the model for the active session",
     },

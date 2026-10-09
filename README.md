@@ -107,6 +107,7 @@ Use a project-local working directory and enable debug logging:
 | `client.capabilities.terminal`         | `false`                     | Advertises terminal capability.                                                       |
 | `ui.diff_title`                        | `"ACP Diff"`                | Buffer title used for proposed-change reviews.                                        |
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
+| `ui.change_review`                     | `"summary"`                | Post-turn change review: `"summary"`, `"open"`, or `"off"`.                     |
 | `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
 | `ui.tool_results`                      | `"compact"`                 | Chat visibility for completed tool output: `"compact"`, `"all"`, or `"none"`.        |
 | `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
@@ -122,6 +123,9 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacSessionResume {sessionId}` resumes an ACP session without replaying history when the agent advertises `sessionCapabilities.resume`
 - `:Omniac` opens a Neovim chat/input/status UI
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
+- `/changes` reviews files changed in the latest turn; `/changes session` reviews accumulated session changes
+- `:OmniacChanges [turn|session]` opens the same read-only change browser
+- change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
 - `:OmniacResize {width}` resizes the Omniac side UI as one body
 - `:OmniacAsk` sends the built prompt to the active ACP agent when connected
 - `:'<,'>OmniacReference` captures selected lines from the source buffer and attaches them to the Omniac input

@@ -425,6 +425,60 @@ function M.open_review(path, before_lines, after_lines, opts, callback)
   return handles
 end
 
+function M.open_preview(path, before_lines, after_lines, opts)
+  opts = opts or {}
+  close_stale_reviews()
+
+  local review_id = tostring(next_review_id)
+  next_review_id = next_review_id + 1
+  local handles = M.open(before_lines, after_lines, {
+    title = opts.title or ("Omniac changes: " .. (path or "change")),
+    origin_win = opts.origin_win,
+    separate_tab = opts.separate_tab,
+    path = path,
+  })
+
+  for _, buf in ipairs({ handles.before_buf, handles.after_buf }) do
+    vim.bo[buf].modified = false
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].readonly = true
+    vim.bo[buf].buftype = "nofile"
+    vim.b[buf].omniac_diff_review_id = review_id
+  end
+
+  active_reviews[review_id] = {
+    id = review_id,
+    path = path,
+    before_buf = handles.before_buf,
+    after_buf = handles.after_buf,
+    before_win = handles.before_win,
+    after_win = handles.after_win,
+    origin_buf = handles.origin_buf,
+    origin_win_options = handles.origin_win_options,
+    fixed_widths = handles.fixed_widths,
+    separate_tab = handles.separate_tab,
+    read_only = true,
+  }
+
+  for _, buf in ipairs({ handles.before_buf, handles.after_buf }) do
+    vim.api.nvim_create_autocmd("QuitPre", {
+      group = augroup,
+      buffer = buf,
+      callback = function()
+        local review = active_reviews[review_id]
+        if review then
+          close_review(review, false)
+        end
+      end,
+    })
+  end
+
+  vim.api.nvim_echo({
+    { "[omniac review] read-only change preview; run :q to close", "Comment" },
+  }, true, {})
+  return handles
+end
+
 local function current_review()
   local buf = vim.api.nvim_get_current_buf()
   local review_id = vim.b[buf].omniac_diff_review_id
@@ -444,6 +498,10 @@ function M.accept_current_review()
   local review = current_review()
   if not review then
     vim.notify("No Omniac diff approval is active in this buffer", vim.log.levels.WARN)
+    return
+  end
+  if review.read_only then
+    vim.notify("This Omniac change preview is read-only", vim.log.levels.INFO)
     return
   end
 
