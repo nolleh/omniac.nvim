@@ -52,6 +52,7 @@ describe("omniac.nvim", function()
     assert_equal(defaults.agent.cmd[1], "codex-acp", "default command should speak ACP")
     assert_equal(defaults.backend, nil, "backend selection should not be configurable")
     assert_equal(defaults.agent.auto_initialize, nil, "legacy transport initialization should be removed")
+    assert_equal(defaults.ui.change_review, "summary", "change review should default to a non-blocking summary")
   end)
 
   it("stdio transport exposes protocol primitives only", function()
@@ -200,6 +201,100 @@ describe("omniac.nvim", function()
     local cursor = vim.api.nvim_win_get_cursor(0)
     assert_equal(cursor[1], 2, "diff review should place the cursor on the first changed line")
     assert_equal(cursor[2], 0, "diff review cursor should start at column 0")
+  end)
+
+  it("change preview is read-only and does not write the file", function()
+    package.loaded["omniac.diff"] = nil
+    local diff = require("omniac.diff")
+    local path = "/private/tmp/omniac-change-preview-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    vim.fn.writefile({ "disk" }, path)
+
+    local handles = diff.open_preview(path, { "before" }, { "after" }, {})
+
+    assert_equal(vim.bo[handles.before_buf].modifiable, false, "preview before buffer should be immutable")
+    assert_equal(vim.bo[handles.after_buf].modifiable, false, "preview after buffer should be immutable")
+    assert_equal(vim.bo[handles.after_buf].readonly, true, "preview should be read-only")
+    assert_equal(vim.bo[handles.after_buf].buftype, "nofile", "preview should not support writes")
+    assert_equal(vim.fn.readfile(path)[1], "disk", "opening a preview should not touch the file")
+
+    vim.cmd("q")
+    pcall(vim.fn.delete, path)
+  end)
+
+  it("change tracker keeps latest turn and cumulative session changes", function()
+    package.loaded["omniac.changes"] = nil
+    local changes = require("omniac.changes")
+    local path = "/tmp/omniac-change.lua"
+
+    changes.reset("sess_1")
+    changes.start_turn({ sessionId = "sess_1", turnId = 1 })
+    changes.record({
+      sessionId = "sess_1",
+      turnId = 1,
+      path = path,
+      oldText = "before\n",
+      newText = "middle\n",
+    })
+    changes.record({
+      sessionId = "sess_1",
+      turnId = 1,
+      path = path,
+      oldText = "middle\n",
+      newText = "after\n",
+    })
+
+    assert_equal(changes.finish_turn({ sessionId = "sess_1", turnId = 1 }), 1, "turn should deduplicate files")
+    assert_equal(changes.get("turn")[1].oldText, "before\n", "turn should keep the first file contents")
+    assert_equal(changes.get("turn")[1].newText, "after\n", "turn should keep the latest file contents")
+
+    changes.start_turn({ sessionId = "sess_1", turnId = 2 })
+    changes.record({
+      sessionId = "sess_1",
+      turnId = 2,
+      path = path,
+      oldText = "after\n",
+      newText = "final\n",
+    })
+    changes.finish_turn({ sessionId = "sess_1", turnId = 2 })
+
+    assert_equal(changes.get("turn")[1].oldText, "after\n", "latest turn should have its own baseline")
+    assert_equal(changes.get("session")[1].oldText, "before\n", "session should keep its initial baseline")
+    assert_equal(changes.get("session")[1].newText, "final\n", "session should keep the latest contents")
+
+    changes.start_turn({ sessionId = "sess_1", turnId = 3 })
+    assert_equal(
+      changes.finish_turn({ sessionId = "sess_1", turnId = 2 }),
+      0,
+      "late completion should not replace the active turn"
+    )
+    assert_equal(#changes.get("turn"), 0, "latest turn review should remain on the active turn")
+
+    local original_select = vim.ui.select
+    local diff = require("omniac.diff")
+    local original_preview = diff.open_preview
+    local selected_prompt
+    local previewed
+    vim.ui.select = function(entries, opts, callback)
+      selected_prompt = opts.prompt
+      callback(entries[1])
+    end
+    diff.open_preview = function(selected_path, before, after)
+      previewed = {
+        path = selected_path,
+        before = before,
+        after = after,
+      }
+    end
+
+    local opened = changes.open("session", { ui = {} })
+    vim.ui.select = original_select
+    diff.open_preview = original_preview
+
+    assert_equal(opened, true, "change browser should open when session changes exist")
+    assert_true(selected_prompt:match("session") ~= nil, "change browser should identify its scope")
+    assert_equal(previewed.path, path, "selected change should open its file preview")
+    assert_equal(previewed.before[1], "before", "preview should use the session baseline")
+    assert_equal(previewed.after[1], "final", "preview should use the latest session contents")
   end)
 
   it("session dialog flattens multiline session titles", function()
@@ -591,6 +686,62 @@ describe("omniac.nvim", function()
     local line = vim.api.nvim_buf_get_lines(activity_buf, 0, 1, false)[1]
     assert_true(line:match("^  "), "activity line should keep left padding")
     assert_true(line:match("  $"), "activity line should keep right padding")
+  end)
+
+  it("multiline activity grows to three lines and shrinks again", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function(_) end)
+
+    local activity_buf = vim.fn.bufnr("omniac://activity")
+    local activity_win = vim.fn.win_findbuf(activity_buf)[1]
+    local chat_buf = vim.fn.bufnr("omniac")
+    local chat_win = vim.fn.win_findbuf(chat_buf)[1]
+    local initial_chat_height = vim.api.nvim_win_get_height(chat_win)
+
+    ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 42 } })
+    ui.handle_notification({
+      method = "omniac/tool_activity",
+      params = {
+        kind = "execute",
+        status = "in_progress",
+        title = table.concat({ "first command", "second command", "third command", "fourth command" }, "\n"),
+      },
+    }, { ui = { chat_width = 42 } })
+
+    local expanded = vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false)
+    assert_equal(#expanded, 3, "activity should show at most three lines")
+    assert_equal(vim.api.nvim_win_get_height(activity_win), 3, "activity window should grow with multiline text")
+    assert_true(expanded[1]:match("first command") ~= nil, "activity should keep the first command line")
+    assert_true(expanded[2]:match("second command") ~= nil, "activity should keep the second command line")
+    assert_true(expanded[3]:match("third command…") ~= nil, "activity should ellipsize hidden lines")
+    assert_equal(
+      vim.api.nvim_win_get_height(chat_win),
+      initial_chat_height - 2,
+      "chat should yield space to multiline activity"
+    )
+
+    ui.handle_notification({
+      method = "omniac/tool_activity",
+      params = {
+        kind = "execute",
+        status = "in_progress",
+        title = "short command",
+      },
+    }, { ui = { chat_width = 42 } })
+
+    assert_equal(vim.api.nvim_buf_line_count(activity_buf), 1, "single-line activity should use one buffer line")
+    assert_equal(vim.api.nvim_win_get_height(activity_win), 1, "activity window should shrink to one line")
+    assert_equal(
+      vim.api.nvim_win_get_height(chat_win),
+      initial_chat_height,
+      "chat should reclaim space after activity shrinks"
+    )
   end)
 
   it("tool result output is collapsed and toggled", function()
@@ -2475,6 +2626,60 @@ describe("omniac.nvim", function()
     assert_equal(notification.params.newText, "# Added\n", "created file diff should keep new text")
   end)
 
+  it("ACP completed edits keep the turn that started the tool call", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local client = acp.new({})
+    local notification
+
+    client.session_id = "sess_1"
+    client.active_turn_id = 7
+    client:on_notification(function(message)
+      if message.method == "omniac/file_update" then
+        notification = message
+      end
+    end)
+    client:_handle_notification({
+      method = "session/update",
+      params = {
+        update = {
+          sessionUpdate = "tool_call",
+          kind = "edit",
+          status = "in_progress",
+          toolCallId = "call_turn_7",
+        },
+      },
+    })
+
+    client.active_turn_id = 8
+    client:_handle_notification({
+      method = "session/update",
+      params = {
+        update = {
+          sessionUpdate = "tool_call_update",
+          kind = "edit",
+          status = "completed",
+          toolCallId = "call_turn_7",
+          content = {
+            {
+              type = "diff",
+              path = "/tmp/turn-7.lua",
+              oldText = "old\n",
+              newText = "new\n",
+            },
+          },
+        },
+      },
+    })
+
+    vim.wait(50, function()
+      return notification ~= nil
+    end)
+    assert_true(notification ~= nil, "completed edit should emit a file update")
+    assert_equal(notification.params.sessionId, "sess_1", "file update should include its session")
+    assert_equal(notification.params.turnId, 7, "file update should retain the originating turn")
+  end)
+
   it("ACP prompt rejects image content blocks without capability", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")
@@ -2768,6 +2973,7 @@ describe("omniac.nvim", function()
 
     local lines = table.concat(vim.api.nvim_buf_get_lines(command_buf, 0, -1, false), "\n")
     assert_true(lines:match("/exit") ~= nil, "local exit command should be listed")
+    assert_true(lines:match("/changes") ~= nil, "local changes command should be listed")
     assert_true(lines:match("/model") ~= nil, "local model command should be listed")
     assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
     assert_true(lines:match("/plan") ~= nil, "agent command should be listed")
@@ -2907,6 +3113,7 @@ describe("omniac.nvim", function()
       "OmniacReference",
       "OmniacReferenceBuffer",
       "OmniacTreeAdd",
+      "OmniacChanges",
       "OmniacDiff",
       "OmniacDiffAccept",
       "OmniacDiffDeny",
@@ -3002,6 +3209,7 @@ describe("omniac.nvim", function()
       "OmniacReference",
       "OmniacReferenceBuffer",
       "OmniacTreeAdd",
+      "OmniacChanges",
       "OmniacDiff",
       "OmniacDiffAccept",
       "OmniacDiffDeny",
@@ -3050,6 +3258,7 @@ describe("omniac.nvim", function()
       "OmniacReference",
       "OmniacReferenceBuffer",
       "OmniacTreeAdd",
+      "OmniacChanges",
       "OmniacDiff",
       "OmniacDiffAccept",
       "OmniacDiffDeny",
@@ -3114,6 +3323,7 @@ describe("omniac.nvim", function()
       "OmniacReference",
       "OmniacReferenceBuffer",
       "OmniacTreeAdd",
+      "OmniacChanges",
       "OmniacDiff",
       "OmniacDiffAccept",
       "OmniacDiffDeny",

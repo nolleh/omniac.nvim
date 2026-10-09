@@ -16,8 +16,8 @@ repos:
       - id: stylua
   - repo: local
     hooks:
-      - id: omniac-headless-tests
-        name: omniac headless tests
+      - id: omniac-plenary-tests
+        name: omniac Plenary tests
         entry: ./test.sh
         language: system
         pass_filenames: false

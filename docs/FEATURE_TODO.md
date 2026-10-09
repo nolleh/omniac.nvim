@@ -28,3 +28,8 @@ This file tracks Omniac-facing product and interaction work that is independent 
 - [x] Add file-tree integrations that can attach selected paths as prompt references.
 - [ ] Define the exact prompt shape for file references and other mixed text-plus-context input.
 - [ ] Verify the input pipeline still behaves predictably when the user is already in `omniac://input`.
+
+## Change Review
+
+- [x] Track ACP edits and client-mediated file writes by turn and session, with a read-only review browser.
+- [x] Render multiline activity messages safely without disrupting the input layout.

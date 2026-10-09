@@ -8,6 +8,7 @@ local session_dialog = require("omniac.session_dialog")
 local model_dialog = require("omniac.model_dialog")
 local filesystem = require("omniac.filesystem")
 local tree = require("omniac.tree")
+local changes = require("omniac.changes")
 
 local M = {
   config = config.defaults,
@@ -375,6 +376,10 @@ function M.setup(opts)
     M.resize(cmd.args)
   end
 
+  local function review_changes(cmd)
+    M.review_changes(cmd.args)
+  end
+
   register_command("Omniac", open_chat, {})
   register_command("OmniacConnect", connect, {})
   register_command("OmniacDisconnect", disconnect, {})
@@ -396,6 +401,12 @@ function M.setup(opts)
   register_command("OmniacReference", reference, { range = true })
   register_command("OmniacReferenceBuffer", reference_buffer, {})
   register_command("OmniacTreeAdd", tree_add, {})
+  register_command("OmniacChanges", review_changes, {
+    nargs = "?",
+    complete = function()
+      return { "turn", "session" }
+    end,
+  })
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
   register_command("OmniacDiffAccept", function()
     require("omniac.diff").accept_current_review()
@@ -469,6 +480,10 @@ function M.open_chat()
       end
       return
     end
+    if command == "changes" and #(attachments or {}) == 0 then
+      M.review_changes(arguments)
+      return
+    end
     if command == "model" and #(attachments or {}) == 0 then
       if not M.backend or not M.backend.get_session_model then
         ui.set_activity("Model selection is not available until the ACP session is ready.", M.config)
@@ -539,6 +554,11 @@ function M.open_chat()
       ui.set_status("error", M.config)
     end
   end
+end
+
+function M.review_changes(scope)
+  scope = scope == "session" and "session" or "turn"
+  return changes.open(scope, M.config)
 end
 
 function M.select_session()
@@ -684,7 +704,22 @@ function M.connect(opts)
       end
 
       if method == "fs/read_text_file" or method == "fs/write_text_file" then
+        local before
+        if method == "fs/write_text_file" then
+          local current = filesystem.read_text_file({ path = params.path })
+          before = current and current.content or ""
+        end
         local result, err = filesystem.handle_request(method, params)
+        if method == "fs/write_text_file" and not err then
+          changes.record({
+            sessionId = params.sessionId or client.session_id,
+            turnId = client.active_turn_id,
+            path = params.path,
+            oldText = before,
+            newText = params.content,
+            source = "filesystem",
+          })
+        end
         logged_reply(result, err)
         return
       end
@@ -695,6 +730,12 @@ function M.connect(opts)
       local method = message and message.method
       local params = message and message.params or {}
 
+      if method == "omniac/session_started" then
+        changes.reset(params.sessionId)
+      elseif method == "omniac/prompt_started" then
+        changes.start_turn(params)
+      end
+
       ui.handle_notification(message, cfg)
 
       if method == "omniac/permission_diff" then
@@ -703,15 +744,29 @@ function M.connect(opts)
       end
 
       if method == "omniac/file_update" then
-        approval.apply_file_update(params)
+        if approval.apply_file_update(params) then
+          changes.record(params)
+        end
+        return
+      end
+
+      if method == "omniac/response" or method == "omniac/response_completed" then
+        local count = changes.finish_turn(params)
+        local review_mode = cfg.ui and cfg.ui.change_review or "summary"
+        if count > 0 and review_mode == "open" then
+          vim.schedule(function()
+            changes.open("turn", cfg)
+          end)
+        elseif count > 0 and review_mode == "summary" then
+          ui.set_activity(
+            string.format("Changed %d file%s this turn · /changes to review", count, count == 1 and "" or "s"),
+            cfg
+          )
+        end
         return
       end
 
       if method == "omniac/edit_failed" then
-        return
-      end
-
-      if method == "omniac/response" then
         return
       end
 

@@ -687,7 +687,7 @@ function M.new(config)
       end
 
       if update_type == "tool_call" and update and update.kind == "edit" and update.toolCallId then
-        self.edit_tool_calls[update.toolCallId] = true
+        self.edit_tool_calls[update.toolCallId] = self.active_turn_id or true
       end
 
       local is_edit_update = update
@@ -710,6 +710,8 @@ function M.new(config)
 
       if (update_type == "tool_call" or update_type == "tool_call_update") and is_edit_update then
         local emitted_file_update = false
+        local tracked_turn_id = self.edit_tool_calls[update.toolCallId]
+        local edit_turn_id = tracked_turn_id ~= true and tracked_turn_id or self.active_turn_id
         for _, item in ipairs(update_content_items(update)) do
           if is_file_update_item(item) then
             emitted_file_update = true
@@ -717,9 +719,12 @@ function M.new(config)
               self:_emit_notification({
                 method = "omniac/file_update",
                 params = {
+                  sessionId = self.session_id,
+                  turnId = edit_turn_id,
                   path = item.path,
                   oldText = update_old_text(item),
                   newText = item.newText,
+                  operation = type(item._meta) == "table" and item._meta.kind or nil,
                   toolCallId = update.toolCallId,
                   title = update.title,
                   status = update.status,
@@ -730,6 +735,8 @@ function M.new(config)
               self:_emit_notification({
                 method = "omniac/permission_diff",
                 params = {
+                  sessionId = self.session_id,
+                  turnId = edit_turn_id,
                   path = item.path,
                   oldText = update_old_text(item),
                   newText = item.newText,

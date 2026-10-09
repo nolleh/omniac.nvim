@@ -42,6 +42,7 @@ M.defaults = {
   ui = {
     diff_title = "ACP Diff",
     diff_separate_tab = false,
+    change_review = "summary",
     chat_width = 58,
     tool_results = "compact",
     tool_result_max_lines = 4,
