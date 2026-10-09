@@ -146,8 +146,9 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacBorder", { fg = "#f38ba8" })
   vim.api.nvim_set_hl(0, "OmniacMuted", { fg = "#7f849c" })
   vim.api.nvim_set_hl(0, "OmniacAccent", { fg = "#f9e2af", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacGraphic", { fg = "#94e2d5", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacGraphic", { fg = "#e7825a", bold = true })
   vim.api.nvim_set_hl(0, "OmniacGraphicShade", { fg = "#89dceb" })
+  vim.api.nvim_set_hl(0, "OmniacWordmark", { fg = "#f9e2af", bold = true })
   vim.api.nvim_set_hl(0, "OmniacUser", { fg = "#89b4fa", bold = true })
   vim.api.nvim_set_hl(0, "OmniacUserBubble", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacAssistant", { fg = "#cba6f7", bold = true })
@@ -586,7 +587,6 @@ end
 
 local function header(lines, marks, size)
   local box_width = math.max(40, size)
-  local inner = box_width - 2
   local user = vim.env.USER or "there"
   local title = "Omniac Code"
   local top = "╭─ "
@@ -601,17 +601,37 @@ local function header(lines, marks, size)
   add_boxed_line(lines, marks, "Welcome back " .. user .. "!", box_width, "OmniacAccent")
   add_boxed_line(lines, marks, "", box_width, nil)
 
-  local graphic = {
-    "        ▄▄▄▄▄▄▄        ",
-    "     ▄███████████▄     ",
-    "   ▄██▀  ▀███▀  ▀██▄   ",
-    "   ██    ▄███▄    ██   ",
-    "   ▀██▄  ▀▀▀▀▀  ▄██▀   ",
-    "      ▀█████████▀      ",
-    "       ▀▀  ▀  ▀▀       ",
+  local mascot = {
+    "       ▄██▄       ",
+    "    ▄████████▄    ",
+    "  ▄███      ███▄  ",
+    " ▐██  ▪  ▪  ██▌ ",
+    "  ██    ▄    ██  ",
+    "   ▀████████▀   ",
+    "    ▄██████▄    ",
+    "    ██    ██    ",
   }
-  for _, line in ipairs(graphic) do
+  for index, line in ipairs(mascot) do
     add_boxed_line(lines, marks, line, box_width, "OmniacGraphic")
+    if index == 4 then
+      local left_padding = math.floor((box_width - 2 - vim.fn.strdisplaywidth(line)) / 2)
+      local ear_start = line:find("▐", 1, true)
+      local ear_end = line:find("▌", 1, true)
+      local left_ear_start = #"│" + left_padding + ear_start - 1
+      local right_ear_start = #"│" + left_padding + ear_end - 1
+      add_mark(marks, #lines, left_ear_start, left_ear_start + #"▐", "OmniacGraphicShade")
+      add_mark(marks, #lines, right_ear_start, right_ear_start + #"▌", "OmniacGraphicShade")
+    end
+  end
+
+  local wordmark = {
+    "   ___  __  __ _   _ ___   _    ___",
+    "  / _ \\/  \\/  | \\ | |_ _| / \\  / __|",
+    " | (_) | |\\/| |  \\| || |/ _ \\| (__",
+    "  \\___/|_|  |_|_|\\_|___/_/ \\_\\___|",
+  }
+  for _, line in ipairs(wordmark) do
+    add_boxed_line(lines, marks, line, box_width, "OmniacWordmark")
   end
 
   add_boxed_line(lines, marks, "", box_width, nil)

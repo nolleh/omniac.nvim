@@ -1129,6 +1129,25 @@ describe("omniac.nvim", function()
     assert_true(collapsed:match("Ran printf ok") ~= nil, "compact mode should keep short named output")
   end)
 
+  it("welcome header renders the robot mascot and ASCII OMNIAC wordmark", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+
+    local ui = require("omniac.ui")
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 48 },
+    }, function(_) end)
+
+    local chat = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr("omniac"), 0, -1, false), "\n")
+    assert_true(chat:find("▄██▄", 1, true) ~= nil, "welcome header should show the compact robot mascot")
+    assert_true(chat:find("(_) |", 1, true) ~= nil, "welcome header should render the ASCII OMNIAC wordmark")
+    assert_true(
+      chat:find("▄▄▄▄▄▄▄", 1, true) == nil,
+      "welcome header should remove the previous large graphic"
+    )
+  end)
+
   it("chat buffer uses markdown renderer when available", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
