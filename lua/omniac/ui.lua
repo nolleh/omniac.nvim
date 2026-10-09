@@ -43,6 +43,7 @@ local state = {
   available_commands = {},
   session_mode = nil,
   session_model = nil,
+  session_usage = nil,
   mode_cycle_handler = nil,
   relayout_pending = false,
   user_width = nil,
@@ -699,16 +700,25 @@ local function render_status()
   local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or target_width()
   local mode = state.session_mode and (state.session_mode.currentModeName or state.session_mode.currentModeId)
   local model = state.session_model and (state.session_model.currentModelName or state.session_model.currentModelId)
+  local usage
+  if state.session_usage then
+    local percent = math.floor((state.session_usage.used / state.session_usage.size) * 100 + 0.5)
+    usage = string.format("ctx %d%%", math.max(0, math.min(100, percent)))
+  end
   local left = " Omniac "
   local middle = "  " .. state.status .. " "
+  local usage_capsule = usage and ("  " .. usage .. " ") or ""
   local mode_capsule = mode and mode ~= "" and ("  " .. mode .. " ") or ""
   local model_capsule = model and model ~= "" and ("  " .. model .. " ") or ""
   local right = "  " .. agent_name(state.config) .. " "
   local spacer = string.rep(
     " ",
-    math.max(1, win_width - vim.fn.strdisplaywidth(left .. middle .. mode_capsule .. model_capsule .. right))
+    math.max(
+      1,
+      win_width - vim.fn.strdisplaywidth(left .. middle .. usage_capsule .. mode_capsule .. model_capsule .. right)
+    )
   )
-  local line = left .. middle .. mode_capsule .. model_capsule .. spacer .. right
+  local line = left .. middle .. usage_capsule .. mode_capsule .. model_capsule .. spacer .. right
 
   vim.bo[state.status_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.status_buf, ns, 0, -1)
@@ -729,6 +739,10 @@ local function render_status()
   add_capsule(" Omniac ", "OmniacStatusCapsule", "OmniacStatusCapsuleEdge")
   col = col + #" "
   add_capsule(" " .. state.status .. " ", "OmniacStatusMode", "OmniacStatusModeEdge")
+  if usage_capsule ~= "" then
+    col = col + #" "
+    add_capsule(" " .. usage .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  end
   if mode_capsule ~= "" then
     col = col + #" "
     add_capsule(" " .. mode .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
@@ -2186,6 +2200,21 @@ function M.set_session_model(model)
   render_status()
 end
 
+function M.set_session_usage(usage)
+  local used = type(usage) == "table" and tonumber(usage.used) or nil
+  local size = type(usage) == "table" and tonumber(usage.size) or nil
+  if used and size and used >= 0 and size > 0 then
+    state.session_usage = {
+      used = used,
+      size = size,
+      cost = usage.cost,
+    }
+  else
+    state.session_usage = nil
+  end
+  render_status()
+end
+
 function M.set_tool_activity(params, config)
   params = params or {}
   local status = params.status or "running"
@@ -2454,6 +2483,11 @@ function M.handle_notification(message, config)
 
   if method == "omniac/session_model_update" then
     M.set_session_model(params)
+    return
+  end
+
+  if method == "omniac/usage_update" then
+    M.set_session_usage(params)
     return
   end
 

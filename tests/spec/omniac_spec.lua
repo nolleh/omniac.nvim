@@ -2134,6 +2134,32 @@ describe("omniac.nvim", function()
     assert_true(line:match("GPT%-5 Mini") ~= nil, "status should include the current ACP model")
   end)
 
+  it("status renders ACP context usage as a percentage", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 58 },
+    }, function() end)
+
+    ui.handle_notification({
+      method = "omniac/usage_update",
+      params = {
+        used = 75000,
+        size = 100000,
+      },
+    }, {
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 58 },
+    })
+
+    local status_buf = vim.fn.bufnr("omniac://status")
+    local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    assert_true(line:match("ctx 75%%") ~= nil, "status should include context-window usage")
+  end)
+
   it("ACP protocol file logs follow debug option", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")
@@ -2458,6 +2484,40 @@ describe("omniac.nvim", function()
     assert_equal(notification.params.exitCode, 0, "tool result should keep exit code")
   end)
 
+  it("ACP usage updates expose context-window consumption", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local client = acp.new({})
+    local notification
+
+    client.session_id = "sess_1"
+    client:on_notification(function(message)
+      if message.method == "omniac/usage_update" then
+        notification = message
+      end
+    end)
+
+    client:_handle_notification({
+      method = "session/update",
+      params = {
+        update = {
+          sessionUpdate = "usage_update",
+          used = 90000,
+          size = 100000,
+        },
+      },
+    })
+
+    vim.wait(50, function()
+      return notification ~= nil
+    end)
+
+    assert_true(notification ~= nil, "usage update should be emitted")
+    assert_equal(notification.params.sessionId, "sess_1", "usage update should keep the session id")
+    assert_equal(notification.params.used, 90000, "usage update should keep used tokens")
+    assert_equal(notification.params.size, 100000, "usage update should keep context size")
+  end)
+
   it("ACP prompt sends image content blocks when advertised", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")
@@ -2732,6 +2792,64 @@ describe("omniac.nvim", function()
     assert_true(notification ~= nil, "completed edit should emit a file update")
     assert_equal(notification.params.sessionId, "sess_1", "file update should include its session")
     assert_equal(notification.params.turnId, 7, "file update should retain the originating turn")
+  end)
+
+  it("ACP completed edits retain earlier diffs when completion omits content", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local client = acp.new({})
+    local notification
+    local path = "/private/tmp/omniac-edit-snapshot-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    vim.fn.writefile({ "before", "rest" }, path)
+
+    client.session_id = "sess_1"
+    client.active_turn_id = 3
+    client:on_notification(function(message)
+      if message.method == "omniac/file_update" then
+        notification = message
+      end
+    end)
+    client:_handle_notification({
+      method = "session/update",
+      params = {
+        update = {
+          sessionUpdate = "tool_call",
+          kind = "edit",
+          status = "in_progress",
+          toolCallId = "call_snapshot",
+          content = {
+            {
+              type = "diff",
+              path = path,
+              oldText = "before",
+              newText = "after",
+            },
+          },
+        },
+      },
+    })
+
+    vim.fn.writefile({ "after", "rest" }, path)
+    client:_handle_notification({
+      method = "session/update",
+      params = {
+        update = {
+          sessionUpdate = "tool_call_update",
+          status = "completed",
+          toolCallId = "call_snapshot",
+        },
+      },
+    })
+
+    vim.wait(50, function()
+      return notification ~= nil
+    end)
+    pcall(vim.fn.delete, path)
+
+    assert_true(notification ~= nil, "content-less completion should emit the cached file update")
+    assert_equal(notification.params.turnId, 3, "cached file update should keep its originating turn")
+    assert_equal(notification.params.oldText, "before\nrest\n", "file update should preserve the full baseline")
+    assert_equal(notification.params.newText, "after\nrest\n", "file update should read the full completed file")
   end)
 
   it("ACP prompt rejects image content blocks without capability", function()

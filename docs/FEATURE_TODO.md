@@ -4,7 +4,7 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 ## Input Experience
 
-- [ ] Add a token usage capsule in the input UI so users can see current budget / consumption at a glance.
+- [x] Show ACP context-window usage as a percentage capsule in the input status bar.
 - [x] Add a code-block handoff flow from visual mode into `omniac` input so selected code can be forwarded as reference context without manual copy / paste.
 - [ ] Let history navigation work with `Ctrl-n` / `Ctrl-p` only, instead of depending on the arrow keys.
 - [ ] Add a direct model-selector command / keymap so model selection does not require entering `/model` in chat.

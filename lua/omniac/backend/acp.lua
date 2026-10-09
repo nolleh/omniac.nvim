@@ -507,6 +507,26 @@ local function update_old_text(item)
   return type(item.oldText) == "string" and item.oldText or ""
 end
 
+local function read_file_content(path)
+  if type(path) ~= "string" or path == "" then
+    return nil
+  end
+
+  local uv = vim.uv or vim.loop
+  local stat = uv.fs_stat(path)
+  if not stat or stat.type ~= "file" then
+    return nil
+  end
+
+  local fd = uv.fs_open(path, "r", 438)
+  if not fd then
+    return nil
+  end
+  local content = uv.fs_read(fd, stat.size, 0)
+  uv.fs_close(fd)
+  return content
+end
+
 function M.new(config)
   local state = {
     config = config or {},
@@ -672,6 +692,19 @@ function M.new(config)
         return
       end
 
+      if update_type == "usage_update" or update_type == "usageUpdate" then
+        self:_emit_notification({
+          method = "omniac/usage_update",
+          params = {
+            sessionId = self.session_id,
+            used = update.used,
+            size = update.size,
+            cost = update.cost,
+          },
+        })
+        return
+      end
+
       if update_type == "current_mode_update" or update_type == "currentModeUpdate" then
         if self.session_mode then
           self.session_mode.currentModeId = update.modeId or update.mode_id or self.session_mode.currentModeId
@@ -686,13 +719,18 @@ function M.new(config)
         return
       end
 
-      if update_type == "tool_call" and update and update.kind == "edit" and update.toolCallId then
-        self.edit_tool_calls[update.toolCallId] = self.active_turn_id or true
+      local edit_call = update and update.toolCallId and self.edit_tool_calls[update.toolCallId] or nil
+      if update and update.kind == "edit" and update.toolCallId and type(edit_call) ~= "table" then
+        edit_call = {
+          turn_id = self.active_turn_id,
+          files = {},
+          order = {},
+          title = update.title,
+        }
+        self.edit_tool_calls[update.toolCallId] = edit_call
       end
 
-      local is_edit_update = update
-        and update.toolCallId
-        and (update.kind == "edit" or self.edit_tool_calls[update.toolCallId])
+      local is_edit_update = type(edit_call) == "table"
 
       if
         (update_type == "tool_call" or update_type == "tool_call_update")
@@ -709,34 +747,34 @@ function M.new(config)
       end
 
       if (update_type == "tool_call" or update_type == "tool_call_update") and is_edit_update then
-        local emitted_file_update = false
-        local tracked_turn_id = self.edit_tool_calls[update.toolCallId]
-        local edit_turn_id = tracked_turn_id ~= true and tracked_turn_id or self.active_turn_id
+        edit_call.title = update.title or edit_call.title
         for _, item in ipairs(update_content_items(update)) do
           if is_file_update_item(item) then
-            emitted_file_update = true
-            if update.status == "completed" then
-              self:_emit_notification({
-                method = "omniac/file_update",
-                params = {
-                  sessionId = self.session_id,
-                  turnId = edit_turn_id,
-                  path = item.path,
-                  oldText = update_old_text(item),
-                  newText = item.newText,
-                  operation = type(item._meta) == "table" and item._meta.kind or nil,
-                  toolCallId = update.toolCallId,
-                  title = update.title,
-                  status = update.status,
-                  error = update.error or update.rawOutput,
-                },
-              })
-            elseif update.status ~= "failed" then
+            local file = edit_call.files[item.path]
+            if not file then
+              local completed_without_snapshot = update.status == "completed"
+              file = {
+                path = item.path,
+                oldText = completed_without_snapshot and update_old_text(item)
+                  or read_file_content(item.path)
+                  or update_old_text(item),
+                newText = item.newText,
+                operation = type(item._meta) == "table" and item._meta.kind or nil,
+                captured_before = not completed_without_snapshot,
+              }
+              edit_call.files[item.path] = file
+              table.insert(edit_call.order, item.path)
+            else
+              file.newText = item.newText
+              file.operation = (type(item._meta) == "table" and item._meta.kind) or file.operation
+            end
+
+            if update.status ~= "completed" and update.status ~= "failed" then
               self:_emit_notification({
                 method = "omniac/permission_diff",
                 params = {
                   sessionId = self.session_id,
-                  turnId = edit_turn_id,
+                  turnId = edit_call.turn_id,
                   path = item.path,
                   oldText = update_old_text(item),
                   newText = item.newText,
@@ -748,7 +786,35 @@ function M.new(config)
             end
           end
         end
-        if update.status == "failed" and not emitted_file_update then
+
+        if update.status == "completed" then
+          for _, path in ipairs(edit_call.order) do
+            local file = edit_call.files[path]
+            local new_text = file.newText
+            if file.captured_before then
+              new_text = read_file_content(path)
+              if new_text == nil and file.operation == "delete" then
+                new_text = ""
+              end
+              new_text = new_text or file.newText
+            end
+            self:_emit_notification({
+              method = "omniac/file_update",
+              params = {
+                sessionId = self.session_id,
+                turnId = edit_call.turn_id,
+                path = path,
+                oldText = file.oldText,
+                newText = new_text,
+                operation = file.operation,
+                toolCallId = update.toolCallId,
+                title = edit_call.title,
+                status = update.status,
+                error = update.error or update.rawOutput,
+              },
+            })
+          end
+        elseif update.status == "failed" then
           self:_emit_notification({
             method = "omniac/edit_failed",
             params = {

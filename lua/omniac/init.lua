@@ -683,6 +683,7 @@ end
 
 function M.connect(opts)
   opts = opts or {}
+  ui.set_session_usage(nil)
   local cfg = M.config
   if opts.session then
     cfg = vim.deepcopy(M.config)
@@ -749,9 +750,7 @@ function M.connect(opts)
       end
 
       if method == "omniac/file_update" then
-        if approval.apply_file_update(params) then
-          changes.record(params)
-        end
+        changes.record(params)
         return
       end
 
