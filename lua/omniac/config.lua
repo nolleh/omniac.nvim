@@ -2,6 +2,14 @@ local M = {}
 
 M.defaults = {
   debug = false,
+  keymaps = {
+    open = "<leader>ac",
+    focus = "<leader>af",
+    session = "<leader>ar",
+    reference = "<leader>as",
+    diff_accept = "<leader>aa",
+    diff_deny = "<leader>ad",
+  },
   agent = {
     cmd = { "codex-acp" },
     args = {},

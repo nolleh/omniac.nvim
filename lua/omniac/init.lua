@@ -13,32 +13,86 @@ local M = {
   backend = nil,
 }
 
+local default_keymaps = {
+  { name = "open", mode = "n", command = "Omniac", desc = "Open Omniac" },
+  { name = "focus", mode = "n", command = "Omniac", desc = "Focus Omniac" },
+  { name = "session", mode = "n", command = "OmniacSession", desc = "Resume Omniac session" },
+  { name = "reference", mode = "x", command = "OmniacReference", desc = "Send selection to Omniac" },
+  { name = "diff_accept", mode = "n", command = "OmniacDiffAccept", desc = "Accept Omniac diff" },
+  { name = "diff_deny", mode = "n", command = "OmniacDiffDeny", desc = "Deny Omniac diff" },
+}
+
+local installed_keymaps = {}
+
+local function clear_installed_keymaps()
+  for _, mapping in ipairs(installed_keymaps) do
+    local current = vim.fn.maparg(mapping.lhs, mapping.mode, false, true)
+    if type(current) == "table" and current.desc == mapping.desc then
+      pcall(vim.keymap.del, mapping.mode, mapping.lhs)
+    end
+  end
+  installed_keymaps = {}
+end
+
+local function setup_keymaps()
+  clear_installed_keymaps()
+
+  local configured = M.config.keymaps
+  if configured == false or type(configured) ~= "table" then
+    return
+  end
+
+  for _, mapping in ipairs(default_keymaps) do
+    local lhs = configured[mapping.name]
+    if type(lhs) == "string" and lhs ~= "" and vim.fn.maparg(lhs, mapping.mode) == "" then
+      local desc = "Omniac: " .. mapping.desc
+      local rhs = mapping.mode == "x" and (":" .. mapping.command .. "<CR>") or ("<cmd>" .. mapping.command .. "<cr>")
+      vim.keymap.set(mapping.mode, lhs, rhs, {
+        desc = desc,
+        silent = true,
+      })
+      table.insert(installed_keymaps, {
+        lhs = lhs,
+        mode = mapping.mode,
+        desc = desc,
+      })
+    end
+  end
+end
+
 local function build_prompt(extra)
-  local ctx = selection.get_context()
   local prompt = {}
 
   if extra and extra ~= "" then
     table.insert(prompt, extra)
   end
 
-  if ctx.selection and ctx.selection ~= "" then
-    table.insert(prompt, "Selected code:\n" .. ctx.selection)
-  end
-
-  if ctx.bufname and ctx.bufname ~= "" then
-    table.insert(prompt, "Current file: " .. ctx.bufname)
+  local bufname = vim.api.nvim_buf_get_name(0)
+  if bufname ~= "" and bufname ~= "omniac" and not bufname:match("^omniac://") then
+    table.insert(prompt, "Current file: " .. bufname)
   end
 
   return table.concat(prompt, "\n\n")
 end
 
+local function reference_label(reference)
+  local path = reference.path
+  if not path or path == "" then
+    path = "[No Name]"
+  else
+    path = vim.fn.fnamemodify(path, ":.")
+  end
+  return string.format("%s:%d-%d", path, reference.startLine, reference.endLine)
+end
+
 local function build_prompt_items(text, attachments)
-  local items = {
-    {
+  local items = {}
+  if text ~= "" then
+    table.insert(items, {
       type = "text",
       text = text,
-    },
-  }
+    })
+  end
 
   for _, attachment in ipairs(attachments or {}) do
     if type(attachment) == "table" and attachment.type == "image" then
@@ -47,7 +101,33 @@ local function build_prompt_items(text, attachments)
         mimeType = attachment.mimeType,
         data = attachment.data,
       })
+    elseif type(attachment) == "table" and attachment.type == "reference" then
+      local supports_embedded_context = M.backend
+        and M.backend.supports_prompt_capability
+        and M.backend:supports_prompt_capability("embeddedContext")
+      if supports_embedded_context then
+        table.insert(items, {
+          type = "resource",
+          resource = {
+            uri = attachment.uri,
+            mimeType = "text/plain",
+            text = attachment.text,
+          },
+        })
+      else
+        table.insert(items, {
+          type = "text",
+          text = string.format("Referenced code from %s:\n%s", reference_label(attachment), attachment.text or ""),
+        })
+      end
     end
+  end
+
+  if #items == 0 then
+    table.insert(items, {
+      type = "text",
+      text = text,
+    })
   end
 
   return items
@@ -98,6 +178,7 @@ end
 
 function M.setup(opts)
   M.config = config.merge(opts)
+  setup_keymaps()
 
   local function connect()
     M.connect()
@@ -134,6 +215,22 @@ function M.setup(opts)
       table.insert(paths, path)
     end
     M.ask_with_files("", paths)
+  end
+
+  local function reference(cmd)
+    if not cmd.range or cmd.range == 0 then
+      vim.notify("OmniacReference requires a visual selection", vim.log.levels.WARN, { title = "omniac" })
+      return
+    end
+
+    local reference_item, err = selection.reference_from_range(vim.api.nvim_get_current_buf(), cmd.line1, cmd.line2)
+    if not reference_item then
+      vim.notify(tostring(err or "Unable to capture selection"), vim.log.levels.WARN, { title = "omniac" })
+      return
+    end
+
+    M.open_chat()
+    ui.attach_reference(reference_item, M.config)
   end
 
   local function diff(cmd)
@@ -175,6 +272,7 @@ function M.setup(opts)
   register_command("OmniacResize", resize, { nargs = 1 })
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
+  register_command("OmniacReference", reference, { range = true })
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
   register_command("OmniacDiffAccept", function()
     require("omniac.diff").accept_current_review()

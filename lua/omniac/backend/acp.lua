@@ -1387,6 +1387,18 @@ function M.new(config)
         end
         return
       end
+      if
+        type(item) == "table"
+        and item.type == "resource"
+        and not self:supports_prompt_capability("embeddedContext")
+      then
+        if callback then
+          callback({
+            message = "agent does not support embedded context",
+          })
+        end
+        return
+      end
     end
 
     local function send_prompt()

@@ -123,6 +123,35 @@ run("stdio transport sends JSON-RPC 2.0 request and response envelopes", functio
   assert_equal(sent[3].id, "agent-request", "automatic response id should be preserved")
 end)
 
+run("selection references preserve source range and unsaved text", function()
+  package.loaded["omniac.selection"] = nil
+  local selection = require("omniac.selection")
+  local buf = vim.api.nvim_create_buf(false, false)
+  local path = "/private/tmp/omniac-reference-" .. tostring(vim.loop.hrtime()) .. ".lua"
+
+  vim.api.nvim_buf_set_name(buf, path)
+  vim.bo[buf].filetype = "lua"
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    "local first = true",
+    "local second = true",
+    "return second",
+  })
+  vim.bo[buf].modified = true
+
+  local reference = selection.reference_from_range(buf, 2, 3)
+
+  assert_equal(reference.type, "reference", "selection should become a reference attachment")
+  assert_equal(reference.path, path, "reference should preserve the source path")
+  assert_equal(reference.filetype, "lua", "reference should preserve the source filetype")
+  assert_equal(reference.startLine, 2, "reference should preserve the first selected line")
+  assert_equal(reference.endLine, 3, "reference should preserve the last selected line")
+  assert_equal(reference.text, "local second = true\nreturn second", "reference should capture buffer text")
+  assert_equal(reference.modified, true, "reference should record unsaved buffer state")
+  assert_true(reference.uri:match("#L2%-L3$") ~= nil, "reference URI should identify its line range")
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end)
+
 run("diff review accepts with :w", function()
   package.loaded["omniac.diff"] = nil
   local diff = require("omniac.diff")
@@ -2499,6 +2528,41 @@ run("ACP prompt rejects image content blocks without capability", function()
   assert_true(received_err and received_err.message:match("image prompts"), "unsupported image prompt should error")
 end)
 
+run("ACP prompt rejects embedded references without capability", function()
+  package.loaded["omniac.backend.acp"] = nil
+  local acp = require("omniac.backend.acp")
+  local client = acp.new({})
+  local requested = false
+  local received_err
+
+  client.session_id = "sess_1"
+  client.running = true
+  client.transport = {
+    request = function()
+      requested = true
+    end,
+  }
+
+  client:prompt("explain", {
+    prompt = {
+      { type = "text", text = "explain" },
+      {
+        type = "resource",
+        resource = {
+          uri = "file:///tmp/example.lua#L1-L2",
+          mimeType = "text/plain",
+          text = "local example = true",
+        },
+      },
+    },
+  }, function(err)
+    received_err = err
+  end)
+
+  assert_equal(requested, false, "unsupported embedded context should not call transport")
+  assert_true(received_err and received_err.message:match("embedded context"), "unsupported resource should error")
+end)
+
 run("ACP list sessions requests even without advertised capability", function()
   package.loaded["omniac.backend.acp"] = nil
   local acp = require("omniac.backend.acp")
@@ -2847,6 +2911,96 @@ run("enter completes best slash command candidate", function()
   assert_equal(submitted, "/resume", "enter should complete the best slash command candidate")
 end)
 
+run("visual range command attaches an ACP reference to the next prompt", function()
+  cleanup_omniac_buffers()
+  package.loaded["omniac"] = nil
+  package.loaded["omniac.ui"] = nil
+  package.loaded["omniac.selection"] = nil
+  for _, name in ipairs({
+    "Omniac",
+    "OmniacConnect",
+    "OmniacDisconnect",
+    "OmniacExit",
+    "OmniacSession",
+    "OmniacSessionNew",
+    "OmniacSessionLoad",
+    "OmniacSessionResume",
+    "OmniacAsk",
+    "OmniacResize",
+    "OmniacDebug",
+    "OmniacAskFiles",
+    "OmniacReference",
+    "OmniacDiff",
+    "OmniacDiffAccept",
+    "OmniacDiffDeny",
+  }) do
+    pcall(vim.api.nvim_del_user_command, name)
+  end
+
+  local omniac = require("omniac")
+  omniac.setup({
+    agent = { cmd = { "custom-acp" } },
+    ui = { chat_width = 48 },
+  })
+
+  local request
+  omniac.backend = {
+    supports_prompt_capability = function(_, capability)
+      return capability == "embeddedContext"
+    end,
+    prompt = function(_, _, params, callback)
+      request = params
+      callback(nil, {})
+    end,
+  }
+
+  local source_buf = vim.api.nvim_create_buf(false, true)
+  local source_path = "/private/tmp/omniac-reference-command.lua"
+  vim.api.nvim_buf_set_name(source_buf, source_path)
+  vim.bo[source_buf].filetype = "lua"
+  vim.api.nvim_buf_set_lines(source_buf, 0, -1, false, {
+    "local first = true",
+    "local selected = true",
+    "return selected",
+  })
+  vim.api.nvim_set_current_buf(source_buf)
+
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
+  feed("Vj:OmniacReference<CR>")
+  require("omniac.ui").set_status("ready", omniac.config)
+
+  local activity_buf = vim.fn.bufnr("omniac://activity")
+  local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+  assert_true(activity:match("Attached ref:") ~= nil, "reference should be visible")
+
+  local input_buf = vim.fn.bufnr("omniac://input")
+  local input_win
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == input_buf then
+      input_win = win
+      break
+    end
+  end
+  vim.api.nvim_set_current_win(input_win)
+  vim.api.nvim_buf_set_lines(input_buf, 1, 2, false, { "│ > explain this" })
+  feed("<CR>")
+
+  assert_true(request ~= nil, "submitting should send the referenced prompt")
+  assert_equal(request.prompt[1].type, "text", "typed instructions should remain text")
+  assert_equal(request.prompt[2].type, "resource", "selection should use ACP embedded context")
+  assert_equal(request.prompt[2].resource.uri:match("#L2%-L3$") ~= nil, true, "resource should retain its range")
+  assert_equal(
+    request.prompt[2].resource.text,
+    "local selected = true\nreturn selected",
+    "resource should contain the selected buffer text"
+  )
+
+  cleanup_omniac_buffers()
+  if vim.api.nvim_buf_is_valid(source_buf) then
+    vim.api.nvim_buf_delete(source_buf, { force = true })
+  end
+end)
+
 run("slash exit closes chat without submitting", function()
   cleanup_omniac_buffers()
   package.loaded["omniac"] = nil
@@ -2863,6 +3017,7 @@ run("slash exit closes chat without submitting", function()
     "OmniacAsk",
     "OmniacDebug",
     "OmniacAskFiles",
+    "OmniacReference",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",
@@ -2908,6 +3063,7 @@ run("slash model argument changes the ACP session model without submitting", fun
     "OmniacResize",
     "OmniacDebug",
     "OmniacAskFiles",
+    "OmniacReference",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",
@@ -2969,6 +3125,7 @@ run("slash model opens an approval-style model selector", function()
     "OmniacResize",
     "OmniacDebug",
     "OmniacAskFiles",
+    "OmniacReference",
     "OmniacDiff",
     "OmniacDiffAccept",
     "OmniacDiffDeny",

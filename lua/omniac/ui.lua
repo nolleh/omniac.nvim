@@ -372,6 +372,7 @@ local function stop_reason_footer(reason)
 end
 
 local render_activity
+local attachment_summary
 
 local function stop_tool_activity_timer()
   if state.tool_activity_timer then
@@ -764,6 +765,8 @@ render_activity = function()
     text = frames[state.activity_frame]
   elseif state.status == "connecting" then
     text = "Connecting..."
+  elseif #state.input_attachments > 0 then
+    text = "Attached " .. (attachment_summary(state.input_attachments) or "context") .. "."
   end
   local line = ""
   if text ~= "" then
@@ -864,7 +867,7 @@ local function reset_input()
   end
 end
 
-local function attachment_summary(attachments)
+attachment_summary = function(attachments)
   local count = #(attachments or {})
   if count == 0 then
     return nil
@@ -872,8 +875,18 @@ local function attachment_summary(attachments)
 
   local parts = {}
   for index, attachment in ipairs(attachments) do
-    local size = attachment.byteSize and string.format(" %.1fKB", attachment.byteSize / 1024) or ""
-    table.insert(parts, string.format("image %d: %s%s", index, attachment.mimeType or "image", size))
+    if attachment.type == "reference" then
+      local path = attachment.path
+      if not path or path == "" then
+        path = "[No Name]"
+      else
+        path = vim.fn.fnamemodify(path, ":t")
+      end
+      table.insert(parts, string.format("ref: %s:%d-%d", path, attachment.startLine, attachment.endLine))
+    else
+      local size = attachment.byteSize and string.format(" %.1fKB", attachment.byteSize / 1024) or ""
+      table.insert(parts, string.format("image %d: %s%s", index, attachment.mimeType or "image", size))
+    end
   end
   return table.concat(parts, ", ")
 end
@@ -1252,6 +1265,18 @@ end
 
 local function clear_input_attachments()
   state.input_attachments = {}
+  render_activity()
+end
+
+function M.attach_reference(reference, config)
+  if type(reference) ~= "table" or reference.type ~= "reference" or not reference.text then
+    return false
+  end
+
+  table.insert(state.input_attachments, vim.deepcopy(reference))
+  M.set_activity("Attached " .. attachment_summary({ reference }) .. ".", config or state.config)
+  focus_input()
+  return true
 end
 
 local function ensure_command_buffer()

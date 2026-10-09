@@ -1,43 +1,51 @@
 local M = {}
 
-local function get_visual_marks()
-  local start_pos = vim.fn.getpos("'<")
-  local end_pos = vim.fn.getpos("'>")
-
-  if start_pos[2] == 0 or end_pos[2] == 0 then
-    return nil
+local function file_uri(path, bufnr)
+  if path == "" then
+    return "nvim://buffer/" .. tostring(bufnr)
   end
 
-  return {
-    start_line = start_pos[2],
-    start_col = start_pos[3],
-    end_line = end_pos[2],
-    end_col = end_pos[3],
-  }
+  if vim.uri_from_fname then
+    local ok, uri = pcall(vim.uri_from_fname, path)
+    if ok and uri then
+      return uri
+    end
+  end
+
+  return "file://" .. path
 end
 
-function M.get_visual_text()
-  local marks = get_visual_marks()
-  if not marks then
-    return nil
+function M.reference_from_range(bufnr, start_line, end_line)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil, "buffer is no longer valid"
   end
 
-  local lines = vim.api.nvim_buf_get_lines(0, marks.start_line - 1, marks.end_line, false)
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  start_line = math.max(1, tonumber(start_line) or 0)
+  end_line = math.min(line_count, tonumber(end_line) or 0)
+  if start_line > end_line then
+    return nil, "selection range is empty"
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
   if #lines == 0 then
-    return ""
+    return nil, "selection range is empty"
   end
 
-  lines[1] = string.sub(lines[1], marks.start_col)
-  lines[#lines] = string.sub(lines[#lines], 1, math.max(marks.end_col, 0))
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  local uri = file_uri(path, bufnr) .. string.format("#L%d-L%d", start_line, end_line)
 
-  return table.concat(lines, "\n")
-end
-
-function M.get_context()
   return {
-    bufname = vim.api.nvim_buf_get_name(0),
-    filetype = vim.bo.filetype,
-    selection = M.get_visual_text(),
+    type = "reference",
+    bufnr = bufnr,
+    path = path,
+    uri = uri,
+    filetype = vim.bo[bufnr].filetype,
+    startLine = start_line,
+    endLine = end_line,
+    text = table.concat(lines, "\n"),
+    modified = vim.bo[bufnr].modified,
   }
 end
 
