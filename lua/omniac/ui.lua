@@ -19,6 +19,7 @@ local state = {
   activity_timer = nil,
   tool_activity_timer = nil,
   activity_frame = 1,
+  activity_height = 1,
   tool_activity = nil,
   messages = {},
   input_history = {},
@@ -50,6 +51,7 @@ local state = {
 
 local INPUT_MIN_DISPLAY_LINES = 3
 local INPUT_MAX_DISPLAY_LINES = 10
+local ACTIVITY_MAX_DISPLAY_LINES = 3
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
 local CHAT_MARKDOWN_RENDER_CONFIG = {
@@ -373,6 +375,7 @@ end
 
 local render_activity
 local attachment_summary
+local resize_aux_windows
 
 local function stop_tool_activity_timer()
   if state.tool_activity_timer then
@@ -768,22 +771,39 @@ render_activity = function()
   elseif #state.input_attachments > 0 then
     text = "Attached " .. (attachment_summary(state.input_attachments) or "context") .. "."
   end
-  local line = ""
+  local lines = { "" }
   if text ~= "" then
     local inner_width = math.max(1, win_width - 4)
-    local display = fit(text, inner_width)
-    local padded = vim.fn.strdisplaywidth(text) > inner_width and display or center(display, inner_width)
-    line = "  " .. padded .. "  "
+    local source_lines = split_lines(tostring(text):gsub("\r\n", "\n"):gsub("\r", "\n"))
+    local truncated = #source_lines > ACTIVITY_MAX_DISPLAY_LINES
+    lines = {}
+    for index = 1, math.min(#source_lines, ACTIVITY_MAX_DISPLAY_LINES) do
+      local source = source_lines[index]
+      if truncated and index == ACTIVITY_MAX_DISPLAY_LINES then
+        source = source .. "…"
+      end
+      table.insert(lines, "  " .. fit(source, inner_width) .. "  ")
+    end
   end
+
+  local activity_height = math.max(1, #lines)
+  local height_changed = state.activity_height ~= activity_height
+  state.activity_height = activity_height
 
   vim.bo[state.activity_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.activity_buf, ns, 0, -1)
-  vim.api.nvim_buf_set_lines(state.activity_buf, 0, -1, false, { line })
+  vim.api.nvim_buf_set_lines(state.activity_buf, 0, -1, false, lines)
   vim.bo[state.activity_buf].modifiable = false
   vim.bo[state.activity_buf].modified = false
 
   if text ~= "" then
-    add_hl(state.activity_buf, 1, 0, -1, groups[state.activity_frame])
+    for index = 1, #lines do
+      add_hl(state.activity_buf, index, 0, -1, groups[state.activity_frame])
+    end
+  end
+
+  if height_changed and resize_aux_windows then
+    resize_aux_windows()
   end
 end
 
@@ -1296,8 +1316,6 @@ local function ensure_command_buffer()
   vim.api.nvim_buf_set_name(state.command_buf, "omniac://commands")
 end
 
-local resize_aux_windows
-
 local function clear_command_window()
   if valid_buf(state.command_buf) then
     vim.bo[state.command_buf].modifiable = true
@@ -1340,11 +1358,10 @@ local function input_display_height(lines, win_width)
 end
 
 local function bottom_stack_height()
-  local activity_height = 1
   local status_height = 1
   local input_height = input_display_height(raw_input_lines(), target_width())
 
-  return activity_height + input_height + status_height
+  return (state.activity_height or 1) + input_height + status_height
 end
 
 local function wrap_input_lines(lines, cursor, win_width)
@@ -1753,7 +1770,7 @@ resize_aux_windows = function()
   end
   if valid_win(state.activity_win) then
     pcall(vim.api.nvim_win_set_width, state.activity_win, target)
-    pcall(vim.api.nvim_win_set_height, state.activity_win, 1)
+    pcall(vim.api.nvim_win_set_height, state.activity_win, state.activity_height or 1)
   end
 end
 
@@ -1906,7 +1923,7 @@ function M.open(config, submit)
   configure_window(state.activity_win)
   vim.wo[state.activity_win].winfixwidth = true
   vim.wo[state.activity_win].winfixheight = true
-  pcall(vim.api.nvim_win_set_height, state.activity_win, 1)
+  pcall(vim.api.nvim_win_set_height, state.activity_win, state.activity_height or 1)
   vim.wo[state.activity_win].statusline = "%#OmniacStatus#%="
 
   state.input_win = open_split_with_buffer("belowright", state.input_buf)

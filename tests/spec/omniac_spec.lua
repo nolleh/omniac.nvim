@@ -688,6 +688,62 @@ describe("omniac.nvim", function()
     assert_true(line:match("  $"), "activity line should keep right padding")
   end)
 
+  it("multiline activity grows to three lines and shrinks again", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function(_) end)
+
+    local activity_buf = vim.fn.bufnr("omniac://activity")
+    local activity_win = vim.fn.win_findbuf(activity_buf)[1]
+    local chat_buf = vim.fn.bufnr("omniac")
+    local chat_win = vim.fn.win_findbuf(chat_buf)[1]
+    local initial_chat_height = vim.api.nvim_win_get_height(chat_win)
+
+    ui.handle_notification({ method = "omniac/prompt_started", params = {} }, { ui = { chat_width = 42 } })
+    ui.handle_notification({
+      method = "omniac/tool_activity",
+      params = {
+        kind = "execute",
+        status = "in_progress",
+        title = table.concat({ "first command", "second command", "third command", "fourth command" }, "\n"),
+      },
+    }, { ui = { chat_width = 42 } })
+
+    local expanded = vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false)
+    assert_equal(#expanded, 3, "activity should show at most three lines")
+    assert_equal(vim.api.nvim_win_get_height(activity_win), 3, "activity window should grow with multiline text")
+    assert_true(expanded[1]:match("first command") ~= nil, "activity should keep the first command line")
+    assert_true(expanded[2]:match("second command") ~= nil, "activity should keep the second command line")
+    assert_true(expanded[3]:match("third command…") ~= nil, "activity should ellipsize hidden lines")
+    assert_equal(
+      vim.api.nvim_win_get_height(chat_win),
+      initial_chat_height - 2,
+      "chat should yield space to multiline activity"
+    )
+
+    ui.handle_notification({
+      method = "omniac/tool_activity",
+      params = {
+        kind = "execute",
+        status = "in_progress",
+        title = "short command",
+      },
+    }, { ui = { chat_width = 42 } })
+
+    assert_equal(vim.api.nvim_buf_line_count(activity_buf), 1, "single-line activity should use one buffer line")
+    assert_equal(vim.api.nvim_win_get_height(activity_win), 1, "activity window should shrink to one line")
+    assert_equal(
+      vim.api.nvim_win_get_height(chat_win),
+      initial_chat_height,
+      "chat should reclaim space after activity shrinks"
+    )
+  end)
+
   it("tool result output is collapsed and toggled", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
