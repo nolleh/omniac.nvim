@@ -107,6 +107,7 @@ Use a project-local working directory and enable debug logging:
 | `client.capabilities.fs.readTextFile`  | `true`                      | Advertises ACP text-file read capability.                                             |
 | `client.capabilities.fs.writeTextFile` | `true`                      | Advertises ACP text-file write capability.                                            |
 | `client.capabilities.terminal`         | `false`                     | Advertises terminal capability.                                                       |
+| `references.include_modified_buffer` | `false`                     | Include full unsaved buffer contents for `:OmniacReferenceBuffer` when enabled.       |
 | `ui.diff_title`                        | `"ACP Diff"`                | Buffer title used for proposed-change reviews.                                        |
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
 | `ui.change_review`                     | `"summary"`                | Post-turn change review: `"summary"`, `"open"`, or `"off"`.                     |
@@ -133,8 +134,9 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacReferenceBuffer` attaches the current buffer to the Omniac input; `<leader>ab` is the default mapping
 - `:'<,'>OmniacReference` captures selected lines from the source buffer and attaches them to the Omniac input
 - `Ctrl-V` in the Omniac input attaches a PNG or JPEG image from the macOS clipboard when the ACP agent advertises image prompts; otherwise it falls back to normal text paste
-- visual references preserve their source path, line range, and unsaved buffer text
-- unmodified on-disk buffers are sent as file links; modified buffers include their unsaved contents and are consumed with the next prompt
+- visual references preserve their source path, line range, and selected unsaved text
+- current-buffer references use a file link by default, even when modified; the agent reads the on-disk version, not unsaved edits
+- set `references.include_modified_buffer = true` to attach full unsaved contents; a buffer without an on-disk file is skipped unless enabled
 - file mentions can be formatted into prompts
 - incoming JSONL messages are parsed, streamed into the UI, and shown with `vim.notify`
 - ACP permission requests and known file-change approval requests open a native diff review UI

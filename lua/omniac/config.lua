@@ -12,6 +12,9 @@ M.defaults = {
     diff_accept = "<leader>aa",
     diff_deny = "<leader>ad",
   },
+  references = {
+    include_modified_buffer = false,
+  },
   agent = {
     cmd = { "codex-acp" },
     args = {},

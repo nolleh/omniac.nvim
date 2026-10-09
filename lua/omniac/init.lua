@@ -325,9 +325,14 @@ function M.setup(opts)
       return
     end
 
-    reference_item.pathOnly = not reference_item.modified
-      and reference_item.path ~= ""
-      and vim.fn.filereadable(reference_item.path) == 1
+    local has_disk_file = reference_item.path ~= "" and vim.fn.filereadable(reference_item.path) == 1
+    local include_modified_buffer = M.config.references and M.config.references.include_modified_buffer == true
+
+    if not has_disk_file and not include_modified_buffer then
+      return
+    end
+
+    reference_item.pathOnly = has_disk_file and not (reference_item.modified and include_modified_buffer)
     attach_reference(reference_item)
   end
 

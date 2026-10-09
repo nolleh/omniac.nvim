@@ -40,6 +40,7 @@ end
 describe("omniac.nvim", function()
   after_each(function()
     cleanup_omniac_buffers()
+    pcall(vim.api.nvim_del_user_command, "OmniacReferenceBuffer")
     package.preload["render-markdown"] = nil
     package.loaded["render-markdown"] = nil
     package.loaded["omniac.clipboard"] = nil
@@ -53,6 +54,7 @@ describe("omniac.nvim", function()
     assert_equal(defaults.backend, nil, "backend selection should not be configurable")
     assert_equal(defaults.agent.auto_initialize, nil, "legacy transport initialization should be removed")
     assert_equal(defaults.ui.change_review, "summary", "change review should default to a non-blocking summary")
+    assert_equal(defaults.references.include_modified_buffer, false, "full modified-buffer references should be opt-in")
   end)
 
   it("stdio transport exposes protocol primitives only", function()
@@ -121,6 +123,58 @@ describe("omniac.nvim", function()
     assert_true(reference.uri:match("#L2%-L3$") ~= nil, "reference URI should identify its line range")
 
     vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("current-buffer references omit unsaved contents unless explicitly enabled", function()
+    cleanup_omniac_buffers()
+    pcall(vim.api.nvim_del_user_command, "OmniacReferenceBuffer")
+    package.loaded["omniac"] = nil
+    package.loaded["omniac.ui"] = nil
+
+    local omniac = require("omniac")
+    omniac.setup({ agent = { cmd = { "custom-acp" } }, keymaps = false })
+    omniac.open_chat = function() end
+
+    local ui = require("omniac.ui")
+    local original_attach = ui.attach_reference
+    local attached = {}
+    ui.attach_reference = function(reference)
+      table.insert(attached, reference)
+    end
+
+    local path = "/private/tmp/omniac-buffer-reference-" .. tostring(vim.loop.hrtime()) .. ".lua"
+    assert_equal(vim.fn.writefile({ "on disk" }, path), 0, "test fixture should be written")
+    local bufnr = vim.api.nvim_create_buf(false, false)
+    vim.api.nvim_buf_set_name(bufnr, path)
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "unsaved", "buffer content" })
+    vim.bo[bufnr].modified = true
+    vim.api.nvim_set_current_buf(bufnr)
+
+    local ok, err = pcall(vim.cmd, "OmniacReferenceBuffer")
+    if ok then
+      omniac.config.references.include_modified_buffer = true
+      ok, err = pcall(vim.cmd, "OmniacReferenceBuffer")
+    end
+    ui.attach_reference = original_attach
+    vim.fn.delete(path)
+
+    assert_true(ok, tostring(err))
+    assert_equal(#attached, 2, "both reference policies should attach the current file")
+    assert_equal(attached[1].pathOnly, true, "default policy should link the on-disk file")
+    assert_equal(attached[1].text, "unsaved\nbuffer content", "the captured buffer remains available locally")
+    assert_equal(attached[2].pathOnly, false, "opt-in policy should embed the modified buffer")
+    assert_equal(attached[2].text, "unsaved\nbuffer content", "opt-in should include the full buffer contents")
+
+    omniac.config.references.include_modified_buffer = false
+    local unnamed_buf = vim.api.nvim_create_buf(false, false)
+    vim.api.nvim_buf_set_lines(unnamed_buf, 0, -1, false, { "unpersisted content" })
+    vim.bo[unnamed_buf].modified = true
+    vim.api.nvim_set_current_buf(unnamed_buf)
+    assert_true(pcall(vim.cmd, "OmniacReferenceBuffer"), "referencing an unnamed buffer should be safe")
+    assert_equal(#attached, 2, "unpersisted buffer contents should not be attached by default")
+
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+    vim.api.nvim_buf_delete(unnamed_buf, { force = true })
   end)
 
   it("diff review accepts with :w", function()
