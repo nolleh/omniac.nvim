@@ -1385,6 +1385,45 @@ local function bottom_stack_height()
   return (state.activity_height or 1) + input_height + status_height
 end
 
+local function external_bottom_height(target_win)
+  if not valid_win(target_win) then
+    return 0
+  end
+
+  local target_pos = vim.api.nvim_win_get_position(target_win)
+  local target_left = target_pos[2]
+  local target_right = target_left + vim.api.nvim_win_get_width(target_win)
+  local windows = {}
+  local editor_bottom = 0
+
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if valid_win(win) and not floating_win(win) then
+      local pos = vim.api.nvim_win_get_position(win)
+      local bottom = pos[1] + vim.api.nvim_win_get_height(win)
+      editor_bottom = math.max(editor_bottom, bottom)
+      table.insert(
+        windows,
+        { win = win, top = pos[1], left = pos[2], right = pos[2] + vim.api.nvim_win_get_width(win), bottom = bottom }
+      )
+    end
+  end
+
+  local top
+  for _, window in ipairs(windows) do
+    if
+      window.win ~= target_win
+      and not vim.w[window.win].omniac_ui
+      and window.bottom >= editor_bottom - 1
+      and window.left < target_right
+      and window.right > target_left
+    then
+      top = top and math.min(top, window.top) or window.top
+    end
+  end
+
+  return top and math.max(0, editor_bottom - top) or 0
+end
+
 local function wrap_input_lines(lines, cursor, win_width)
   local wrapped_lines = {}
   local chunks = {}
@@ -1773,7 +1812,7 @@ resize_aux_windows = function()
   local target = target_width()
   if valid_win(state.chat_win) then
     pcall(vim.api.nvim_win_set_width, state.chat_win, target)
-    local available = vim.o.lines - bottom_stack_height() - 3
+    local available = vim.o.lines - bottom_stack_height() - 3 - external_bottom_height(state.chat_win)
     pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, available))
   end
   if valid_win(state.status_win) then

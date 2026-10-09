@@ -1622,6 +1622,58 @@ describe("omniac.nvim", function()
     package.loaded["render-markdown"] = nil
   end)
 
+  it("chat yields vertical space to an external bottom split", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    package.loaded["render-markdown"] = nil
+
+    local ui = require("omniac.ui")
+    vim.api.nvim_set_option_value("columns", 180, {})
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 58 },
+    }, function(_) end)
+
+    local chat_buf = vim.fn.bufnr("omniac")
+    local chat_win
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_buf(win) == chat_buf then
+        chat_win = win
+        break
+      end
+    end
+    assert_true(chat_win ~= nil, "chat window should exist")
+
+    local initial_height = vim.api.nvim_win_get_height(chat_win)
+    vim.cmd("botright 6split")
+    vim.cmd("enew")
+    vim.cmd("wincmd J")
+    local external_win = vim.api.nvim_get_current_win()
+    vim.cmd("doautocmd WinResized")
+
+    vim.wait(250, function()
+      return vim.api.nvim_win_is_valid(chat_win) and vim.api.nvim_win_get_height(chat_win) < initial_height
+    end)
+    assert_true(
+      vim.api.nvim_win_get_height(chat_win) < initial_height,
+      "chat should yield height to an external bottom split"
+    )
+    assert_true(vim.api.nvim_win_get_height(external_win) >= 5, "external split should retain its requested height")
+
+    vim.api.nvim_win_close(external_win, true)
+    vim.wait(250, function()
+      return vim.api.nvim_win_is_valid(chat_win) and vim.api.nvim_win_get_height(chat_win) == initial_height
+    end)
+    assert_equal(
+      vim.api.nvim_win_get_height(chat_win),
+      initial_height,
+      "chat should reclaim height after the external split closes"
+    )
+
+    package.preload["render-markdown"] = nil
+    package.loaded["render-markdown"] = nil
+  end)
+
   it("completed assistant messages keep turn separators after reopen", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
