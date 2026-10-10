@@ -8,6 +8,9 @@ local mascot_augroup = vim.api.nvim_create_augroup("omniac.mascot", { clear = tr
 local state = {
   chat_buf = nil,
   chat_win = nil,
+  card_buf = nil,
+  card_win = nil,
+  card_pinned = false,
   activity_buf = nil,
   activity_win = nil,
   input_buf = nil,
@@ -63,6 +66,10 @@ local state = {
   mascot_reacting = false,
   mascot_eye_height = 2,
   mascot_reaction_id = 0,
+  mascot_antenna_offset = 0,
+  mascot_arm_frame = 0,
+  mascot_action_generation = 0,
+  mascot_idle_direction = 1,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -71,6 +78,10 @@ local ACTIVITY_MAX_DISPLAY_LINES = 3
 local CHAT_STREAM_RENDER_DELAY_MS = 24
 local MASCOT_GAZE_DELAY_MS = 180
 local MASCOT_BLINK_FRAME_MS = 100
+local MASCOT_WORK_FRAME_MS = 650
+local MASCOT_IDLE_DELAY_MS = 11000
+local MASCOT_IDLE_GESTURE_MS = 350
+local CARD_HEIGHT = 15 -- 14 content lines plus the card winbar
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
 local CHAT_MARKDOWN_RENDER_CONFIG = {
@@ -635,7 +646,7 @@ local function header(lines, marks, size)
   end
 
   -- Keep the full robot close to the reference's tall 5:6 silhouette.
-  fill_rect(5, 1, 6, 1, "mint")
+  fill_rect(5 + state.mascot_antenna_offset, 1, 6 + state.mascot_antenna_offset, 1, "mint")
   fill_rect(5, 2, 6, 2, "coral")
   fill_rect(3, 3, 8, 3, "coral")
   fill_rect(2, 4, 9, 7, "coral")
@@ -649,8 +660,8 @@ local function header(lines, marks, size)
   end
   fill_rect(3, 8, 8, 8, "coral")
   fill_rect(3, 10, 8, 11, "coral")
-  fill_rect(2, 11, 2, 11, "coral")
-  fill_rect(9, 11, 9, 11, "coral")
+  fill_rect(2, state.mascot_arm_frame == 1 and 10 or 11, 2, state.mascot_arm_frame == 1 and 10 or 11, "coral")
+  fill_rect(9, state.mascot_arm_frame == 2 and 10 or 11, 9, state.mascot_arm_frame == 2 and 10 or 11, "coral")
   fill_rect(5, 10, 6, 11, "mint")
   fill_rect(4, 12, 4, 12, "coral")
   fill_rect(7, 12, 7, 12, "coral")
@@ -715,6 +726,42 @@ local function header(lines, marks, size)
   add_line(lines, marks, bottom, "OmniacBorder")
 end
 
+local function pin_card_view()
+  if valid_win(state.card_win) then
+    pcall(vim.api.nvim_win_call, state.card_win, function()
+      vim.api.nvim_win_set_cursor(state.card_win, { 1, 0 })
+      vim.fn.winrestview({ topline = 1, leftcol = 0 })
+    end)
+  end
+end
+
+local function render_card()
+  if not state.card_pinned or not valid_buf(state.card_buf) then
+    return
+  end
+  local lines = {}
+  local marks = {}
+  local card_width = valid_win(state.card_win) and vim.api.nvim_win_get_width(state.card_win) or target_width()
+  header(lines, marks, card_width)
+  vim.bo[state.card_buf].modifiable = true
+  vim.api.nvim_buf_clear_namespace(state.card_buf, ns, 0, -1)
+  vim.api.nvim_buf_set_lines(state.card_buf, 0, -1, false, lines)
+  vim.bo[state.card_buf].modifiable = false
+  vim.bo[state.card_buf].modified = false
+  for _, mark in ipairs(marks) do
+    add_hl(state.card_buf, mark.line, mark.from, mark.to, mark.group)
+  end
+  pin_card_view()
+end
+
+local function render_mascot()
+  if state.card_pinned then
+    render_card()
+  else
+    render_chat(state.config, { skip_markdown = true })
+  end
+end
+
 render_chat = function(config, opts)
   opts = opts or {}
   state.config = config or state.config
@@ -749,8 +796,13 @@ render_chat = function(config, opts)
     )
   end
 
-  header(lines, marks, win_width)
-  add_line(lines, marks, "", nil)
+  if not state.card_pinned and #state.messages == 0 then
+    header(lines, marks, win_width)
+    add_line(lines, marks, "", nil)
+  elseif not state.card_pinned then
+    state.mascot_first_line = nil
+    state.mascot_last_line = nil
+  end
 
   if #state.messages == 0 then
     add_line(lines, marks, box_line("╭", "─", "╮", win_width), "OmniacBorder")
@@ -831,6 +883,19 @@ render_chat = function(config, opts)
 end
 
 local function mascot_visible()
+  if state.card_pinned then
+    if
+      not valid_win(state.card_win)
+      or not valid_buf(state.card_buf)
+      or vim.api.nvim_win_get_buf(state.card_win) ~= state.card_buf
+      or vim.api.nvim_win_get_tabpage(state.card_win) ~= vim.api.nvim_get_current_tabpage()
+    then
+      return false
+    end
+    local top = vim.fn.line("w0", state.card_win)
+    return top <= state.mascot_last_line
+      and top + vim.api.nvim_win_get_height(state.card_win) - 1 >= state.mascot_first_line
+  end
   if
     not valid_win(state.chat_win)
     or not valid_buf(state.chat_buf)
@@ -842,6 +907,65 @@ local function mascot_visible()
   local top = vim.fn.line("w0", state.chat_win)
   return top <= state.mascot_last_line
     and top + vim.api.nvim_win_get_height(state.chat_win) - 1 >= state.mascot_first_line
+end
+
+local function restart_mascot_actions()
+  state.mascot_action_generation = state.mascot_action_generation + 1
+  local generation = state.mascot_action_generation
+  state.mascot_arm_frame = 0
+  state.mascot_antenna_offset = 0
+  if mascot_visible() then
+    render_mascot()
+  end
+  if ((state.config or {}).ui or {}).mascot_motion == false then
+    return
+  end
+  if not valid_win(state.chat_win) then
+    return
+  end
+
+  if state.status == "working" then
+    local frames = { 1, 2, 1, 2, 0, 0 }
+    local frame = 0
+    local function tick()
+      vim.defer_fn(function()
+        if generation ~= state.mascot_action_generation then
+          return
+        end
+        frame = frame % #frames + 1
+        state.mascot_arm_frame = frames[frame]
+        if mascot_visible() then
+          render_mascot()
+        end
+        tick()
+      end, MASCOT_WORK_FRAME_MS)
+    end
+    tick()
+  elseif state.status == "ready" then
+    local function idle()
+      vim.defer_fn(function()
+        if generation ~= state.mascot_action_generation then
+          return
+        end
+        state.mascot_antenna_offset = state.mascot_idle_direction
+        state.mascot_idle_direction = -state.mascot_idle_direction
+        if mascot_visible() then
+          render_mascot()
+        end
+        vim.defer_fn(function()
+          if generation ~= state.mascot_action_generation then
+            return
+          end
+          state.mascot_antenna_offset = 0
+          if mascot_visible() then
+            render_mascot()
+          end
+          idle()
+        end, MASCOT_IDLE_GESTURE_MS)
+      end, MASCOT_IDLE_DELAY_MS)
+    end
+    idle()
+  end
 end
 
 local function advance_mascot_gaze()
@@ -865,7 +989,7 @@ local function advance_mascot_gaze()
     else
       state.mascot_gaze = target
     end
-    render_chat(state.config, { skip_markdown = true })
+    render_mascot()
     if state.mascot_gaze ~= state.mascot_target then
       advance_mascot_gaze()
     end
@@ -885,7 +1009,7 @@ local function react_to_omniac_focus()
   state.mascot_eye_height = 1
   vim.schedule(function()
     if generation == state.mascot_generation and reaction_id == state.mascot_reaction_id and mascot_visible() then
-      render_chat(state.config, { skip_markdown = true })
+      render_mascot()
     end
   end)
   for frame = 2, 4 do
@@ -896,7 +1020,7 @@ local function react_to_omniac_focus()
           state.mascot_reacting = false
         end
         if mascot_visible() then
-          render_chat(state.config, { skip_markdown = true })
+          render_mascot()
         end
         if frame == 4 then
           schedule_mascot_gaze({ event = "CursorMoved" })
@@ -914,7 +1038,8 @@ schedule_mascot_gaze = function(args)
     return
   end
   local win = vim.api.nvim_get_current_win()
-  local in_omniac = win == state.chat_win
+  local in_omniac = win == state.card_win
+    or win == state.chat_win
     or win == state.input_win
     or win == state.activity_win
     or win == state.status_win
@@ -2067,9 +2192,15 @@ end
 
 resize_aux_windows = function()
   local target = target_width()
+  if state.card_pinned and valid_win(state.card_win) then
+    pcall(vim.api.nvim_win_set_width, state.card_win, target)
+  end
   if valid_win(state.chat_win) then
     pcall(vim.api.nvim_win_set_width, state.chat_win, target)
     local available = vim.o.lines - bottom_stack_height() - 3 - external_bottom_height(state.chat_win)
+    if state.card_pinned and valid_win(state.card_win) then
+      available = available - CARD_HEIGHT - (vim.o.laststatus == 3 and 1 or 2)
+    end
     pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, available))
   end
   if valid_win(state.status_win) then
@@ -2089,12 +2220,17 @@ resize_aux_windows = function()
     pcall(vim.api.nvim_win_set_width, state.activity_win, target)
     pcall(vim.api.nvim_win_set_height, state.activity_win, state.activity_height or 1)
   end
+  if state.card_pinned and valid_win(state.card_win) then
+    pcall(vim.api.nvim_win_set_height, state.card_win, CARD_HEIGHT)
+    pin_card_view()
+  end
 end
 
 local function relayout()
   if
     not (
-      valid_win(state.chat_win)
+      valid_win(state.card_win)
+      or valid_win(state.chat_win)
       or valid_win(state.input_win)
       or valid_win(state.activity_win)
       or valid_win(state.status_win)
@@ -2107,6 +2243,7 @@ local function relayout()
     resize_aux_windows()
   end
   render_chat(state.config)
+  render_card()
   render_activity()
   render_status()
   if valid_buf(state.input_buf) then
@@ -2126,6 +2263,9 @@ function M.resize(value)
     if valid_win(win) then
       pcall(vim.api.nvim_win_set_width, win, target_width)
     end
+  end
+  if valid_win(state.card_win) then
+    pcall(vim.api.nvim_win_set_width, state.card_win, target_width)
   end
   if valid_win(state.command_win) then
     pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
@@ -2150,6 +2290,9 @@ end
 function M.close()
   stop_activity_timer()
   stop_tool_activity_timer()
+  state.mascot_action_generation = state.mascot_action_generation + 1
+  state.mascot_arm_frame = 0
+  state.mascot_antenna_offset = 0
   state.mascot_generation = state.mascot_generation + 1
   state.mascot_gaze_pending = false
   state.mascot_gaze = "center"
@@ -2177,6 +2320,9 @@ function M.close()
   if valid_win(state.status_win) then
     pcall(vim.api.nvim_win_close, state.status_win, true)
   end
+  if valid_win(state.card_win) then
+    pcall(vim.api.nvim_win_close, state.card_win, true)
+  end
   if valid_win(state.chat_win) then
     pcall(vim.api.nvim_win_close, state.chat_win, true)
   end
@@ -2192,12 +2338,15 @@ function M.open(config, submit)
     and valid_win(state.activity_win)
     and valid_win(state.input_win)
     and valid_win(state.status_win)
+    and (not state.card_pinned or valid_win(state.card_win))
   then
     resize_aux_windows()
     capture_user_width()
     focus_input()
     return state
   end
+
+  state.card_pinned = ((state.config or {}).ui or {}).welcome_card ~= "welcome_only" and vim.o.lines >= 32
 
   if not valid_buf(state.chat_buf) then
     state.chat_buf = vim.api.nvim_create_buf(false, true)
@@ -2207,6 +2356,16 @@ function M.open(config, submit)
     vim.bo[state.chat_buf].buflisted = false
     vim.bo[state.chat_buf].filetype = "markdown"
     vim.api.nvim_buf_set_name(state.chat_buf, "omniac")
+  end
+
+  if state.card_pinned and not valid_buf(state.card_buf) then
+    state.card_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[state.card_buf].buftype = "nofile"
+    vim.bo[state.card_buf].bufhidden = "hide"
+    vim.bo[state.card_buf].swapfile = false
+    vim.bo[state.card_buf].buflisted = false
+    vim.bo[state.card_buf].filetype = "omniac-card"
+    vim.api.nvim_buf_set_name(state.card_buf, "omniac://card")
   end
 
   if not valid_buf(state.input_buf) then
@@ -2245,6 +2404,9 @@ function M.open(config, submit)
 
   state.chat_win = open_split_with_buffer("botright vertical", state.chat_buf)
   configure_window(state.chat_win)
+  if state.card_pinned then
+    vim.wo[state.chat_win].winfixheight = false
+  end
   pcall(vim.api.nvim_win_set_width, state.chat_win, target_width())
   vim.wo[state.chat_win].winfixwidth = true
   vim.wo[state.chat_win].statusline = "%!v:lua.require'omniac.ui'.statusline()"
@@ -2270,6 +2432,16 @@ function M.open(config, submit)
   vim.wo[state.status_win].winfixheight = true
   pcall(vim.api.nvim_win_set_height, state.status_win, 1)
   vim.wo[state.status_win].statusline = "%#OmniacStatus#%="
+  if state.card_pinned then
+    vim.api.nvim_set_current_win(state.chat_win)
+    state.card_win = open_split_with_buffer("aboveleft", state.card_buf)
+    configure_window(state.card_win)
+    vim.wo[state.card_win].wrap = false
+    vim.wo[state.card_win].winbar = " omniac"
+    vim.wo[state.chat_win].winbar = ""
+    vim.wo[state.card_win].statusline = "%#OmniacStatus#%="
+    pcall(vim.api.nvim_win_set_height, state.card_win, CARD_HEIGHT)
+  end
   resize_aux_windows()
   capture_user_width()
 
@@ -2433,8 +2605,21 @@ function M.open(config, submit)
   })
   vim.api.nvim_clear_autocmds({
     group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed", "WinEnter", "FocusGained" },
+    event = { "VimResized", "WinResized", "WinClosed", "WinEnter", "FocusGained", "BufEnter", "BufWinEnter" },
   })
+  if state.card_pinned then
+    vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
+      group = augroup,
+      buffer = state.chat_buf,
+      callback = function()
+        vim.schedule(function()
+          if state.card_pinned and valid_win(state.chat_win) then
+            vim.wo[state.chat_win].winbar = ""
+          end
+        end)
+      end,
+    })
+  end
   vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
     group = augroup,
     callback = schedule_relayout,
@@ -2453,11 +2638,13 @@ function M.open(config, submit)
     resize_aux_windows()
   end
   render_chat(state.config)
+  render_card()
   render_activity()
   reset_input()
   render_status()
   sync_activity_timer()
   focus_input()
+  restart_mascot_actions()
   state.mascot_in_omniac = true
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "WinEnter" }, {
     group = mascot_augroup,
@@ -2467,6 +2654,7 @@ function M.open(config, submit)
 end
 
 function M.set_status(status, config)
+  local previous_status = state.status
   state.status = status or "idle"
   if state.status ~= "working" then
     state.tool_activity = nil
@@ -2477,9 +2665,15 @@ function M.set_status(status, config)
     state.transient_activity = nil
   end
   render_chat(config)
+  if state.card_pinned then
+    render_card()
+  end
   render_activity()
   render_status()
   sync_activity_timer()
+  if state.status ~= previous_status then
+    restart_mascot_actions()
+  end
 end
 
 function M.set_activity(text, config)
@@ -2844,6 +3038,7 @@ function M.is_open()
     and valid_win(state.activity_win)
     and valid_win(state.input_win)
     and valid_win(state.status_win)
+    and (not state.card_pinned or valid_win(state.card_win))
 end
 
 function M.statusline()

@@ -61,6 +61,7 @@ Customize the UI width and diff review behavior:
   opts = {
     ui = {
       chat_width = 72,
+      welcome_card = "welcome_only", -- reclaim chat space after the first message
       diff_separate_tab = true,
       diff_title = "Omniac Review",
     },
@@ -112,7 +113,9 @@ Use a project-local working directory and enable debug logging:
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
 | `ui.change_review`                     | `"summary"`                | Post-turn change review: `"summary"`, `"open"`, or `"off"`.                     |
 | `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
+| `ui.welcome_card`                     | `"pinned"`                | Keep the mascot card above the chat; `"welcome_only"` shows it only before the first message. In short windows (under 32 lines), Omniac uses welcome-only mode to preserve chat space. |
 | `ui.mascot_follow_cursor`              | `true`                      | Let the mascot react to Omniac focus and slowly follow the cursor inside chat or input while its card is visible. |
+| `ui.mascot_motion`                     | `true`                      | Occasionally twitch the antenna while ready and alternate arm movements while working. Set to `false` to disable these ambient motions. |
 | `ui.tool_results`                      | `"compact"`                 | Chat visibility for completed tool output: `"compact"`, `"all"`, or `"none"`.        |
 | `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
 | `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |

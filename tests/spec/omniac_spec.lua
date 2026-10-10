@@ -54,7 +54,9 @@ describe("omniac.nvim", function()
     assert_equal(defaults.backend, nil, "backend selection should not be configurable")
     assert_equal(defaults.agent.auto_initialize, nil, "legacy transport initialization should be removed")
     assert_equal(defaults.ui.change_review, "summary", "change review should default to a non-blocking summary")
+    assert_equal(defaults.ui.welcome_card, "pinned", "welcome card should default to pinned")
     assert_equal(defaults.ui.mascot_follow_cursor, true, "mascot gaze should default to enabled")
+    assert_equal(defaults.ui.mascot_motion, true, "mascot idle and work motion should default to enabled")
     assert_equal(defaults.references.include_modified_buffer, false, "full modified-buffer references should be opt-in")
   end)
 
@@ -1162,6 +1164,124 @@ describe("omniac.nvim", function()
     )
   end)
 
+  it("pins the welcome card while chat messages scroll", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    local previous_laststatus = vim.o.laststatus
+    vim.o.lines = 50
+    vim.o.laststatus = 3
+    local ui = require("omniac.ui")
+    local ok, err = xpcall(function()
+      local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+      assert_true(ui_state.card_pinned and vim.api.nvim_win_is_valid(ui_state.card_win))
+      assert_true(vim.api.nvim_buf_get_name(ui_state.card_buf):find("omniac://card", 1, true) ~= nil)
+      assert_equal(vim.wo[ui_state.card_win].winbar, " omniac")
+      assert_equal(vim.wo[ui_state.chat_win].winbar, "")
+      local card = table.concat(vim.api.nvim_buf_get_lines(ui_state.card_buf, 0, -1, false), "\n")
+      local chat_buf = ui_state.chat_buf
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      assert_true(card:find("O M N I A C", 1, true) ~= nil)
+      assert_true(chat:find("O M N I A C", 1, true) == nil)
+      assert_equal(vim.api.nvim_buf_line_count(ui_state.card_buf), 14)
+      assert_true(vim.api.nvim_win_get_height(ui_state.card_win) >= 15, "pinned card must include the winbar")
+      assert_true(vim.api.nvim_buf_get_lines(ui_state.card_buf, 13, 14, false)[1]:find("╰", 1, true) ~= nil)
+      assert_equal(vim.fn.line("w0", ui_state.card_win), 1, "pinned card must start at the top")
+      assert_equal(vim.fn.line("w$", ui_state.card_win), 14, "pinned card must show its bottom border")
+
+      local initial_chat_height = vim.api.nvim_win_get_height(ui_state.chat_win)
+      vim.cmd("botright 6split")
+      local external_win = vim.api.nvim_get_current_win()
+      vim.cmd("doautocmd WinResized")
+      assert_true(
+        vim.wait(250, function()
+          return vim.api.nvim_win_get_height(ui_state.chat_win) < initial_chat_height
+        end),
+        "pinned chat should yield space to a bottom split"
+      )
+      assert_true(vim.api.nvim_win_get_height(external_win) >= 5)
+      assert_equal(vim.fn.line("w$", ui_state.card_win), 14, "bottom split must not clip the card")
+      vim.api.nvim_win_close(external_win, true)
+      vim.cmd("doautocmd WinResized")
+
+      ui.add_message("You", "A message after opening the card", ui_state.config)
+      assert_equal(table.concat(vim.api.nvim_buf_get_lines(ui_state.card_buf, 0, -1, false), "\n"), card)
+      assert_true(
+        table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n"):find("A message", 1, true) ~= nil
+      )
+
+      local old_card_win = ui_state.card_win
+      ui.close()
+      cleanup_omniac_buffers()
+      package.loaded["omniac.ui"] = nil
+      ui = require("omniac.ui")
+      local welcome_only = ui.open({
+        agent = { cmd = { "codex-acp" } },
+        ui = { chat_width = 48, welcome_card = "welcome_only" },
+      }, function(_) end)
+      assert_true(not welcome_only.card_pinned and not vim.api.nvim_win_is_valid(old_card_win))
+      assert_true(
+        table.concat(vim.api.nvim_buf_get_lines(welcome_only.chat_buf, 0, -1, false), "\n"):find("O M N I A C", 1, true)
+          ~= nil
+      )
+      ui.add_message("You", "The conversation has started", welcome_only.config)
+      assert_true(
+        table.concat(vim.api.nvim_buf_get_lines(welcome_only.chat_buf, 0, -1, false), "\n"):find("O M N I A C", 1, true)
+          == nil
+      )
+    end, debug.traceback)
+    ui.close()
+    vim.o.lines = previous_lines
+    vim.o.laststatus = previous_laststatus
+    if not ok then
+      error(err)
+    end
+  end)
+
+  it("alternates mascot arms while working and stops when ready", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    vim.o.lines = 50
+    local ui = require("omniac.ui")
+    local ok, err = xpcall(function()
+      local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+      ui.set_status("working", ui_state.config)
+      local chat = table.concat(vim.api.nvim_buf_get_lines(ui_state.chat_buf, 0, -1, false), "\n")
+      assert_true(
+        vim.wait(800, function()
+          return ui_state.mascot_arm_frame == 1
+        end),
+        "working should raise one arm"
+      )
+      assert_true(
+        vim.wait(800, function()
+          return ui_state.mascot_arm_frame == 2
+        end),
+        "working should switch arms"
+      )
+      assert_equal(table.concat(vim.api.nvim_buf_get_lines(ui_state.chat_buf, 0, -1, false), "\n"), chat)
+      ui.set_status("ready", ui_state.config)
+      assert_equal(ui_state.mascot_arm_frame, 0, "ready should lower both arms")
+      vim.wait(700)
+      assert_equal(ui_state.mascot_arm_frame, 0, "old working animation should stop")
+
+      ui.close()
+      local still = ui.open({
+        agent = { cmd = { "codex-acp" } },
+        ui = { chat_width = 48, mascot_motion = false },
+      }, function(_) end)
+      ui.set_status("working", still.config)
+      vim.wait(700)
+      assert_equal(still.mascot_arm_frame, 0, "disabled motion should keep both arms still")
+    end, debug.traceback)
+    ui.close()
+    vim.o.lines = previous_lines
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("mascot reacts to Omniac focus and follows its cursor without moving the card", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
@@ -1324,7 +1444,10 @@ describe("omniac.nvim", function()
     assert_true(chat:match("```markdown") == nil, "markdown fences should be unwrapped before display")
     assert_true(chat:match("| A | B |") ~= nil, "markdown fence contents should remain visible")
     assert_true(chat:match("```lua") ~= nil, "non-markdown code fences should remain intact")
-    assert_true(chat:match("\n| A | B |\n") ~= nil, "markdown table rows should be inserted without padding")
+    assert_true(
+      chat:match("^| A | B |\n") ~= nil or chat:match("\n| A | B |\n") ~= nil,
+      "markdown table rows should be inserted without padding"
+    )
     assert_true(chat:match("\n  | A | B |") == nil, "markdown table rows should not receive leading UI padding")
     assert_true(chat:match("| A | B |  \n") == nil, "markdown table rows should not receive trailing UI padding")
     assert_true(#render_calls > 0, "render-markdown should be called for chat rendering")
@@ -1644,7 +1767,10 @@ describe("omniac.nvim", function()
       return chat:match("plain assistant line") ~= nil
     end)
     local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
-    assert_true(chat:match("\n  plain assistant line%s+\n") ~= nil, "assistant prose should keep horizontal padding")
+    assert_true(
+      chat:match("^  plain assistant line%s+\n") ~= nil or chat:match("\n  plain assistant line%s+\n") ~= nil,
+      "assistant prose should keep horizontal padding"
+    )
   end)
 
   it("assistant prose wraps instead of ellipsizing", function()
