@@ -1751,6 +1751,64 @@ describe("omniac.nvim", function()
     )
   end)
 
+  it("streaming follows chat at the bottom while the input window is active", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { ui = { chat_width = 48 } }
+
+    ui.open(config, function(_) end)
+    ui.add_message(
+      "Omniac",
+      table.concat(
+        vim.tbl_map(function(index)
+          return "history line " .. index
+        end, vim.fn.range(1, 40)),
+        "\n"
+      ),
+      config
+    )
+    local chat_buf = vim.fn.bufnr("omniac")
+    local chat_win
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_buf(win) == chat_buf then
+        chat_win = win
+        break
+      end
+    end
+    assert_true(chat_win ~= nil, "chat window should exist")
+
+    vim.api.nvim_set_current_win(chat_win)
+    vim.api.nvim_win_set_cursor(chat_win, { vim.api.nvim_buf_line_count(chat_buf), 0 })
+    feed("<Tab>")
+    assert_true(vim.api.nvim_get_current_win() ~= chat_win, "tab should focus input")
+
+    ui.append_response_chunk(
+      table.concat(
+        vim.tbl_map(function(index)
+          return "streamed text " .. index
+        end, vim.fn.range(1, 40)),
+        "\n"
+      ),
+      config
+    )
+    vim.wait(100, function()
+      local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
+      return chat:match("streamed text") ~= nil
+    end)
+
+    assert_equal(
+      vim.api.nvim_win_get_cursor(chat_win)[1],
+      vim.api.nvim_buf_line_count(chat_buf),
+      "chat at the bottom should follow while input has focus"
+    )
+    local view = vim.api.nvim_win_call(chat_win, vim.fn.winsaveview)
+    assert_true(
+      view.topline + vim.api.nvim_win_get_height(chat_win) >= vim.api.nvim_buf_line_count(chat_buf),
+      "new chat content should remain visible while input has focus"
+    )
+  end)
+
   it("streaming preserves an active visual selection away from the last line", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

@@ -814,7 +814,7 @@ render_chat = function(config, opts)
     local mode = is_active and vim.fn.mode(1) or ""
     previous_view = vim.api.nvim_win_call(state.chat_win, vim.fn.winsaveview)
     should_follow = opts.follow == true
-      and is_active
+      and (is_active or vim.api.nvim_get_current_win() == state.input_win)
       and mode:match("^[vV\22]") == nil
       and cursor[1] >= vim.api.nvim_buf_line_count(state.chat_buf)
   end
