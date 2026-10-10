@@ -202,6 +202,9 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacAssistantText", { fg = "#cdd6f4" })
   vim.api.nvim_set_hl(0, "OmniacCode", { fg = "#a6e3a1" })
   vim.api.nvim_set_hl(0, "OmniacError", { fg = "#f38ba8", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacPermissionPending", { fg = "#f9e2af", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacPermissionApproved", { fg = "#a6e3a1", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacPermissionRejected", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking1", { fg = "#585b70", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking3", { fg = "#cba6f7", bold = true })
@@ -820,6 +823,7 @@ render_chat = function(config, opts)
   local text_width = math.max(28, win_width - 6)
   local lines = {}
   local marks = {}
+  local permission_marks = {}
 
   local function add_message_separator()
     add_line(
@@ -852,6 +856,7 @@ render_chat = function(config, opts)
   else
     for _, message in ipairs(state.messages) do
       local text = materialize_message_text(message)
+      local message_start = #lines + 1
       local group = message.role == "You" and "OmniacUserBubble" or nil
       if message.role == "Error" then
         group = "OmniacError"
@@ -880,6 +885,31 @@ render_chat = function(config, opts)
           add_message_separator()
         end
       end
+      if message.role == "Permission" then
+        local decision = text:match("\n(Decision: [^\n]+)")
+        local label = "● Pending"
+        local group = "OmniacPermissionPending"
+        if message.permission_status == "rejected" then
+          label = "✕ Rejected"
+          group = "OmniacPermissionRejected"
+        elseif message.permission_status == "adjusted" then
+          label = "◆ Adjusted"
+          group = "OmniacPermissionApproved"
+        elseif message.permission_status == "approved" then
+          label = "✓ Approved"
+          group = "OmniacPermissionApproved"
+        end
+        if decision then
+          for row = message_start, #lines do
+            if lines[row]:find(decision, 1, true) then
+              add_mark(marks, row, 0, -1, group)
+              break
+            end
+          end
+        end
+        table.insert(permission_marks, { line = message_start, label = label, group = group })
+        add_mark(marks, message_start, 0, -1, "OmniacAccent")
+      end
       add_line(lines, marks, "", nil)
     end
   end
@@ -898,6 +928,12 @@ render_chat = function(config, opts)
 
   for _, mark in ipairs(marks) do
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
+  end
+  for _, mark in ipairs(permission_marks) do
+    vim.api.nvim_buf_set_extmark(state.chat_buf, ns, mark.line - 1, 0, {
+      virt_text = { { mark.label, mark.group } },
+      virt_text_pos = "right_align",
+    })
   end
 
   if not opts.skip_markdown then
@@ -1275,12 +1311,11 @@ local function render_status()
   local effort = config.reasoning_effort
   local collaboration = config.collaboration_mode
   local mode_id = config.mode or (state.session_mode and state.session_mode.currentModeId)
-  local mode_names = {
-    ["workspace-write"] = "Workspace access",
-    agent = "Auto review",
-    ["agent-full-access"] = "Full access",
-  }
-  local mode = mode_names[mode_id]
+  local mode = state.session_mode and state.session_mode.currentModeId == mode_id and state.session_mode.currentModeName
+    or mode_id
+  if mode_id == "plan" then
+    mode = nil
+  end
   if model and effort and effort ~= "" then
     model = model .. " · " .. effort:sub(1, 1):upper() .. effort:sub(2)
   end
@@ -3045,11 +3080,14 @@ function M.add_notice(role, text, config)
   return index
 end
 
-function M.update_notice(index, text, config)
+function M.update_notice(index, text, config, opts)
   if type(index) ~= "number" or not state.messages[index] then
     return
   end
   state.messages[index].text = text or state.messages[index].text or ""
+  if opts and opts.permission_status then
+    state.messages[index].permission_status = opts.permission_status
+  end
   request_chat_render(config, { immediate = true, follow = true })
   focus_input()
 end

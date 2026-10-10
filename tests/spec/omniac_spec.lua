@@ -265,9 +265,17 @@ describe("omniac.nvim", function()
     local diff = require("omniac.diff")
 
     vim.cmd("startinsert")
-    diff.open_review("/tmp/omniac-test.txt", { "old" }, { "new" }, {})
+    local edited
+    diff.open_review("/tmp/omniac-test.txt", { "old" }, { "new" }, {}, function(_, _, was_edited)
+      edited = was_edited
+    end)
 
+    vim.wait(50, function()
+      return not vim.fn.mode():match("^[iR]")
+    end)
     assert_true(not vim.fn.mode():match("^i"), "diff review should leave insert mode when it opens")
+    vim.cmd("w")
+    assert_equal(edited, false, "opening the diff should not count as an edit")
   end)
 
   it("diff review jumps to the first changed line", function()
@@ -2330,6 +2338,17 @@ describe("omniac.nvim", function()
     local body_lines = vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false)
     dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
     assert_equal(body_lines[#body_lines], "", "permission body should leave a blank line below cwd")
+    local chat_buf = vim.fn.bufnr("omniac")
+    local namespace = vim.api.nvim_get_namespaces()["omniac.ui"]
+    local function permission_badge()
+      for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat_buf, namespace, 0, -1, { details = true })) do
+        local chunks = mark[4].virt_text
+        if chunks and chunks[1] then
+          return chunks[1][1], chunks[1][2]
+        end
+      end
+    end
+    assert_equal(permission_badge(), "● Pending", "permission request should have a pending badge")
     feed("1")
     vim.wait(50, function()
       return replied ~= nil
@@ -2341,7 +2360,7 @@ describe("omniac.nvim", function()
     )
     ui.handle_notification({ method = "omniac/response_completed", params = {} }, { ui = { chat_width = 48 } })
 
-    local chat_buf = vim.fn.bufnr("omniac")
+    assert_equal(permission_badge(), "✓ Approved", "accepted permission should update the badge")
     local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
     local before_index = chat:find("before", 1, true)
     local permission_index = chat:find("Permission requested", 1, true)
@@ -2957,7 +2976,7 @@ describe("omniac.nvim", function()
     feed("q")
   end)
 
-  it("status shows plan and elevated access without redundant idle labels", function()
+  it("status shows the agent's mode name and plan without redundant idle labels", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
@@ -2979,13 +2998,21 @@ describe("omniac.nvim", function()
       agent = { cmd = { "codex-acp" } },
       ui = { chat_width = 48 },
     })
+    ui.set_session_mode({
+      currentModeId = "agent-full-access",
+      currentModeName = "Unrestricted Agent",
+    })
 
     local status_buf = vim.fn.bufnr("omniac://status")
     local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
-    assert_true(line:find("Full access", 1, true) ~= nil, "elevated access should be visible")
+    assert_true(line:find("Unrestricted Agent", 1, true) ~= nil, "agent-provided mode name should be visible")
     assert_true(line:find("Plan", 1, true) ~= nil, "plan mode should be visible")
     assert_true(line:find("Omniac", 1, true) == nil, "plugin name should not take status space")
     assert_true(line:find("ready", 1, true) == nil, "idle state should not take status space")
+
+    ui.set_session_mode({ currentModeId = "agent-full-access" })
+    line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    assert_true(line:find("agent-full-access", 1, true) ~= nil, "mode ID should be visible when name is absent")
   end)
 
   it("status renders the current ACP session model", function()

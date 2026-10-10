@@ -314,6 +314,7 @@ end
 
 function M.open(before_lines, after_lines, opts)
   opts = opts or {}
+  stop_insert()
 
   local before_buf = vim.api.nvim_create_buf(false, true)
   local after_buf = vim.api.nvim_create_buf(false, true)
@@ -380,6 +381,15 @@ function M.open(before_lines, after_lines, opts)
   end
 
   stop_insert()
+  vim.schedule(function()
+    if
+      vim.api.nvim_win_is_valid(after_win)
+      and vim.api.nvim_get_current_win() == after_win
+      and vim.api.nvim_win_get_buf(after_win) == after_buf
+    then
+      stop_insert()
+    end
+  end)
   local cursor_line = first_diff_line(before_lines or {}, after_lines or {})
   set_window_cursor(after_win, cursor_line)
   set_window_cursor(before_win, cursor_line)

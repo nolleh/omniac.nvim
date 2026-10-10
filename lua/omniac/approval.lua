@@ -216,6 +216,17 @@ local function permission_result_text(option, accepted)
   return accepted and "Decision: Accepted" or "Decision: Cancelled"
 end
 
+local function permission_choice_status(option)
+  if not option then
+    return "rejected"
+  end
+  local kind = tostring(option.kind or option_id(option) or ""):lower()
+  if kind:find("reject", 1, true) or kind:find("deny", 1, true) then
+    return "rejected"
+  end
+  return "approved"
+end
+
 local function show_permission_text(params, config)
   local ok, ui = pcall(require, "omniac.ui")
   if not ok or not ui then
@@ -234,13 +245,15 @@ local function show_permission_text(params, config)
   return notice_index, details
 end
 
-local function update_permission_text(notice_index, base_text, decision, config)
+local function update_permission_text(notice_index, base_text, decision, config, status)
   local ok, ui = pcall(require, "omniac.ui")
   if not ok or not ui or not ui.update_notice then
     return
   end
 
-  ui.update_notice(notice_index, table.concat({ base_text or "", "", decision }, "\n"), config)
+  ui.update_notice(notice_index, table.concat({ base_text or "", "", decision }, "\n"), config, {
+    permission_status = status,
+  })
   if decision:match("^Decision:") and ui.set_activity then
     ui.set_activity(nil, config)
   end
@@ -267,7 +280,7 @@ local function select_permission_option(params, reply, config, notice_index, not
   local options = params and params.options or {}
 
   if type(options) ~= "table" or #options == 0 then
-    update_permission_text(notice_index, notice_text, permission_result_text(nil, false), config)
+    update_permission_text(notice_index, notice_text, permission_result_text(nil, false), config, "rejected")
     reply(permission_response(params, false))
     return
   end
@@ -277,7 +290,13 @@ local function select_permission_option(params, reply, config, notice_index, not
       prompt = permission_summary(params),
       body = permission_body(params),
     }, function(choice)
-      update_permission_text(notice_index, notice_text, permission_result_text(choice, choice ~= nil), config)
+      update_permission_text(
+        notice_index,
+        notice_text,
+        permission_result_text(choice, choice ~= nil),
+        config,
+        permission_choice_status(choice)
+      )
       reply(selected_permission_response(choice))
     end)
   end)
@@ -340,7 +359,8 @@ local function open_permission_diff(pending, payload)
       pending.notice_index,
       pending.notice_text,
       "Decision: User-adjusted edit matched; accepted.",
-      pending.config
+      pending.config,
+      "approved"
     )
     pending.reply({ outcome = { outcome = "selected", optionId = allow_id } })
     return true
@@ -382,7 +402,8 @@ local function open_permission_diff(pending, payload)
             pending.notice_index,
             pending.notice_text,
             "Decision: Adjusted in diff; applying after this turn finishes.",
-            pending.config
+            pending.config,
+            "adjusted"
           )
           pending.reply({ outcome = { outcome = "selected", optionId = reject_id } })
           return
@@ -392,7 +413,8 @@ local function open_permission_diff(pending, payload)
         pending.notice_index,
         pending.notice_text,
         "Decision: Adjusted diff could not be forwarded; original edit was not approved.",
-        pending.config
+        pending.config,
+        "rejected"
       )
       pending.reply({ outcome = { outcome = "cancelled" } })
       return
@@ -401,7 +423,8 @@ local function open_permission_diff(pending, payload)
       pending.notice_index,
       pending.notice_text,
       accepted and "Decision: Accepted" or "Decision: Rejected",
-      pending.config
+      pending.config,
+      accepted and "approved" or "rejected"
     )
     pending.reply(permission_response(pending.params, accepted))
     vim.api.nvim_echo({
