@@ -51,6 +51,7 @@ local state = {
   available_commands = {},
   session_mode = nil,
   session_model = nil,
+  session_config = nil,
   session_usage = nil,
   mode_cycle_handler = nil,
   relayout_pending = false,
@@ -1269,27 +1270,46 @@ local function render_status()
   end
 
   local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or target_width()
-  local mode = state.session_mode and (state.session_mode.currentModeName or state.session_mode.currentModeId)
+  local config = state.session_config or {}
   local model = state.session_model and (state.session_model.currentModelName or state.session_model.currentModelId)
+  local effort = config.reasoning_effort
+  local collaboration = config.collaboration_mode
+  local mode_id = config.mode or (state.session_mode and state.session_mode.currentModeId)
+  local mode_names = {
+    ["workspace-write"] = "Workspace access",
+    agent = "Auto review",
+    ["agent-full-access"] = "Full access",
+  }
+  local mode = mode_names[mode_id]
+  if model and effort and effort ~= "" then
+    model = model .. " · " .. effort:sub(1, 1):upper() .. effort:sub(2)
+  end
   local usage
   if state.session_usage then
     local percent = math.floor((state.session_usage.used / state.session_usage.size) * 100 + 0.5)
     usage = string.format("ctx %d%%", math.max(0, math.min(100, percent)))
   end
-  local left = " Omniac "
-  local middle = "  " .. state.status .. " "
-  local usage_capsule = usage and ("  " .. usage .. " ") or ""
-  local mode_capsule = mode and mode ~= "" and ("  " .. mode .. " ") or ""
-  local model_capsule = model and model ~= "" and ("  " .. model .. " ") or ""
-  local right = "  " .. agent_name(state.config) .. " "
-  local spacer = string.rep(
-    " ",
-    math.max(
-      1,
-      win_width - vim.fn.strdisplaywidth(left .. middle .. mode_capsule .. model_capsule .. usage_capsule .. right)
-    )
-  )
-  local line = left .. middle .. mode_capsule .. model_capsule .. usage_capsule .. spacer .. right
+  local capsules = {}
+  local function append_capsule(label, fill, edge)
+    if label and label ~= "" then
+      table.insert(capsules, { label = label, fill = fill, edge = edge })
+    end
+  end
+  if state.status == "error" then
+    append_capsule("Error", "OmniacStatusMode", "OmniacStatusModeEdge")
+  end
+  append_capsule(mode, "OmniacStatusMode", "OmniacStatusModeEdge")
+  if collaboration == "plan" or mode_id == "plan" then
+    append_capsule("Plan", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  end
+  append_capsule(model, "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  append_capsule(usage, "OmniacStatusUsage", "OmniacStatusUsageEdge")
+
+  local parts = {}
+  for _, capsule in ipairs(capsules) do
+    table.insert(parts, " " .. capsule.label .. " ")
+  end
+  local line = table.concat(parts, " ")
 
   vim.bo[state.status_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.status_buf, ns, 0, -1)
@@ -1307,23 +1327,12 @@ local function render_status()
     col = col + #""
   end
 
-  add_capsule(" Omniac ", "OmniacStatusCapsule", "OmniacStatusCapsuleEdge")
-  col = col + #" "
-  add_capsule(" " .. state.status .. " ", "OmniacStatusMode", "OmniacStatusModeEdge")
-  if mode_capsule ~= "" then
-    col = col + #" "
-    add_capsule(" " .. mode .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+  for index, capsule in ipairs(capsules) do
+    if index > 1 then
+      col = col + #" "
+    end
+    add_capsule(" " .. capsule.label .. " ", capsule.fill, capsule.edge)
   end
-  if model_capsule ~= "" then
-    col = col + #" "
-    add_capsule(" " .. model .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
-  end
-  if usage_capsule ~= "" then
-    col = col + #" "
-    add_capsule(" " .. usage .. " ", "OmniacStatusUsage", "OmniacStatusUsageEdge")
-  end
-  col = col + #spacer + #" "
-  add_capsule(" " .. agent_name(state.config) .. " ", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
 end
 
 render_activity = function()
@@ -2907,6 +2916,17 @@ function M.set_session_model(model)
   render_status()
 end
 
+function M.set_session_config(options)
+  local config = {}
+  for _, option in ipairs(options or {}) do
+    if type(option) == "table" and type(option.id) == "string" then
+      config[option.id] = option.currentValue or option.current_value
+    end
+  end
+  state.session_config = config
+  render_status()
+end
+
 function M.set_session_usage(usage)
   local used = type(usage) == "table" and tonumber(usage.used) or nil
   local size = type(usage) == "table" and tonumber(usage.size) or nil
@@ -3193,6 +3213,11 @@ function M.handle_notification(message, config)
 
   if method == "omniac/session_model_update" then
     M.set_session_model(params)
+    return
+  end
+
+  if method == "omniac/session_config_update" then
+    M.set_session_config(params.configOptions or params.config_options)
     return
   end
 

@@ -2957,7 +2957,7 @@ describe("omniac.nvim", function()
     feed("q")
   end)
 
-  it("status renders ACP session mode", function()
+  it("status shows plan and elevated access without redundant idle labels", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
@@ -2968,10 +2968,12 @@ describe("omniac.nvim", function()
     }, function() end)
 
     ui.handle_notification({
-      method = "omniac/session_mode_update",
+      method = "omniac/session_config_update",
       params = {
-        currentModeId = "code",
-        currentModeName = "Code",
+        configOptions = {
+          { id = "mode", currentValue = "agent-full-access" },
+          { id = "collaboration_mode", currentValue = "plan" },
+        },
       },
     }, {
       agent = { cmd = { "codex-acp" } },
@@ -2980,7 +2982,10 @@ describe("omniac.nvim", function()
 
     local status_buf = vim.fn.bufnr("omniac://status")
     local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
-    assert_true(line:match("Code") ~= nil, "status should include the current ACP mode")
+    assert_true(line:find("Full access", 1, true) ~= nil, "elevated access should be visible")
+    assert_true(line:find("Plan", 1, true) ~= nil, "plan mode should be visible")
+    assert_true(line:find("Omniac", 1, true) == nil, "plugin name should not take status space")
+    assert_true(line:find("ready", 1, true) == nil, "idle state should not take status space")
   end)
 
   it("status renders the current ACP session model", function()
@@ -3006,7 +3011,12 @@ describe("omniac.nvim", function()
 
     local status_buf = vim.fn.bufnr("omniac://status")
     local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
-    assert_true(line:match("GPT%-5 Mini") ~= nil, "status should include the current ACP model")
+    ui.handle_notification({
+      method = "omniac/session_config_update",
+      params = { configOptions = { { id = "reasoning_effort", currentValue = "medium" } } },
+    }, {})
+    line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    assert_true(line:find("GPT-5 Mini · Medium", 1, true) ~= nil, "model and effort should share a capsule")
   end)
 
   it("status renders ACP context usage as a percentage", function()

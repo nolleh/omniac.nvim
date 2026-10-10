@@ -1155,6 +1155,10 @@ function M.new(config)
       or session.config_options
     if type(config_options) == "table" then
       self.config_options = config_options
+      self:_emit_notification({
+        method = "omniac/session_config_update",
+        params = { configOptions = deepcopy(config_options) },
+      })
     end
 
     local model_state = model_state_from_config_options(config_options)
