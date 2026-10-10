@@ -250,6 +250,23 @@ local function stop_insert()
   end
 end
 
+local function replace_split_buffer(win, buf, origin_buf)
+  local placeholder = vim.api.nvim_win_get_buf(win)
+  vim.api.nvim_win_set_buf(win, buf)
+  if
+    placeholder ~= origin_buf
+    and placeholder ~= buf
+    and vim.api.nvim_buf_is_valid(placeholder)
+    and vim.api.nvim_buf_get_name(placeholder) == ""
+    and vim.bo[placeholder].buftype == ""
+    and not vim.bo[placeholder].modified
+    and vim.api.nvim_buf_line_count(placeholder) == 1
+    and vim.api.nvim_buf_get_lines(placeholder, 0, 1, false)[1] == ""
+  then
+    pcall(vim.api.nvim_buf_delete, placeholder, { force = true })
+  end
+end
+
 local function first_diff_line(before_lines, after_lines)
   local limit = math.max(#before_lines, #after_lines)
   for index = 1, limit do
@@ -336,12 +353,12 @@ function M.open(before_lines, after_lines, opts)
   if opts.separate_tab then
     vim.cmd("tabnew")
     before_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(before_win, before_buf)
+    replace_split_buffer(before_win, before_buf, origin_buf)
     enable_diff_window(before_win)
 
     vim.cmd("vnew")
     after_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(after_win, after_buf)
+    replace_split_buffer(after_win, after_buf, origin_buf)
     enable_diff_window(after_win)
   else
     fixed_widths = collect_fixed_widths()
@@ -352,7 +369,7 @@ function M.open(before_lines, after_lines, opts)
 
     vim.cmd("rightbelow vnew")
     after_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(after_win, after_buf)
+    replace_split_buffer(after_win, after_buf, origin_buf)
     enable_diff_window(after_win)
     equalize_review_windows(before_win, after_win, fixed_widths)
   end
