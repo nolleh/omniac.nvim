@@ -112,6 +112,7 @@ Use a project-local working directory and enable debug logging:
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
 | `ui.change_review`                     | `"summary"`                | Post-turn change review: `"summary"`, `"open"`, or `"off"`.                     |
 | `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
+| `ui.mascot_follow_cursor`              | `true`                      | Let the mascot react to Omniac focus and slowly follow the cursor inside chat or input while its card is visible. |
 | `ui.tool_results`                      | `"compact"`                 | Chat visibility for completed tool output: `"compact"`, `"all"`, or `"none"`.        |
 | `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
 | `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |

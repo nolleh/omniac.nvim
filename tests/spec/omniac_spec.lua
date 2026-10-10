@@ -54,6 +54,7 @@ describe("omniac.nvim", function()
     assert_equal(defaults.backend, nil, "backend selection should not be configurable")
     assert_equal(defaults.agent.auto_initialize, nil, "legacy transport initialization should be removed")
     assert_equal(defaults.ui.change_review, "summary", "change review should default to a non-blocking summary")
+    assert_equal(defaults.ui.mascot_follow_cursor, true, "mascot gaze should default to enabled")
     assert_equal(defaults.references.include_modified_buffer, false, "full modified-buffer references should be opt-in")
   end)
 
@@ -1159,6 +1160,124 @@ describe("omniac.nvim", function()
       chat:find("▄▄▄▄▄▄▄", 1, true) == nil,
       "welcome header should remove the previous large graphic"
     )
+  end)
+
+  it("mascot reacts to Omniac focus and follows its cursor without moving the card", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    vim.cmd("tabnew")
+
+    local editor_win = vim.api.nvim_get_current_win()
+    local editor_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(editor_buf, 0, -1, false, { string.rep("x", 120) })
+    vim.wo[editor_win].wrap = false
+
+    local ui = require("omniac.ui")
+    local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+    vim.api.nvim_win_set_height(ui_state.chat_win, 12)
+    local chat_buf = vim.fn.bufnr("omniac")
+    local line_count = vim.api.nvim_buf_line_count(chat_buf)
+    local center_eye_line = vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1]
+
+    vim.api.nvim_set_current_win(editor_win)
+    vim.api.nvim_win_set_cursor(editor_win, { 1, 26 })
+    vim.cmd("redraw")
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = editor_buf })
+    vim.wait(250)
+    assert_equal(ui_state.mascot_gaze, "center", "external cursor movement should not steer the mascot")
+    assert_equal(vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1], center_eye_line)
+
+    vim.api.nvim_set_current_win(ui_state.input_win)
+    assert_true(
+      vim.wait(100, function()
+        return ui_state.mascot_reacting
+      end),
+      "entering Omniac should trigger a brief blink"
+    )
+    assert_true(
+      vim.wait(100, function()
+        return vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1] ~= center_eye_line
+      end),
+      "the eyes should visibly shrink during the blink"
+    )
+    assert_true(
+      vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1]:find("▀", 1, true) ~= nil,
+      "half-height black eyes should remain visible"
+    )
+    vim.cmd("redraw")
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.input_buf })
+    assert_equal(ui_state.mascot_target, "left", "the input cursor should set the post-blink gaze")
+    assert_true(
+      vim.wait(180, function()
+        return ui_state.mascot_eye_height == 0
+      end),
+      "the blink should include a fully closed frame"
+    )
+    local closed_eye_line = vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1]
+    assert_true(closed_eye_line ~= center_eye_line and closed_eye_line:find("▀", 1, true) == nil)
+    assert_true(
+      vim.wait(180, function()
+        return ui_state.mascot_eye_height == 1
+      end),
+      "the eyes should reopen through the half-height frame"
+    )
+    assert_equal(ui_state.mascot_gaze, "center", "the eyes should not move during the blink")
+    assert_true(
+      vim.wait(350, function()
+        return not ui_state.mascot_reacting
+      end),
+      "the blink should end without moving the card"
+    )
+    assert_equal(vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1], center_eye_line)
+    assert_true(
+      vim.wait(400, function()
+        return ui_state.mascot_gaze == "left"
+      end),
+      "the eyes should move toward the cursor after the blink"
+    )
+
+    vim.api.nvim_set_current_win(ui_state.chat_win)
+    vim.api.nvim_win_set_cursor(ui_state.chat_win, { 2, 4 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = chat_buf })
+    assert_true(
+      vim.wait(400, function()
+        return ui_state.mascot_gaze == "left"
+      end),
+      "the eyes should look left inside the chat"
+    )
+    local left_eye_line = vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1]
+
+    vim.api.nvim_win_set_cursor(ui_state.chat_win, { 2, 43 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = chat_buf })
+    assert_true(
+      vim.wait(600, function()
+        return ui_state.mascot_gaze == "right"
+      end),
+      "the eyes should slowly cross through center"
+    )
+    assert_true(vim.api.nvim_buf_get_lines(chat_buf, 6, 7, false)[1] ~= left_eye_line)
+    assert_equal(vim.api.nvim_buf_line_count(chat_buf), line_count, "gaze should not resize the card")
+
+    vim.api.nvim_set_current_win(ui_state.input_win)
+    vim.bo[ui_state.input_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(ui_state.input_buf, 0, 1, false, { "│ > " .. string.rep("x", 38) .. " │" })
+    vim.api.nvim_win_set_cursor(ui_state.input_win, { 1, 4 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.input_buf })
+    assert_true(
+      vim.wait(400, function()
+        return ui_state.mascot_gaze == "left"
+      end),
+      "the eyes should also follow the input cursor"
+    )
+
+    ui_state.config.ui.mascot_follow_cursor = false
+    vim.api.nvim_win_set_cursor(ui_state.input_win, { 1, 40 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.input_buf })
+    vim.wait(250)
+    assert_equal(ui_state.mascot_gaze, "left", "mascot gaze should honor the opt-out")
+
+    ui.close()
+    vim.cmd("tabclose!")
   end)
 
   it("chat buffer uses markdown renderer when available", function()

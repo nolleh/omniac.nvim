@@ -3,6 +3,7 @@ local clipboard = require("omniac.clipboard")
 
 local ns = vim.api.nvim_create_namespace("omniac.ui")
 local augroup = vim.api.nvim_create_augroup("omniac.ui", { clear = false })
+local mascot_augroup = vim.api.nvim_create_augroup("omniac.mascot", { clear = true })
 
 local state = {
   chat_buf = nil,
@@ -52,12 +53,24 @@ local state = {
   relayout_pending = false,
   user_width = nil,
   active_turn_id = nil,
+  mascot_gaze = "center",
+  mascot_target = "center",
+  mascot_gaze_pending = false,
+  mascot_generation = 0,
+  mascot_first_line = nil,
+  mascot_last_line = nil,
+  mascot_in_omniac = false,
+  mascot_reacting = false,
+  mascot_eye_height = 2,
+  mascot_reaction_id = 0,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
 local INPUT_MAX_DISPLAY_LINES = 10
 local ACTIVITY_MAX_DISPLAY_LINES = 3
 local CHAT_STREAM_RENDER_DELAY_MS = 24
+local MASCOT_GAZE_DELAY_MS = 180
+local MASCOT_BLINK_FRAME_MS = 100
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
 local CHAT_MARKDOWN_RENDER_CONFIG = {
@@ -628,8 +641,12 @@ local function header(lines, marks, size)
   fill_rect(2, 4, 9, 7, "coral")
   fill_rect(1, 5, 1, 6, "mint")
   fill_rect(10, 5, 10, 6, "mint")
-  fill_rect(4, 5, 4, 6, " ")
-  fill_rect(7, 5, 7, 6, " ")
+  local eye_offset = state.mascot_gaze == "left" and -1 or state.mascot_gaze == "right" and 1 or 0
+  if state.mascot_eye_height > 0 then
+    local eye_top = 7 - state.mascot_eye_height
+    fill_rect(4 + eye_offset, eye_top, 4 + eye_offset, 6, " ")
+    fill_rect(7 + eye_offset, eye_top, 7 + eye_offset, 6, " ")
+  end
   fill_rect(3, 8, 8, 8, "coral")
   fill_rect(3, 10, 8, 11, "coral")
   fill_rect(2, 11, 2, 11, "coral")
@@ -654,6 +671,7 @@ local function header(lines, marks, size)
     return "▀", top == "mint" and "OmniacGraphicMintOverCoral" or "OmniacGraphicCoralOverMint"
   end
 
+  state.mascot_first_line = #lines + 1
   for row = 1, sprite_height, 2 do
     local glyphs = {}
     local groups = {}
@@ -682,6 +700,7 @@ local function header(lines, marks, size)
       add_mark(marks, #lines, run_start, byte_offset, run_group)
     end
   end
+  state.mascot_last_line = #lines
 
   add_boxed_line(lines, marks, "O M N I A C", box_width, "OmniacWordmark")
 
@@ -809,6 +828,127 @@ render_chat = function(config, opts)
       vim.fn.winrestview(previous_view)
     end)
   end
+end
+
+local function mascot_visible()
+  if
+    not valid_win(state.chat_win)
+    or not valid_buf(state.chat_buf)
+    or vim.api.nvim_win_get_buf(state.chat_win) ~= state.chat_buf
+    or not state.mascot_first_line
+  then
+    return false
+  end
+  local top = vim.fn.line("w0", state.chat_win)
+  return top <= state.mascot_last_line
+    and top + vim.api.nvim_win_get_height(state.chat_win) - 1 >= state.mascot_first_line
+end
+
+local function advance_mascot_gaze()
+  if state.mascot_gaze_pending or state.mascot_reacting then
+    return
+  end
+  state.mascot_gaze_pending = true
+  local generation = state.mascot_generation
+  vim.defer_fn(function()
+    if generation ~= state.mascot_generation then
+      return
+    end
+    state.mascot_gaze_pending = false
+    if state.mascot_reacting or not mascot_visible() or state.mascot_gaze == state.mascot_target then
+      return
+    end
+
+    local target = state.mascot_target
+    if state.mascot_gaze ~= "center" and target ~= "center" then
+      state.mascot_gaze = "center"
+    else
+      state.mascot_gaze = target
+    end
+    render_chat(state.config, { skip_markdown = true })
+    if state.mascot_gaze ~= state.mascot_target then
+      advance_mascot_gaze()
+    end
+  end, MASCOT_GAZE_DELAY_MS)
+end
+
+local schedule_mascot_gaze
+
+local function react_to_omniac_focus()
+  if not mascot_visible() then
+    return
+  end
+  state.mascot_reaction_id = state.mascot_reaction_id + 1
+  local reaction_id = state.mascot_reaction_id
+  local generation = state.mascot_generation
+  state.mascot_reacting = true
+  state.mascot_eye_height = 1
+  vim.schedule(function()
+    if generation == state.mascot_generation and reaction_id == state.mascot_reaction_id and mascot_visible() then
+      render_chat(state.config, { skip_markdown = true })
+    end
+  end)
+  for frame = 2, 4 do
+    vim.defer_fn(function()
+      if generation == state.mascot_generation and reaction_id == state.mascot_reaction_id then
+        state.mascot_eye_height = frame == 2 and 0 or frame == 3 and 1 or 2
+        if frame == 4 then
+          state.mascot_reacting = false
+        end
+        if mascot_visible() then
+          render_chat(state.config, { skip_markdown = true })
+        end
+        if frame == 4 then
+          schedule_mascot_gaze({ event = "CursorMoved" })
+          if not state.mascot_in_omniac then
+            advance_mascot_gaze()
+          end
+        end
+      end
+    end, (frame - 1) * MASCOT_BLINK_FRAME_MS)
+  end
+end
+
+schedule_mascot_gaze = function(args)
+  if ((state.config or {}).ui or {}).mascot_follow_cursor == false then
+    return
+  end
+  local win = vim.api.nvim_get_current_win()
+  local in_omniac = win == state.chat_win
+    or win == state.input_win
+    or win == state.activity_win
+    or win == state.status_win
+  if args.event == "WinEnter" then
+    if in_omniac and not state.mascot_in_omniac then
+      react_to_omniac_focus()
+    end
+    state.mascot_in_omniac = in_omniac
+  end
+  if not in_omniac then
+    if args.event == "WinEnter" and mascot_visible() then
+      state.mascot_target = "center"
+      advance_mascot_gaze()
+    end
+    return
+  end
+  if not mascot_visible() or (win ~= state.chat_win and win ~= state.input_win) then
+    return
+  end
+
+  local cursor = vim.api.nvim_win_get_cursor(win)
+  local ok, position = pcall(vim.fn.screenpos, win, cursor[1], cursor[2] + 1)
+  if not ok or not position or position.col == 0 then
+    return
+  end
+  local window_left = vim.fn.win_screenpos(state.chat_win)[2]
+  local fraction = (position.col - window_left) / math.max(1, vim.api.nvim_win_get_width(state.chat_win) - 1)
+  local target = fraction < 1 / 3 and "left" or fraction > 2 / 3 and "right" or "center"
+  if target == state.mascot_gaze and not state.mascot_gaze_pending then
+    return
+  end
+
+  state.mascot_target = target
+  advance_mascot_gaze()
 end
 
 local function render_status()
@@ -2010,6 +2150,15 @@ end
 function M.close()
   stop_activity_timer()
   stop_tool_activity_timer()
+  state.mascot_generation = state.mascot_generation + 1
+  state.mascot_gaze_pending = false
+  state.mascot_gaze = "center"
+  state.mascot_target = "center"
+  state.mascot_in_omniac = false
+  state.mascot_reacting = false
+  state.mascot_eye_height = 2
+  state.mascot_reaction_id = state.mascot_reaction_id + 1
+  vim.api.nvim_clear_autocmds({ group = mascot_augroup })
   state.chat_render_generation = state.chat_render_generation + 1
   state.chat_render_pending = false
   state.chat_render_config = nil
@@ -2300,7 +2449,6 @@ function M.open(config, submit)
       schedule_relayout()
     end,
   })
-
   if resize_aux_windows then
     resize_aux_windows()
   end
@@ -2310,6 +2458,11 @@ function M.open(config, submit)
   render_status()
   sync_activity_timer()
   focus_input()
+  state.mascot_in_omniac = true
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "WinEnter" }, {
+    group = mascot_augroup,
+    callback = schedule_mascot_gaze,
+  })
   return state
 end
 
