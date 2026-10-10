@@ -1282,6 +1282,99 @@ describe("omniac.nvim", function()
     end
   end)
 
+  it("lets the card mascot follow and react to cursor movement", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    vim.o.lines = 50
+    local ui = require("omniac.ui")
+    local ok, err = xpcall(function()
+      local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+      ui.set_status("ready", ui_state.config)
+      vim.api.nvim_set_current_win(ui_state.card_win)
+      vim.wait(350)
+
+      local row = ui_state.mascot_first_line + 2
+      local line = vim.api.nvim_buf_get_lines(ui_state.card_buf, row - 1, row, false)[1]
+      local block = line:find("█", 1, true)
+      assert_true(block ~= nil, "mascot body should be visible on the card")
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { row, block - 1 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { row, block - 1 + #"█" })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      assert_equal(ui_state.mascot_pet_count, 1, "horizontal movement on the mascot should pet it")
+      assert_equal(ui_state.mascot_hop, 1, "the first pet should make the mascot hop")
+      assert_equal(vim.api.nvim_win_get_cursor(ui_state.card_win)[1], row, "animation should preserve the card cursor")
+
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { row, block - 1 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { row, block - 1 + #"█" })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      assert_equal(ui_state.mascot_pet_count, 0, "repeated pets should trigger a flee")
+      assert_true(ui_state.mascot_x ~= 0, "fleeing should move the mascot sideways")
+      assert_true(
+        vim.wait(1500, function()
+          return ui_state.mascot_x == 0 and ui_state.mascot_hop == 0
+        end),
+        "the mascot should return to its resting place"
+      )
+
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { row + 1, block - 1 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      assert_equal(ui_state.mascot_hop, 1, "vertical movement near the mascot should invite a hop")
+      assert_equal(vim.api.nvim_win_get_cursor(ui_state.card_win)[1], row + 1)
+      vim.wait(250)
+
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { ui_state.mascot_first_line, 0 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      assert_equal(ui_state.mascot_vertical_gaze, -1, "the mascot should look up as the cursor rises")
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { ui_state.mascot_last_line, 0 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      assert_equal(ui_state.mascot_vertical_gaze, 1, "the mascot should look down as the cursor falls")
+      assert_equal(vim.api.nvim_win_get_cursor(ui_state.card_win)[1], ui_state.mascot_last_line)
+    end, debug.traceback)
+    ui.close()
+    vim.o.lines = previous_lines
+    if not ok then
+      error(err)
+    end
+  end)
+
+  it("takes occasional idle walks and returns to the center", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    local original_defer = vim.defer_fn
+    vim.o.lines = 50
+    vim.defer_fn = function(callback, delay)
+      local quick = ({ [11000] = 30, [350] = 20, [1800] = 20, [380] = 50 })[delay]
+      return original_defer(callback, quick or delay)
+    end
+    local ui = require("omniac.ui")
+    local ok, err = xpcall(function()
+      local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+      ui.set_status("ready", ui_state.config)
+      assert_true(
+        vim.wait(500, function()
+          return ui_state.mascot_x ~= 0 and ui_state.mascot_walk_frame ~= 0
+        end),
+        "idle mascot should take a step"
+      )
+      assert_true(
+        vim.wait(500, function()
+          return ui_state.mascot_x == 0 and ui_state.mascot_walk_frame == 0
+        end),
+        "idle mascot should come home after walking"
+      )
+    end, debug.traceback)
+    ui.close()
+    vim.defer_fn = original_defer
+    vim.o.lines = previous_lines
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("mascot reacts to Omniac focus and follows its cursor without moving the card", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

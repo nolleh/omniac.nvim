@@ -115,7 +115,7 @@ Use a project-local working directory and enable debug logging:
 | `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
 | `ui.welcome_card`                     | `"pinned"`                | Keep the mascot card above the chat; `"welcome_only"` shows it only before the first message. In short windows (under 32 lines), Omniac uses welcome-only mode to preserve chat space. |
 | `ui.mascot_follow_cursor`              | `true`                      | Let the mascot react to Omniac focus and slowly follow the cursor inside chat or input while its card is visible. |
-| `ui.mascot_motion`                     | `true`                      | Occasionally twitch the antenna while ready and alternate arm movements while working. Set to `false` to disable these ambient motions. |
+| `ui.mascot_motion`                     | `true`                      | Animate idle walks, antenna twitches, working gestures, and jumps inside the pinned card. Set to `false` to disable these motions; `mascot_follow_cursor` controls gaze separately. |
 | `ui.tool_results`                      | `"compact"`                 | Chat visibility for completed tool output: `"compact"`, `"all"`, or `"none"`.        |
 | `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
 | `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |
@@ -129,6 +129,7 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacSessionLoad {sessionId}` loads an ACP session and replays its history when the agent advertises `loadSession`
 - `:OmniacSessionResume {sessionId}` resumes an ACP session without replaying history when the agent advertises `sessionCapabilities.resume`
 - `:Omniac` opens a Neovim chat/input/status UI
+- In pinned-card mode, focus the welcome card and move the cursor normally: nearby vertical movement draws a small hop, moving sideways across the mascot pets it, and repeated pets make it briefly flee. These reactions do not remap `h/j/k/l`.
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
 - `:OmniacChanges [turn|session]` opens the same read-only change browser

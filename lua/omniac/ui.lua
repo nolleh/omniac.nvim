@@ -70,6 +70,15 @@ local state = {
   mascot_arm_frame = 0,
   mascot_action_generation = 0,
   mascot_idle_direction = 1,
+  mascot_x = 0,
+  mascot_hop = 0,
+  mascot_walk_frame = 0,
+  mascot_vertical_gaze = 0,
+  mascot_walk_direction = 1,
+  mascot_interaction_generation = 0,
+  mascot_card_cursor = nil,
+  mascot_pet_count = 0,
+  mascot_last_pet_at = 0,
 }
 
 local INPUT_MIN_DISPLAY_LINES = 3
@@ -81,6 +90,9 @@ local MASCOT_BLINK_FRAME_MS = 100
 local MASCOT_WORK_FRAME_MS = 650
 local MASCOT_IDLE_DELAY_MS = 11000
 local MASCOT_IDLE_GESTURE_MS = 350
+local MASCOT_WALK_STEP_MS = 380
+local MASCOT_PET_DURATION_MS = 320
+local MASCOT_PET_WINDOW_MS = 2400
 local CARD_HEIGHT = 15 -- 14 content lines plus the card winbar
 local INPUT_PROMPT = "│ > "
 local INPUT_CONTINUATION = "│ "
@@ -640,7 +652,10 @@ local function header(lines, marks, size)
   local function fill_rect(left, top, right, bottom, color)
     for row = top, bottom do
       for column = left, right do
-        sprite[row][column] = color
+        local shifted_row = row - state.mascot_hop
+        if shifted_row >= 1 and shifted_row <= sprite_height then
+          sprite[shifted_row][column] = color
+        end
       end
     end
   end
@@ -654,17 +669,18 @@ local function header(lines, marks, size)
   fill_rect(10, 5, 10, 6, "mint")
   local eye_offset = state.mascot_gaze == "left" and -1 or state.mascot_gaze == "right" and 1 or 0
   if state.mascot_eye_height > 0 then
-    local eye_top = 7 - state.mascot_eye_height
-    fill_rect(4 + eye_offset, eye_top, 4 + eye_offset, 6, " ")
-    fill_rect(7 + eye_offset, eye_top, 7 + eye_offset, 6, " ")
+    local eye_top = 7 - state.mascot_eye_height + state.mascot_vertical_gaze
+    local eye_bottom = 6 + state.mascot_vertical_gaze
+    fill_rect(4 + eye_offset, eye_top, 4 + eye_offset, eye_bottom, " ")
+    fill_rect(7 + eye_offset, eye_top, 7 + eye_offset, eye_bottom, " ")
   end
   fill_rect(3, 8, 8, 8, "coral")
   fill_rect(3, 10, 8, 11, "coral")
   fill_rect(2, state.mascot_arm_frame == 1 and 10 or 11, 2, state.mascot_arm_frame == 1 and 10 or 11, "coral")
   fill_rect(9, state.mascot_arm_frame == 2 and 10 or 11, 9, state.mascot_arm_frame == 2 and 10 or 11, "coral")
   fill_rect(5, 10, 6, 11, "mint")
-  fill_rect(4, 12, 4, 12, "coral")
-  fill_rect(7, 12, 7, 12, "coral")
+  fill_rect(4, state.mascot_walk_frame == 1 and 11 or 12, 4, state.mascot_walk_frame == 1 and 11 or 12, "coral")
+  fill_rect(7, state.mascot_walk_frame == 2 and 11 or 12, 7, state.mascot_walk_frame == 2 and 11 or 12, "coral")
 
   local function pixel_glyph(top, bottom)
     if top == " " and bottom == " " then
@@ -691,8 +707,18 @@ local function header(lines, marks, size)
     end
 
     local line = table.concat(glyphs)
-    add_boxed_line(lines, marks, line, box_width, "OmniacGraphic")
-    local left_padding = math.floor((box_width - 2 - vim.fn.strdisplaywidth(line)) / 2)
+    local inner_width = box_width - 2
+    local left_padding = math.floor((inner_width - vim.fn.strdisplaywidth(line)) / 2) + state.mascot_x
+    add_line(
+      lines,
+      marks,
+      "│"
+        .. string.rep(" ", left_padding)
+        .. line
+        .. string.rep(" ", inner_width - left_padding - sprite_width)
+        .. "│",
+      "OmniacGraphic"
+    )
     local byte_offset = #"│" + left_padding
     local run_group
     local run_start
@@ -729,7 +755,6 @@ end
 local function pin_card_view()
   if valid_win(state.card_win) then
     pcall(vim.api.nvim_win_call, state.card_win, function()
-      vim.api.nvim_win_set_cursor(state.card_win, { 1, 0 })
       vim.fn.winrestview({ topline = 1, leftcol = 0 })
     end)
   end
@@ -911,9 +936,13 @@ end
 
 local function restart_mascot_actions()
   state.mascot_action_generation = state.mascot_action_generation + 1
+  state.mascot_interaction_generation = state.mascot_interaction_generation + 1
   local generation = state.mascot_action_generation
   state.mascot_arm_frame = 0
   state.mascot_antenna_offset = 0
+  state.mascot_x = 0
+  state.mascot_hop = 0
+  state.mascot_walk_frame = 0
   if mascot_visible() then
     render_mascot()
   end
@@ -926,6 +955,7 @@ local function restart_mascot_actions()
 
   if state.status == "working" then
     local frames = { 1, 2, 1, 2, 0, 0 }
+    local sway = { 0, 1, 0, -1, 0, 0 }
     local frame = 0
     local function tick()
       vim.defer_fn(function()
@@ -934,6 +964,7 @@ local function restart_mascot_actions()
         end
         frame = frame % #frames + 1
         state.mascot_arm_frame = frames[frame]
+        state.mascot_x = sway[frame]
         if mascot_visible() then
           render_mascot()
         end
@@ -960,7 +991,37 @@ local function restart_mascot_actions()
           if mascot_visible() then
             render_mascot()
           end
-          idle()
+          vim.defer_fn(function()
+            if generation ~= state.mascot_action_generation then
+              return
+            end
+            local direction = state.mascot_walk_direction
+            state.mascot_walk_direction = -direction
+            local steps = { 1, 2, 3, 2, 1, 0 }
+            local function walk(index)
+              if generation ~= state.mascot_action_generation then
+                return
+              end
+              if vim.uv.now() - state.mascot_last_pet_at < MASCOT_PET_WINDOW_MS then
+                state.mascot_walk_frame = 0
+                idle()
+                return
+              end
+              state.mascot_x = steps[index] * direction
+              state.mascot_walk_frame = index == #steps and 0 or index % 2 + 1
+              if mascot_visible() then
+                render_mascot()
+              end
+              if index == #steps then
+                idle()
+              else
+                vim.defer_fn(function()
+                  walk(index + 1)
+                end, MASCOT_WALK_STEP_MS)
+              end
+            end
+            walk(1)
+          end, 1800)
         end, MASCOT_IDLE_GESTURE_MS)
       end, MASCOT_IDLE_DELAY_MS)
     end
@@ -1033,11 +1094,114 @@ local function react_to_omniac_focus()
   end
 end
 
+local function react_to_card_pet(direction)
+  if state.status ~= "ready" or ((state.config or {}).ui or {}).mascot_motion == false then
+    return
+  end
+  local now = vim.uv.now()
+  state.mascot_pet_count = now - state.mascot_last_pet_at <= MASCOT_PET_WINDOW_MS and state.mascot_pet_count + 1 or 1
+  state.mascot_last_pet_at = now
+  local flee = state.mascot_pet_count >= 3
+  if flee then
+    state.mascot_pet_count = 0
+    local target = direction > 0 and 3 or -3
+    state.mascot_x = state.mascot_x == target and -target or target
+  end
+  state.mascot_interaction_generation = state.mascot_interaction_generation + 1
+  local generation = state.mascot_interaction_generation
+  state.mascot_hop = 1
+  state.mascot_walk_frame = 0
+  state.mascot_arm_frame = direction > 0 and 1 or 2
+  render_mascot()
+  vim.defer_fn(function()
+    if generation ~= state.mascot_interaction_generation then
+      return
+    end
+    state.mascot_hop = 0
+    state.mascot_arm_frame = 0
+    if not flee then
+      state.mascot_x = 0
+    end
+    if mascot_visible() then
+      render_mascot()
+    end
+    if flee then
+      vim.defer_fn(function()
+        if generation ~= state.mascot_interaction_generation then
+          return
+        end
+        state.mascot_x = 0
+        if mascot_visible() then
+          render_mascot()
+        end
+      end, 800)
+    end
+  end, MASCOT_PET_DURATION_MS)
+end
+
+local function react_to_card_vertical(direction)
+  if state.status ~= "ready" or ((state.config or {}).ui or {}).mascot_motion == false then
+    return
+  end
+  state.mascot_interaction_generation = state.mascot_interaction_generation + 1
+  local generation = state.mascot_interaction_generation
+  state.mascot_hop = 1
+  state.mascot_arm_frame = direction > 0 and 2 or 1
+  render_mascot()
+  vim.defer_fn(function()
+    if generation ~= state.mascot_interaction_generation then
+      return
+    end
+    state.mascot_hop = 0
+    state.mascot_arm_frame = 0
+    if mascot_visible() then
+      render_mascot()
+    end
+  end, 180)
+end
+
+local function track_card_cursor(event)
+  if not state.card_pinned or not valid_win(state.card_win) or vim.api.nvim_get_current_win() ~= state.card_win then
+    return nil
+  end
+  local row = vim.api.nvim_win_get_cursor(state.card_win)[1]
+  local column = vim.fn.virtcol(".")
+  local previous = state.mascot_card_cursor
+  state.mascot_card_cursor = { row = row, column = column }
+  if event ~= "WinEnter" and previous then
+    local width = vim.api.nvim_win_get_width(state.card_win)
+    local sprite_left = math.floor((width - 2 - 10) / 2) + state.mascot_x + 2
+    if
+      row >= state.mascot_first_line
+      and row <= state.mascot_last_line
+      and column >= sprite_left - 1
+      and column <= sprite_left + 10
+    then
+      if previous.row == row and previous.column ~= column then
+        react_to_card_pet(column - previous.column)
+      elseif previous.row ~= row then
+        react_to_card_vertical(row - previous.row)
+      end
+    end
+  end
+  return row, column
+end
+
 schedule_mascot_gaze = function(args)
+  local win = vim.api.nvim_get_current_win()
+  local card_row, card_column = track_card_cursor(args.event)
+  if win ~= state.card_win then
+    state.mascot_card_cursor = nil
+    if state.mascot_vertical_gaze ~= 0 then
+      state.mascot_vertical_gaze = 0
+      if mascot_visible() then
+        render_mascot()
+      end
+    end
+  end
   if ((state.config or {}).ui or {}).mascot_follow_cursor == false then
     return
   end
-  local win = vim.api.nvim_get_current_win()
   local in_omniac = win == state.card_win
     or win == state.chat_win
     or win == state.input_win
@@ -1056,7 +1220,22 @@ schedule_mascot_gaze = function(args)
     end
     return
   end
-  if not mascot_visible() or (win ~= state.chat_win and win ~= state.input_win) then
+  if not mascot_visible() then
+    return
+  end
+
+  if win == state.card_win and card_row then
+    local vertical = card_row < state.mascot_first_line + 2 and -1 or card_row > state.mascot_last_line - 2 and 1 or 0
+    if vertical ~= state.mascot_vertical_gaze then
+      state.mascot_vertical_gaze = vertical
+      render_mascot()
+    end
+    local center = math.floor(vim.api.nvim_win_get_width(state.card_win) / 2) + state.mascot_x
+    state.mascot_target = card_column < center - 2 and "left" or card_column > center + 2 and "right" or "center"
+    advance_mascot_gaze()
+    return
+  end
+  if win ~= state.chat_win and win ~= state.input_win then
     return
   end
 
@@ -2291,8 +2470,15 @@ function M.close()
   stop_activity_timer()
   stop_tool_activity_timer()
   state.mascot_action_generation = state.mascot_action_generation + 1
+  state.mascot_interaction_generation = state.mascot_interaction_generation + 1
   state.mascot_arm_frame = 0
   state.mascot_antenna_offset = 0
+  state.mascot_x = 0
+  state.mascot_hop = 0
+  state.mascot_walk_frame = 0
+  state.mascot_vertical_gaze = 0
+  state.mascot_card_cursor = nil
+  state.mascot_pet_count = 0
   state.mascot_generation = state.mascot_generation + 1
   state.mascot_gaze_pending = false
   state.mascot_gaze = "center"
