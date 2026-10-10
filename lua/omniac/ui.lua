@@ -2688,6 +2688,7 @@ function M.open(config, submit)
     local attachments = vim.deepcopy(state.input_attachments or {})
     if text == "" and #attachments == 0 then
       reset_input()
+      close_command_window()
       focus_input()
       return
     end
@@ -2699,6 +2700,7 @@ function M.open(config, submit)
     text = completed_suggestion_text(text)
     remember_input_history(text)
     reset_input()
+    close_command_window()
     clear_input_attachments()
     if state.submit then
       state.submit(text, attachments)

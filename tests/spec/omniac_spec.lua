@@ -4232,6 +4232,33 @@ describe("omniac.nvim", function()
     assert_equal(submitted, "/resume", "enter should complete the best slash command candidate")
   end)
 
+  it("submitting a slash command closes suggestions before opening another window", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local command_win
+
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 48 },
+    }, function(text)
+      assert_equal(text, "/changes", "the local command should be submitted")
+      vim.cmd("botright 3new")
+    end)
+
+    feed("i/changes<Esc>")
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win)) == "omniac://commands" then
+        command_win = win
+      end
+    end
+    assert_true(command_win ~= nil, "suggestions should be visible before submission")
+
+    feed("<CR>")
+    assert_equal(vim.api.nvim_win_is_valid(command_win), false, "submitted command should close suggestions")
+    vim.cmd("close")
+  end)
+
   it("visual range command attaches an ACP reference to the next prompt", function()
     cleanup_omniac_buffers()
     package.loaded["omniac"] = nil
