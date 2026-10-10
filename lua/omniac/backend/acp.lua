@@ -1317,9 +1317,10 @@ function M.new(config)
       return
     end
 
-    self.transport:request("session/cancel", {
+    self.transport:notify("session/cancel", {
       sessionId = self.session_id,
-    }, callback)
+    })
+    callback(nil)
   end
 
   function state:_flush_pending_prompt()
@@ -1539,6 +1540,16 @@ function M.new(config)
       })
       self.transport:request("session/prompt", request_params, function(err, result)
         if err then
+          local turn_id = self.active_turn_id
+          self.active_turn_id = nil
+          self:_emit_notification({
+            method = "omniac/prompt_failed",
+            params = {
+              sessionId = self.session_id,
+              turnId = turn_id,
+              error = err,
+            },
+          })
           if callback then
             callback(err, nil, result)
           end

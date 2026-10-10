@@ -9,6 +9,7 @@ local model_dialog = require("omniac.model_dialog")
 local filesystem = require("omniac.filesystem")
 local tree = require("omniac.tree")
 local changes = require("omniac.changes")
+local modified_approval = require("omniac.modified_approval")
 
 local M = {
   config = config.defaults,
@@ -451,6 +452,9 @@ function M.open_chat()
           turnId = turn_id,
         },
       }, M.config)
+      if M.modified_approval then
+        M.modified_approval:cancel_turn(turn_id)
+      end
     end)
   end)
 
@@ -695,6 +699,13 @@ function M.connect(opts)
   end
 
   local client = acp_backend.new(cfg)
+  local function new_modified_approval()
+    return modified_approval.new(client, cfg, function()
+      return M.backend == client
+    end)
+  end
+  local followup = new_modified_approval()
+  M.modified_approval = followup
   client
     :on_request(function(message, reply)
       local method = message and message.method
@@ -705,7 +716,11 @@ function M.connect(opts)
       end
 
       if method == "session/request_permission" then
-        approval.review_acp_permission(params, logged_reply, cfg)
+        approval.review_acp_permission(params, logged_reply, cfg, function(item)
+          return followup:queue(item)
+        end, function(request, payload)
+          return followup:matches_followup(request, payload)
+        end)
         return
       end
 
@@ -738,6 +753,9 @@ function M.connect(opts)
 
       if method == "omniac/session_started" then
         changes.reset(params.sessionId)
+        followup:close()
+        followup = new_modified_approval()
+        M.modified_approval = followup
       elseif method == "omniac/prompt_started" then
         changes.start_turn(params)
       end
@@ -754,6 +772,11 @@ function M.connect(opts)
         return
       end
 
+      if method == "omniac/prompt_failed" then
+        followup:finish_turn(params)
+        return
+      end
+
       if method == "omniac/response" or method == "omniac/response_completed" then
         local count = changes.finish_turn(params)
         local review_mode = cfg.ui and cfg.ui.change_review or "summary"
@@ -767,6 +790,7 @@ function M.connect(opts)
             cfg
           )
         end
+        followup:finish_turn(params)
         return
       end
 
@@ -794,6 +818,8 @@ function M.connect(opts)
         { title = "omniac exit" }
       )
       M.backend = nil
+      followup:close()
+      M.modified_approval = nil
     end)
 
   M.backend = client:start()
@@ -801,6 +827,10 @@ function M.connect(opts)
 end
 
 function M.disconnect()
+  if M.modified_approval then
+    M.modified_approval:close()
+    M.modified_approval = nil
+  end
   if M.backend then
     M.backend:close()
     M.backend = nil

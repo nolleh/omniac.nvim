@@ -65,6 +65,7 @@ describe("omniac.nvim", function()
     local client = require("omniac.transport.stdio").new({})
 
     assert_true(type(client.request) == "function", "transport should expose JSON-RPC requests")
+    assert_true(type(client.notify) == "function", "transport should expose JSON-RPC notifications")
     assert_true(type(client.respond) == "function", "transport should expose JSON-RPC responses")
     assert_equal(client.thread_start, nil, "transport should not expose Codex thread startup")
     assert_equal(client.turn_start, nil, "transport should not expose Codex turn startup")
@@ -83,6 +84,7 @@ describe("omniac.nvim", function()
     end
 
     client:request("initialize", {})
+    client:notify("session/cancel", { sessionId = "sess_1" })
     client:respond("server-request", {})
     client:_dispatch_message({
       jsonrpc = "2.0",
@@ -93,10 +95,13 @@ describe("omniac.nvim", function()
 
     assert_equal(sent[1].jsonrpc, "2.0", "requests should declare JSON-RPC 2.0")
     assert_equal(sent[1].method, "initialize", "request method should be preserved")
-    assert_equal(sent[2].jsonrpc, "2.0", "responses should declare JSON-RPC 2.0")
-    assert_equal(sent[2].id, "server-request", "response id should be preserved")
-    assert_equal(sent[3].jsonrpc, "2.0", "automatic responses should declare JSON-RPC 2.0")
-    assert_equal(sent[3].id, "agent-request", "automatic response id should be preserved")
+    assert_equal(sent[2].method, "session/cancel", "notification method should be preserved")
+    assert_equal(sent[2].id, nil, "notifications must not have an id")
+    assert_equal(sent[2].params.sessionId, "sess_1", "notification params should be preserved")
+    assert_equal(sent[3].jsonrpc, "2.0", "responses should declare JSON-RPC 2.0")
+    assert_equal(sent[3].id, "server-request", "response id should be preserved")
+    assert_equal(sent[4].jsonrpc, "2.0", "automatic responses should declare JSON-RPC 2.0")
+    assert_equal(sent[4].id, "agent-request", "automatic response id should be preserved")
   end)
 
   it("stdio transport keeps large debug chunks as summaries", function()
@@ -2399,7 +2404,7 @@ describe("omniac.nvim", function()
     dialog.dismiss()
   end)
 
-  it("permission selector continues below a single bordered card", function()
+  it("permission selector has a bordered action area below the request", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.permission_dialog"] = nil
     local dialog = require("omniac.permission_dialog")
@@ -2418,22 +2423,46 @@ describe("omniac.nvim", function()
     local selector_lines = vim.api.nvim_buf_get_lines(selector_buf, 0, -1, false)
     local selected_hl = vim.api.nvim_get_hl(0, { name = "OmniacPermissionSelected" })
 
-    assert_true(body_config.border ~= nil, "permission body should keep the single dialog outline")
+    assert_true(body_config.border ~= nil, "permission body should keep its outline")
     assert_equal(body_config.title_pos, "left", "permission title should use native left alignment")
     assert_true(
-      selector_config.border == nil or selector_config.border == "none",
-      "permission actions should not render a second outline"
+      selector_config.border ~= nil and selector_config.border ~= "none",
+      "permission actions should have an outline"
     )
-    assert_equal(selector_config.col, body_config.col + 1, "permission actions should align with the card content")
+    assert_equal(selector_config.col, body_config.col, "permission actions should align with the card")
     assert_equal(
       selector_config.row,
-      body_config.row + body_config.height + 2,
-      "permission actions should continue directly below the card"
+      body_config.row + body_config.height + 3,
+      "permission actions should sit below the request card"
     )
     assert_true(selector_lines[1]:match("^› 1  Allow Once") ~= nil, "selected permission action should use a cursor")
     assert_equal(selected_hl.fg, tonumber("11111b", 16), "selected permission action should use the session foreground")
     assert_equal(selected_hl.bg, tonumber("94e2d5", 16), "selected permission action should use the session background")
     assert_equal(selected_hl.bold, true, "selected permission action should match the bold session selection")
+
+    dialog.dismiss()
+  end)
+
+  it("permission body wraps long commands and preserves source newlines", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.permission_dialog"] = nil
+    local dialog = require("omniac.permission_dialog")
+    local command = "python3 -c '" .. string.rep("print(1234567890);", 30) .. "'"
+
+    dialog.open({ { optionId = "allow_once", name = "Allow Once" } }, {
+      prompt = "Permission requested: execute",
+      body = "Command:\n```sh\n" .. command .. "\nsecond line\n```",
+    }, function(_) end)
+
+    local body_buf = vim.fn.bufnr("omniac://permission")
+    local body_win = vim.fn.win_findbuf(body_buf)[1]
+    local lines = vim.api.nvim_buf_get_lines(body_buf, 0, -1, false)
+    assert_equal(lines[5], command, "the full command should remain in the buffer")
+    assert_equal(lines[6], "second line", "source newlines should stay separate")
+    assert_equal(vim.wo[body_win].wrap, true, "long command lines should wrap visually")
+    assert_true(vim.api.nvim_win_get_width(body_win) >= 50, "request card should leave space for command text")
+    feed("<C-d>")
+    assert_equal(vim.fn.bufnr("omniac://permission"), body_buf, "scrolling details should keep the dialog open")
 
     dialog.dismiss()
   end)
@@ -2608,6 +2637,271 @@ describe("omniac.nvim", function()
     vim.cmd("w")
     assert_true(replied ~= nil, "accepting late diff should reply")
     assert_equal(replied.outcome.optionId, "allow_once", "accepted late diff should use the allow option")
+  end)
+
+  it("edited diff approval rejects the original edit and captures adjusted text", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.approval"] = nil
+    local approval = require("omniac.approval")
+    local replied
+    local adjusted
+
+    approval.review_acp_permission({
+      sessionId = "sess_adjusted",
+      toolCall = {
+        kind = "edit",
+        toolCallId = "call_adjusted",
+        content = { { type = "diff", path = "/tmp/omniac-adjusted.txt", oldText = "old", newText = "proposed" } },
+      },
+      options = {
+        { optionId = "allow_once", kind = "allow_once", name = "Allow Once" },
+        { optionId = "reject_once", kind = "reject_once", name = "Reject" },
+      },
+    }, function(result)
+      replied = result
+    end, {}, function(item)
+      adjusted = item
+      return true
+    end)
+
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "user edit" })
+    vim.cmd("w")
+
+    assert_equal(replied.outcome.optionId, "reject_once", "adjusted approval should reject original proposal")
+    assert_equal(adjusted.path, "/tmp/omniac-adjusted.txt", "adjustment should retain target path")
+    assert_equal(adjusted.proposedText, "proposed", "adjustment should retain original proposal")
+    assert_equal(adjusted.adjustedText, "user edit", "adjustment should capture final buffer contents")
+    assert_equal(vim.fn.filereadable(adjusted.path), 0, "approval should not write the target file")
+  end)
+
+  it("diff edit followed by undo still uses the adjusted approval flow", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.approval"] = nil
+    local approval = require("omniac.approval")
+    local replied
+    local adjusted
+
+    approval.review_acp_permission({
+      sessionId = "sess_undo",
+      toolCall = {
+        kind = "edit",
+        toolCallId = "call_undo",
+        content = { { type = "diff", path = "/tmp/omniac-undo.txt", oldText = "old", newText = "proposed" } },
+      },
+      options = {
+        { optionId = "allow_once", kind = "allow_once", name = "Allow Once" },
+        { optionId = "reject_once", kind = "reject_once", name = "Reject" },
+      },
+    }, function(result)
+      replied = result
+    end, {}, function(item)
+      adjusted = item
+      return true
+    end)
+
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "temporary" })
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "proposed" })
+    vim.cmd("w")
+
+    assert_equal(replied.outcome.optionId, "reject_once", "any text edit should use the follow-up flow")
+    assert_equal(adjusted.adjustedText, "proposed", "final text should be captured without comparing it")
+  end)
+
+  it("adjusted approval waits for turn completion before prompting", function()
+    local ui = require("omniac.ui")
+    local original_activity = ui.set_activity
+    local original_message = ui.add_message
+    ui.set_activity = function() end
+    ui.add_message = function() end
+
+    local prompts = {}
+    local client = { session_id = "sess_followup", active_turn_id = 7 }
+    client.prompt = function(self, text, _, callback)
+      table.insert(prompts, text)
+      self.active_turn_id = 8
+      self.prompt_callback = callback
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    assert_true(
+      followup:queue({
+        sessionId = "sess_followup",
+        path = "/tmp/example.txt",
+        proposedText = "proposed",
+        adjustedText = "adjusted",
+      }),
+      "adjustment should queue during the active turn"
+    )
+    assert_true(
+      followup:queue({
+        sessionId = "sess_followup",
+        path = "/tmp/second.txt",
+        proposedText = "second proposal",
+        adjustedText = "second adjustment",
+      }),
+      "another adjusted file should join the same turn"
+    )
+    assert_equal(#prompts, 0, "permission response must not start another prompt")
+
+    followup:finish_turn({ sessionId = "sess_followup", turnId = 7, stopReason = "cancelled" })
+    client.active_turn_id = nil
+    vim.wait(100, function()
+      return #prompts == 1
+    end)
+    assert_equal(#prompts, 1, "follow-up should start after a rejected edit ends the turn as cancelled")
+    assert_true(prompts[1]:match("adjusted") ~= nil, "follow-up should carry adjusted content")
+    assert_true(prompts[1]:match("second adjustment") ~= nil, "follow-up should carry every adjusted file")
+    client.active_turn_id = nil
+    client.prompt_callback(nil, {})
+
+    ui.set_activity = original_activity
+    ui.add_message = original_message
+  end)
+
+  it("auto-approves only the matching adjusted edit in its follow-up turn", function()
+    cleanup_omniac_buffers()
+    local path = "/private/tmp/omniac-followup-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    vim.fn.writefile({ "original" }, path)
+    local client = { session_id = "sess_match", active_turn_id = 10 }
+    client.prompt = function(self, _, _, callback)
+      self.active_turn_id = 11
+      self.prompt_callback = callback
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    followup:queue({
+      sessionId = "sess_match",
+      path = path,
+      proposedText = "proposal",
+      adjustedText = "user edit\n",
+    })
+    followup:finish_turn({ sessionId = "sess_match", turnId = 10, stopReason = "cancelled" })
+    client.active_turn_id = nil
+    vim.wait(100, function()
+      return client.active_turn_id == 11
+    end)
+
+    local approval = require("omniac.approval")
+    local function request(new_text, old_text)
+      return {
+        sessionId = "sess_match",
+        toolCall = {
+          kind = "edit",
+          toolCallId = "match-" .. tostring(vim.loop.hrtime()),
+          content = { { type = "diff", path = path, oldText = old_text, newText = new_text } },
+        },
+        options = {
+          { optionId = "allow_once", kind = "allow_once", name = "Allow Once" },
+          { optionId = "cancel", kind = "reject_once", name = "Reject" },
+        },
+      }
+    end
+    local function review(params)
+      local response
+      approval.review_acp_permission(
+        params,
+        function(result)
+          response = result
+        end,
+        {},
+        nil,
+        function(permission, payload)
+          return followup:matches_followup(permission, payload)
+        end
+      )
+      return response
+    end
+
+    local matched = review(request("user edit\n", "original\n"))
+    assert_equal(matched.outcome.optionId, "allow_once", "exact adjusted text should be accepted without a diff")
+    assert_equal(vim.fn.bufnr("Omniac permission: " .. path), -1, "automatic approval should not open a diff")
+
+    local repeated = review(request("user edit\n", "original\n"))
+    assert_equal(repeated, nil, "matching approval should be consumed after one use")
+    vim.cmd("q")
+
+    local changed = review(request("other edit\n", "original\n"))
+    assert_equal(changed, nil, "different proposed content should require review")
+    vim.cmd("q")
+
+    vim.fn.writefile({ "changed elsewhere" }, path)
+    local stale = review(request("user edit\n", "original\n"))
+    assert_equal(stale, nil, "changed current content should require review")
+    vim.cmd("q")
+
+    client.active_turn_id = nil
+    client.prompt_callback(nil, {})
+    vim.fn.delete(path)
+  end)
+
+  it("adjusted approval queue is discarded when its connection closes", function()
+    local ui = require("omniac.ui")
+    local original_activity = ui.set_activity
+    ui.set_activity = function() end
+
+    local prompt_count = 0
+    local client = { session_id = "sess_closed", active_turn_id = 3 }
+    client.prompt = function()
+      prompt_count = prompt_count + 1
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    assert_true(
+      followup:queue({
+        sessionId = "sess_closed",
+        path = "/tmp/example.txt",
+        proposedText = "before",
+        adjustedText = "after",
+      }),
+      "adjustment should queue before disconnect"
+    )
+    followup:finish_turn({ sessionId = "sess_closed", turnId = 3 })
+    followup:close()
+    client.active_turn_id = nil
+    vim.wait(50)
+    assert_equal(prompt_count, 0, "closed connection must not send a queued follow-up")
+
+    ui.set_activity = original_activity
+  end)
+
+  it("adjusted approval reports a failed follow-up", function()
+    local ui = require("omniac.ui")
+    local original_activity = ui.set_activity
+    local original_message = ui.add_message
+    local messages = {}
+    ui.set_activity = function() end
+    ui.add_message = function(_, message)
+      table.insert(messages, message)
+    end
+
+    local client = { session_id = "sess_error", active_turn_id = 4 }
+    client.prompt = function(self, _, _, callback)
+      self.active_turn_id = 5
+      self.prompt_callback = callback
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    followup:queue({
+      sessionId = "sess_error",
+      path = "/tmp/example.txt",
+      proposedText = "before",
+      adjustedText = "after",
+    })
+    followup:finish_turn({ sessionId = "sess_error", turnId = 4 })
+    client.active_turn_id = nil
+    vim.wait(100, function()
+      return client.prompt_callback ~= nil
+    end)
+    client.active_turn_id = nil
+    client.prompt_callback(nil, { stopReason = "error" })
+    assert_true(messages[1]:match("follow%-up failed") ~= nil, "failed follow-up should be visible")
+
+    ui.set_activity = original_activity
+    ui.add_message = original_message
   end)
 
   it("permission dialog ignores escape without cancelling", function()
@@ -3016,21 +3310,20 @@ describe("omniac.nvim", function()
     assert_equal(request.params.modeId, "agent", "cycle should select the next legacy mode")
   end)
 
-  it("ACP cancel sends session cancel request", function()
+  it("ACP cancel sends session cancel notification", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")
     local client = acp.new({})
-    local request
+    local notification
 
     client.session_id = "sess_1"
     client.running = true
     client.transport = {
-      request = function(_, method, params, callback)
-        request = {
+      notify = function(_, method, params)
+        notification = {
           method = method,
           params = params,
         }
-        callback(nil, {})
       end,
     }
 
@@ -3038,8 +3331,8 @@ describe("omniac.nvim", function()
       assert_equal(err, nil, "cancel should succeed")
     end)
 
-    assert_equal(request.method, "session/cancel", "cancel should use the ACP cancel method")
-    assert_equal(request.params.sessionId, "sess_1", "cancel should target the active session")
+    assert_equal(notification.method, "session/cancel", "cancel should use the ACP notification")
+    assert_equal(notification.params.sessionId, "sess_1", "cancel should target the active session")
   end)
 
   it("ACP completed tool call emits tool result output", function()

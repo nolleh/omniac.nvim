@@ -37,6 +37,24 @@ local function first_option_id(request)
   return nil
 end
 
+local function allow_once_option_id(request)
+  for _, option in ipairs((request and request.options) or {}) do
+    if type(option) == "table" and option.kind == "allow_once" then
+      return option.id or option.optionId or option.value
+    end
+  end
+  return nil
+end
+
+local function reject_option_id(request)
+  for _, option in ipairs((request and request.options) or {}) do
+    if type(option) == "table" and option.kind == "reject_once" then
+      return option.id or option.optionId or option.value
+    end
+  end
+  return nil
+end
+
 local content_items
 local permission_response
 
@@ -308,6 +326,25 @@ local function open_permission_diff(pending, payload)
   if pending.opened or pending.replied then
     return false
   end
+  local allow_id = allow_once_option_id(pending.params)
+  if allow_id and pending.matches_followup and pending.matches_followup(pending.params, payload) then
+    pending.replied = true
+    pending_acp_permissions[pending.tool_call_id] = nil
+    pending_acp_diffs[pending.tool_call_id] = nil
+    if pending.diff_timer then
+      pending.diff_timer:stop()
+      pending.diff_timer:close()
+      pending.diff_timer = nil
+    end
+    update_permission_text(
+      pending.notice_index,
+      pending.notice_text,
+      "Decision: User-adjusted edit matched; accepted.",
+      pending.config
+    )
+    pending.reply({ outcome = { outcome = "selected", optionId = allow_id } })
+    return true
+  end
   pending.opened = true
   pending.selector_open = false
   permission_dialog.dismiss()
@@ -323,13 +360,43 @@ local function open_permission_diff(pending, payload)
     title = "Omniac permission: " .. payload.path,
     origin_win = diff.select_review_window(),
     separate_tab = diff_separate_tab(pending.config),
-  }, function(accepted)
+  }, function(accepted, accepted_lines, edited)
     if pending.replied then
       return
     end
     pending.replied = true
     pending_acp_permissions[pending.tool_call_id] = nil
     pending_acp_diffs[pending.tool_call_id] = nil
+    if accepted and edited then
+      local reject_id = reject_option_id(pending.params)
+      if reject_id and pending.on_adjusted then
+        local adjusted = {
+          sessionId = pending.params.sessionId,
+          path = payload.path,
+          proposedText = payload.newText,
+          adjustedText = table.concat(accepted_lines or {}, "\n"),
+        }
+        local queued = pending.on_adjusted(adjusted)
+        if queued then
+          update_permission_text(
+            pending.notice_index,
+            pending.notice_text,
+            "Decision: Adjusted in diff; applying after this turn finishes.",
+            pending.config
+          )
+          pending.reply({ outcome = { outcome = "selected", optionId = reject_id } })
+          return
+        end
+      end
+      update_permission_text(
+        pending.notice_index,
+        pending.notice_text,
+        "Decision: Adjusted diff could not be forwarded; original edit was not approved.",
+        pending.config
+      )
+      pending.reply({ outcome = { outcome = "cancelled" } })
+      return
+    end
     update_permission_text(
       pending.notice_index,
       pending.notice_text,
@@ -415,7 +482,7 @@ local function write_lines(path, lines)
   end
 end
 
-function M.review_acp_permission(params, reply, config)
+function M.review_acp_permission(params, reply, config, on_adjusted, matches_followup)
   local tool_call = params and params.toolCall
   local notice_index, notice_text = show_permission_text(params, config)
   if type(tool_call) ~= "table" then
@@ -436,6 +503,8 @@ function M.review_acp_permission(params, reply, config)
     config = config,
     notice_index = notice_index,
     notice_text = notice_text,
+    on_adjusted = on_adjusted,
+    matches_followup = matches_followup,
     opened = false,
     replied = false,
   }

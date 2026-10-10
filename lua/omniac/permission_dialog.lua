@@ -220,7 +220,7 @@ local function render_selector()
 
   table.insert(lines, "")
   table.insert(marks, { line = #lines, group = nil })
-  table.insert(lines, "enter select  ·  1-9 select  ·  j/k move  ·  q " .. state.cancel_label)
+  table.insert(lines, "enter select  ·  1-9 select  ·  j/k move  ·  ctrl-d/u details  ·  q " .. state.cancel_label)
   table.insert(marks, { line = #lines, group = "OmniacPermissionMuted" })
 
   vim.bo[state.selector_buf].readonly = false
@@ -313,19 +313,23 @@ function M.open(options, opts, callback)
   state.title = normalize_text(opts.title or "Permission")
   state.selected = #state.options > 0 and math.min(math.max(tonumber(opts.selected) or 1, 1), #state.options) or 0
 
-  local width = math.min(math.max(58, math.floor(vim.o.columns * 0.36)), math.max(42, vim.o.columns - 8))
-  local body_text_lines = 1
+  local width = math.min(math.max(72, math.floor(vim.o.columns * 0.58)), math.max(50, vim.o.columns - 8))
+  local content_width = math.max(1, width - 4)
+  local body_text_lines = math.max(1, math.ceil(vim.fn.strdisplaywidth(state.prompt) / content_width))
   if state.body ~= "" then
-    body_text_lines = body_text_lines + 2 + #vim.split(state.body, "\n", { plain = true, trimempty = false })
+    body_text_lines = body_text_lines + 2
+    for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
+      body_text_lines = body_text_lines + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / content_width))
+    end
   end
   local selector_lines = math.max(3, #state.options + 2)
   local max_total = math.max(8, vim.o.lines - 8)
   local selector_height = math.min(selector_lines, max_total)
-  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - 2))
-  local total_height = body_height + selector_height + 2
+  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - 5))
+  local total_height = body_height + selector_height + 5
   if total_height > max_total then
-    selector_height = math.max(3, max_total - body_height - 2)
-    total_height = body_height + selector_height + 2
+    selector_height = math.max(3, max_total - body_height - 5)
+    total_height = body_height + selector_height + 5
   end
   local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
@@ -350,7 +354,8 @@ function M.open(options, opts, callback)
     title = " " .. state.title .. " ",
     title_pos = "left",
   })
-  vim.wo[state.body_win].wrap = false
+  vim.wo[state.body_win].wrap = true
+  vim.wo[state.body_win].linebreak = false
   vim.wo[state.body_win].cursorline = false
   vim.wo[state.body_win].signcolumn = "no"
   vim.wo[state.body_win].winhighlight = "FloatBorder:OmniacPermissionBorder,FloatTitle:OmniacPermissionTitle"
@@ -368,15 +373,15 @@ function M.open(options, opts, callback)
     relative = "editor",
     width = width,
     height = selector_height,
-    row = row + body_height + 2,
-    col = col + 1,
+    row = row + body_height + 3,
+    col = col,
     style = "minimal",
-    border = "none",
+    border = "rounded",
   })
   vim.wo[state.selector_win].wrap = false
   vim.wo[state.selector_win].cursorline = false
   vim.wo[state.selector_win].signcolumn = "no"
-  vim.wo[state.selector_win].winhighlight = "NormalFloat:NormalFloat"
+  vim.wo[state.selector_win].winhighlight = "FloatBorder:OmniacPermissionBorder"
 
   local function map(lhs, fn)
     vim.keymap.set({ "n", "i" }, lhs, function()
@@ -399,6 +404,20 @@ function M.open(options, opts, callback)
     move(-1)
   end)
   map("q", reject)
+  local function scroll_body(key)
+    if not valid_win(state.body_win) then
+      return
+    end
+    vim.api.nvim_win_call(state.body_win, function()
+      vim.cmd("normal! " .. vim.api.nvim_replace_termcodes(key, true, false, true))
+    end)
+  end
+  map("<C-d>", function()
+    scroll_body("<C-d>")
+  end)
+  map("<C-u>", function()
+    scroll_body("<C-u>")
+  end)
   for index = 1, math.min(9, #state.options) do
     map(tostring(index), function()
       choose(index)

@@ -221,7 +221,7 @@ local function close_review(review, accepted)
 
   active_reviews[review.id] = nil
   if review.callback then
-    review.callback(accepted, accepted_lines)
+    review.callback(accepted, accepted_lines, review.edited == true)
   end
   close_review_windows(review)
 end
@@ -430,7 +430,17 @@ function M.open_review(path, before_lines, after_lines, opts, callback)
     fixed_widths = handles.fixed_widths,
     separate_tab = handles.separate_tab,
     callback = callback,
+    edited = false,
   }
+
+  vim.api.nvim_buf_attach(handles.after_buf, false, {
+    on_lines = function()
+      local review = active_reviews[review_id]
+      if review then
+        review.edited = true
+      end
+    end,
+  })
 
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = augroup,

@@ -339,6 +339,14 @@ function M.new(config)
     return id
   end
 
+  function state:notify(method, params)
+    self:_send_raw({
+      jsonrpc = "2.0",
+      method = method,
+      params = params or {},
+    })
+  end
+
   function state:respond(id, result, err)
     local response = {
       jsonrpc = "2.0",

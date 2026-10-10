@@ -34,18 +34,15 @@ This file tracks Omniac-facing product and interaction work that is independent 
 - [x] Track ACP edits and client-mediated file writes by turn and session, with a read-only review browser.
 - [x] Render multiline activity messages safely without disrupting the input layout.
 
-### Post-edit Approval
+### Modified Approval Follow-up
 
-Add an optional approval workflow for changes that the agent has already applied to the working tree. This is distinct from ACP `session/request_permission`: pre-execution permission decides whether a proposed tool call may run, while post-edit approval decides whether an already-applied result should remain on disk.
+Let the user make small, quick adjustments directly in the Neovim diff and approve that adjusted version in the same review flow. ACP permission responses select an option; they do not carry the user's replacement file contents. Treat the follow-up as an internal continuation of that approval, without a separate `/changes` command. The existing `/changes` views remain read-only history.
 
-- [ ] Keep the existing `/changes` and `/changes session` views read-only by default, and add an explicit entry point for post-edit approval (candidate: `/changes approve [session]`).
-- [ ] At turn completion, build an approval queue from each path's first full `oldText` snapshot and final full `newText` snapshot, deduplicating repeated edits to the same path.
-- [ ] Review multiple changed files sequentially and show a per-file decision state: pending, kept, reverted, skipped, or conflicted.
-- [ ] Let the user keep or revert the current file, then move to the next pending file; add keep-all / revert-all actions only after every target passes the same safety checks.
-- [ ] Keep “accept” non-destructive: it records that the current result is intentionally kept and must not write the file again.
-- [ ] Allow “reject” to restore the recorded baseline only when the current disk content and any loaded buffer still match the recorded final snapshot. If the file changed again, has unsaved buffer edits, or no longer matches the tracked state, mark it conflicted and open a three-way/manual review instead of overwriting it.
-- [ ] Handle operation-specific rollback safely: remove an added file only when its contents still match, restore a deleted file only when the path is still absent, and defer move/copy rollback until both source and destination snapshots are available.
-- [ ] Never replay completed ACP edit notifications through the write path. They remain metadata used to construct the approval queue; all rollback writes must come from an explicit user decision and pass the conflict guard.
-- [ ] Keep approval history connection-local, matching the current change tracker. Clear pending decisions after load, resume, or reconnect, and never infer approval state from replayed session history; `git diff` remains the source of truth across connections.
-- [ ] Surface the final turn summary in chat/activity, including kept, reverted, skipped, and conflicted counts, without blocking the next prompt unless an explicit post-edit approval mode requests it.
-- [ ] Add regression tests for repeated edits to one file, add/delete operations, loaded modified buffers, disk changes made after the turn, multi-file mixed decisions, reconnect/reset behavior, and the guarantee that accept never rewrites content.
+- [x] Track text edits in the proposed diff buffer through Neovim's `on_lines` callback. An untouched approval uses the normal ACP permission response; any edited approval uses the follow-up flow, including an edit later undone.
+- [x] For an edited approval, capture the final text and path, reject the original ACP permission request, and explain in chat/activity that the user's small adjustments will be applied after the current turn completes. Do not present this as a failed user action.
+- [x] Wait for the corresponding turn to finish before sending a new prompt with the proposal, the user's adjusted content, and the target path. Do not start another ACP prompt while the permission request or original turn is still active.
+- [x] During that follow-up turn, approve an edit without reopening the diff only when its path and proposed text exactly match the saved user adjustment and the current file content matches the edit's old text. Require normal review when comparison is unavailable or differs; consume each match once.
+- [x] Capture the adjusted content before closing the review buffer; do not write it to the target file as a side effect of accepting the diff. Let the follow-up turn apply the patch through the agent's normal edit flow.
+- [x] Handle multiple edited approvals in one turn without dropping or duplicating content, and clear queued follow-ups on disconnect, load, resume, or session replacement.
+- [x] Report when the follow-up prompt starts and when it finishes, including any failure, so the user knows when the modified approval process is complete.
+- [x] Add regression tests for unchanged approval, edited approval, rejection response, deferred follow-up, multi-file edits, and connection reset.
