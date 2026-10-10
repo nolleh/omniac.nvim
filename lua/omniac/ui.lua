@@ -119,6 +119,14 @@ local function floating_win(win)
   return ok and win_config.relative ~= ""
 end
 
+local function omniac_split_win(win)
+  return win == state.card_win
+    or win == state.chat_win
+    or win == state.activity_win
+    or win == state.input_win
+    or win == state.status_win
+end
+
 local function width(config)
   local value = ((config or {}).ui or {}).chat_width or 58
   return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
@@ -2814,6 +2822,10 @@ function M.open(config, submit)
     group = augroup,
     callback = function(args)
       local closed_win = tonumber(args.match)
+      if closed_win and omniac_split_win(closed_win) then
+        vim.schedule(M.close)
+        return
+      end
       if closed_win and floating_win(closed_win) then
         return
       end
