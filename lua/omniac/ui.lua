@@ -48,6 +48,7 @@ local state = {
   input_chunks = nil,
   input_attachments = {},
   transient_activity = nil,
+  change_summary = false,
   available_commands = {},
   session_mode = nil,
   session_model = nil,
@@ -2802,6 +2803,18 @@ function M.open(config, submit)
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
   end
 
+  for key, scope in pairs({ t = "turn", s = "session" }) do
+    vim.keymap.set("n", key, function()
+      if state.change_summary and state.change_review_handler then
+        state.change_review_handler(scope)
+      end
+    end, {
+      buffer = state.activity_buf,
+      nowait = true,
+      desc = "Review Omniac " .. scope .. " changes",
+    })
+  end
+
   vim.keymap.set({ "n", "i" }, "<Tab>", focus_adjacent_omniac_window, {
     buffer = state.chat_buf,
     nowait = true,
@@ -2907,6 +2920,7 @@ function M.set_status(status, config)
   end
   if state.status == "working" or state.status ~= "connecting" then
     state.transient_activity = nil
+    state.change_summary = false
   end
   render_chat(config)
   if state.card_pinned then
@@ -2920,11 +2934,16 @@ function M.set_status(status, config)
   end
 end
 
-function M.set_activity(text, config)
+function M.set_activity(text, config, opts)
   state.transient_activity = text and text ~= "" and text or nil
+  state.change_summary = state.transient_activity ~= nil and opts ~= nil and opts.change_summary == true
   render_activity()
   render_status()
   sync_activity_timer()
+end
+
+function M.set_change_review_handler(handler)
+  state.change_review_handler = handler
 end
 
 function M.set_mode_cycle_handler(handler)

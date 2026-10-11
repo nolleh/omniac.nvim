@@ -7,6 +7,29 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim activity", function()
   after_each(helpers.cleanup_after_test)
 
+  it("opens turn and session changes from a visible change summary", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }
+    local scopes = {}
+    ui.set_change_review_handler(function(scope)
+      table.insert(scopes, scope)
+    end)
+    local ui_state = ui.open(config, function(_) end)
+
+    vim.api.nvim_set_current_win(ui_state.activity_win)
+    ui.set_activity("Changed 2 files this turn", config, { change_summary = true })
+    feed("t")
+    feed("s")
+    assert_equal(scopes[1], "turn", "t should review the latest turn")
+    assert_equal(scopes[2], "session", "s should review the session")
+
+    ui.set_activity("Another activity", config)
+    feed("t")
+    assert_equal(#scopes, 2, "change keys should stop working after the summary is replaced")
+  end)
+
   it("activity text keeps horizontal padding when truncated", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
