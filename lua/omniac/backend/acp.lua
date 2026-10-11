@@ -994,6 +994,55 @@ function M.new(config)
     self.transport:request("session/new", self:_session_params(), callback)
   end
 
+  function state:new_session(callback)
+    callback = callback or function() end
+    if not self.transport or not self.running then
+      callback({ message = "ACP transport is not running" })
+      return
+    end
+    if self.active_turn_id ~= nil then
+      callback({ message = "Cannot start a new session while a turn is active" })
+      return
+    end
+
+    self:_create_session(function(err, result)
+      if err then
+        callback(err)
+        return
+      end
+
+      local session_id = session_id_from_result(result)
+      if not session_id then
+        callback({ message = "session/new did not return a session id" })
+        return
+      end
+
+      self.session_id = session_id
+      self.response_chunks = {}
+      self.response_emitted = false
+      self.response_streamed = false
+      self.edit_tool_calls = {}
+      self.active_turn_id = nil
+      self.pending_prompt = nil
+      self.config_options = nil
+      self.session_mode = nil
+      self.session_model = nil
+      self:_apply_session_state(result)
+
+      self:_set_session_mode(function(mode_err)
+        self:_emit_notification({
+          method = "omniac/session_started",
+          params = vim.tbl_extend("force", result_table(result), {
+            sessionId = self.session_id,
+            method = "session/new",
+            clearChat = true,
+          }),
+        })
+        callback(mode_err)
+      end)
+    end)
+  end
+
   function state:_load_session(session_id, callback)
     local params = self:_session_params()
     params.sessionId = session_id

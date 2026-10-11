@@ -126,10 +126,9 @@ Use a project-local working directory and enable debug logging:
 
 - `:OmniacConnect` starts the configured subprocess
 - type `/resume` in the Omniac chat to list sessions and open the session-selection dialog
-- `:OmniacSession` opens the same session-selection flow as a command
-- `:OmniacSessionNew` starts a fresh ACP session
-- `:OmniacSessionLoad {sessionId}` loads an ACP session and replays its history when the agent advertises `loadSession`
-- `:OmniacSessionResume {sessionId}` resumes an ACP session without replaying history when the agent advertises `sessionCapabilities.resume`
+- `:OmniacSession` opens the session selector; when disconnected, it opens Omniac and asks the agent for its available sessions
+- type `/clear` to start a fresh ACP session while keeping the current connection
+- in the session-selection dialog, `[n]` starts a fresh ACP session; `[Enter]` loads a session and `[r]` resumes one when supported
 - `:Omniac` opens a Neovim chat/input/status UI
 - In pinned-card mode, focus the welcome card and move the cursor normally: nearby vertical movement draws a small hop, moving sideways across the mascot pets it, and repeated pets make it briefly flee. These reactions do not remap `h/j/k/l`.
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly

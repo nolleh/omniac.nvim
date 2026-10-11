@@ -376,7 +376,17 @@ function M.setup(opts)
   end
 
   local function choose_session()
-    M.select_session()
+    if M.backend then
+      M.select_session()
+    elseif ui.is_open() then
+      M.connect({
+        session = { action = "select" },
+      })
+    else
+      M.open_chat({
+        session = { action = "select" },
+      })
+    end
   end
 
   local function resize(cmd)
@@ -392,15 +402,6 @@ function M.setup(opts)
   register_command("OmniacDisconnect", disconnect, {})
   register_command("OmniacExit", exit, {})
   register_command("OmniacSession", choose_session, {})
-  register_command("OmniacSessionNew", function()
-    connect_session("new", nil)
-  end, {})
-  register_command("OmniacSessionLoad", function(cmd)
-    connect_session("load", cmd.args)
-  end, { nargs = 1 })
-  register_command("OmniacSessionResume", function(cmd)
-    connect_session("resume", cmd.args)
-  end, { nargs = 1 })
   register_command("OmniacAsk", ask, { nargs = "?" })
   register_command("OmniacResize", resize, { nargs = 1 })
   register_command("OmniacDebug", debug, {})
@@ -423,7 +424,7 @@ function M.setup(opts)
   end, {})
 end
 
-function M.open_chat()
+function M.open_chat(connect_opts)
   ui.set_change_review_handler(function(scope)
     M.review_changes(scope)
   end)
@@ -481,6 +482,24 @@ function M.open_chat()
     local command, arguments = slash_command(text)
     if command == "exit" and #(attachments or {}) == 0 then
       M.exit()
+      return
+    end
+    if command == "clear" and #(attachments or {}) == 0 then
+      if not M.backend or not M.backend.new_session then
+        ui.set_activity("Cannot start a new ACP session until the current connection is ready.", M.config)
+        return
+      end
+      if M.backend.active_turn_id ~= nil then
+        ui.set_activity("Finish or cancel the current turn before starting a new session.", M.config)
+        return
+      end
+      ui.set_status("connecting", M.config)
+      M.backend:new_session(function(err)
+        if err then
+          ui.set_status("ready", M.config)
+          ui.set_activity(tostring(err.message or err.error or err), M.config)
+        end
+      end)
       return
     end
     if command == "resume" and #(attachments or {}) == 0 then
@@ -603,7 +622,7 @@ function M.open_chat()
 
   if not M.backend then
     ui.set_status("connecting", M.config)
-    local ok, err = pcall(M.connect)
+    local ok, err = pcall(M.connect, connect_opts)
     if not ok then
       ui.add_message("Error", err, M.config)
       ui.set_status("error", M.config)

@@ -2010,6 +2010,23 @@ local function close_command_window()
   end
 end
 
+function M.clear_conversation(config)
+  state.messages = {}
+  state.streaming_message_index = nil
+  state.tool_activity = nil
+  state.cancel_requested = false
+  state.suppress_current_turn = false
+  state.active_turn_id = nil
+  state.available_commands = {}
+  state.input_attachments = {}
+  state.transient_activity = nil
+  state.change_summary = false
+  close_command_window()
+  reset_input()
+  M.set_status("ready", config or state.config)
+  request_chat_render(config or state.config, { immediate = true, follow = false })
+end
+
 local update_command_window
 
 local function input_bottom_position()
@@ -3214,6 +3231,9 @@ function M.handle_notification(message, config)
   end
 
   if method == "omniac/session_started" then
+    if params.clearChat then
+      M.clear_conversation(config)
+    end
     M.set_status("ready", config)
     return
   end
