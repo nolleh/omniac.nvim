@@ -563,101 +563,6 @@ describe("omniac.nvim commands", function()
     assert_equal(submitted, nil, "enter completion should not submit file mentions")
   end)
 
-  it("tab completes slash input without submitting", function()
-    cleanup_omniac_buffers()
-    package.loaded["omniac.ui"] = nil
-    local ui = require("omniac.ui")
-    local submitted
-
-    ui.open({
-      agent = { cmd = { "codex-acp" } },
-      ui = { chat_width = 48 },
-    }, function(text)
-      submitted = text
-    end)
-
-    feed("i/res<Tab><Esc>")
-    vim.cmd("redraw")
-
-    local input_buf = vim.fn.bufnr("omniac://input")
-    local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    assert_true(lines:match("/resume") ~= nil, "tab should complete the slash command input text")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
-    assert_equal(submitted, nil, "tab completion should not submit")
-  end)
-
-  it("tab completes a local mode command without submitting", function()
-    cleanup_omniac_buffers()
-    package.loaded["omniac.ui"] = nil
-    local ui = require("omniac.ui")
-    local submitted
-
-    ui.open({
-      agent = { cmd = { "codex-acp" } },
-      ui = { chat_width = 48 },
-    }, function(text)
-      submitted = text
-    end)
-
-    feed("i/mo<Tab>")
-    vim.cmd("redraw")
-
-    local input_buf = vim.fn.bufnr("omniac://input")
-    local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    assert_true(lines:match("/mode") ~= nil or lines:match("/model") ~= nil, "tab should complete a local mode command")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "model completion should keep input focused")
-    assert_equal(submitted, nil, "model completion should not submit")
-  end)
-
-  it("tab completes file mention input without submitting", function()
-    cleanup_omniac_buffers()
-    package.loaded["omniac.ui"] = nil
-    local ui = require("omniac.ui")
-    local submitted
-
-    ui.open({
-      agent = { cmd = { "codex-acp" } },
-      ui = { chat_width = 48 },
-    }, function(text)
-      submitted = text
-    end)
-
-    feed("i@READ<Tab><Esc>")
-    vim.cmd("redraw")
-
-    local input_buf = vim.fn.bufnr("omniac://input")
-    local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    assert_true(lines:match("@README.md") ~= nil, "tab should complete the file mention input text")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
-    assert_equal(submitted, nil, "tab completion should not submit")
-  end)
-
-  it("tab completes dollar skill input without submitting", function()
-    cleanup_omniac_buffers()
-    package.loaded["omniac.ui"] = nil
-    local ui = require("omniac.ui")
-    local submitted
-
-    ui.open({
-      agent = { cmd = { "codex-acp" } },
-      ui = { chat_width = 48 },
-    }, function(text)
-      submitted = text
-    end)
-    ui.set_available_commands({
-      { name = "$imagegen", description = "Generate images" },
-    })
-
-    feed("i$im<Tab><Esc>")
-    vim.cmd("redraw")
-
-    local input_buf = vim.fn.bufnr("omniac://input")
-    local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    assert_true(lines:match("%$imagegen") ~= nil, "tab should complete the dollar skill input text")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "tab completion should keep input focused")
-    assert_equal(submitted, nil, "tab completion should not submit")
-  end)
-
   it("enter completes and submits dollar skill", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
@@ -680,13 +585,13 @@ describe("omniac.nvim commands", function()
     assert_equal(submitted, "$imagegen", "enter should complete and submit the dollar skill")
   end)
 
-  it("shift tab switches to chat without cycling session mode", function()
+  it("shift tab toggles plan mode without changing focus", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
     local count = 0
 
-    ui.set_mode_cycle_handler(function()
+    ui.set_plan_toggle_handler(function()
       count = count + 1
     end)
     ui.open({
@@ -697,8 +602,8 @@ describe("omniac.nvim commands", function()
     feed("i<S-Tab><Esc>")
     vim.cmd("redraw")
 
-    assert_equal(count, 0, "shift-tab should not call the mode cycle handler")
-    assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "shift-tab should focus chat")
+    assert_equal(count, 1, "shift-tab should call the plan toggle handler")
+    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "shift-tab should keep input focused")
   end)
 
   it("command suggestions do not drift input window", function()

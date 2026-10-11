@@ -126,6 +126,78 @@ describe("omniac.nvim acp session", function()
     assert_equal(updates[#updates].currentModeName, "Agent", "mode update should expose the selected mode name")
   end)
 
+  it("ACP collaboration mode toggles independently of permission mode", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local client = acp.new({})
+    local requests = {}
+    client.session_id = "sess_1"
+    client.running = true
+    client.transport = {
+      request = function(_, method, params, callback)
+        table.insert(requests, { method = method, params = params })
+        callback(nil, {
+          configOptions = {
+            {
+              id = "mode",
+              category = "mode",
+              type = "select",
+              currentValue = "agent",
+              options = {
+                { value = "agent", name = "Auto review" },
+              },
+            },
+            {
+              id = "collaboration_mode",
+              type = "select",
+              currentValue = params.value,
+              options = {
+                { value = "default", name = "Default" },
+                { value = "plan", name = "Plan" },
+              },
+            },
+          },
+        })
+      end,
+    }
+    client:_apply_session_state({
+      configOptions = {
+        {
+          id = "mode",
+          category = "mode",
+          type = "select",
+          currentValue = "agent",
+          options = {
+            { value = "agent", name = "Auto review" },
+          },
+        },
+        {
+          id = "collaboration_mode",
+          type = "select",
+          currentValue = "default",
+          options = {
+            { value = "default", name = "Default" },
+            { value = "plan", name = "Plan" },
+          },
+        },
+      },
+    })
+
+    client:toggle_collaboration_mode(function(err, value)
+      assert_equal(err, nil, "plan toggle should succeed")
+      assert_equal(value, "plan", "first toggle should enable plan")
+    end)
+    client:toggle_collaboration_mode(function(err, value)
+      assert_equal(err, nil, "second toggle should succeed")
+      assert_equal(value, "default", "second toggle should disable plan")
+    end)
+
+    assert_equal(requests[1].method, "session/set_config_option", "collaboration mode should use config options")
+    assert_equal(requests[1].params.configId, "collaboration_mode", "permission mode should remain separate")
+    assert_equal(requests[2].params.value, "default", "second toggle should restore default")
+    assert_equal(client:get_session_mode().currentModeId, "agent", "permission mode should remain unchanged")
+  end)
+
   it("ACP model config options change with set_config_option", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

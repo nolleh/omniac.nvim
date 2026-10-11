@@ -35,14 +35,26 @@ describe("omniac.nvim status", function()
 
     local status_buf = vim.fn.bufnr("omniac://status")
     local line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    local plan_hl = vim.api.nvim_get_hl(0, { name = "OmniacStatusPlan" })
+    local plan_edge_hl = vim.api.nvim_get_hl(0, { name = "OmniacStatusPlanEdge" })
     assert_true(line:find("Unrestricted Agent", 1, true) ~= nil, "agent-provided mode name should be visible")
     assert_true(line:find("Plan", 1, true) ~= nil, "plan mode should be visible")
+    assert_true(line:find("Unrestricted Agent", 1, true) < line:find("Plan", 1, true), "Plan should follow the mode")
+    assert_equal(plan_hl.bg, tonumber("cba6f7", 16), "Plan should use the purple capsule")
+    assert_equal(plan_edge_hl.fg, tonumber("cba6f7", 16), "Plan capsule edges should be purple")
     assert_true(line:find("Omniac", 1, true) == nil, "plugin name should not take status space")
     assert_true(line:find("ready", 1, true) == nil, "idle state should not take status space")
 
     ui.set_session_mode({ currentModeId = "agent-full-access" })
     line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
     assert_true(line:find("agent-full-access", 1, true) ~= nil, "mode ID should be visible when name is absent")
+
+    ui.set_session_config({
+      { id = "mode", currentValue = "agent-full-access" },
+      { id = "collaboration_mode", currentValue = "default" },
+    })
+    line = table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    assert_true(line:find("Plan", 1, true) == nil, "Plan should disappear when collaboration mode returns to default")
   end)
 
   it("status renders the current ACP session model", function()

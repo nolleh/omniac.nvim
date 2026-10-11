@@ -462,18 +462,18 @@ function M.open_chat()
     end)
   end)
 
-  ui.set_mode_cycle_handler(function()
-    if not M.backend or not M.backend.cycle_session_mode then
-      ui.set_activity("Session modes are not available.", M.config)
+  ui.set_plan_toggle_handler(function()
+    if not M.backend or not M.backend.toggle_collaboration_mode then
+      ui.set_activity("Plan mode is not available until the ACP session is ready.", M.config)
       return
     end
 
-    M.backend:cycle_session_mode(function(err)
+    M.backend:toggle_collaboration_mode(function(err, mode)
       if err then
         ui.set_activity(tostring(err.message or err.error or err), M.config)
         return
       end
-      ui.set_activity("Session mode changed.", M.config)
+      ui.set_activity(mode == "plan" and "Plan mode enabled." or "Plan mode disabled.", M.config)
     end)
   end)
 

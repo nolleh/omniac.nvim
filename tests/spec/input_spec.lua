@@ -147,7 +147,7 @@ describe("omniac.nvim input", function()
     assert_equal(after, before, "up should not replace non-empty input with history")
   end)
 
-  it("tab switches between Omniac input and chat windows", function()
+  it("tab has no Omniac mapping and shift-tab toggles plan without changing focus", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
@@ -157,18 +157,18 @@ describe("omniac.nvim input", function()
       ui = { chat_width = 42 },
     }, function(_) end)
 
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Omniac should open focused on input")
-
-    feed("<Tab>")
-    vim.cmd("redraw")
-    assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "Tab should focus chat")
-
+    local input_buf = vim.fn.bufnr("omniac://input")
+    local toggled = 0
+    ui.set_plan_toggle_handler(function()
+      toggled = toggled + 1
+    end)
+    assert_true(vim.fn.maparg("<Tab>", "i", false, true).buffer ~= 1, "Tab should have no Omniac mapping")
     feed("<S-Tab>")
-    vim.cmd("redraw")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Shift-Tab should focus input")
+    assert_equal(toggled, 1, "Shift-Tab should toggle plan mode")
+    assert_equal(vim.api.nvim_get_current_buf(), input_buf, "Shift-Tab should keep input focused")
   end)
 
-  it("tab navigation works from explicitly focused activity window", function()
+  it("shift-tab toggles plan from the activity window", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
@@ -187,19 +187,14 @@ describe("omniac.nvim input", function()
     end
     assert_true(activity_win ~= nil, "activity window should exist")
 
-    vim.api.nvim_set_current_win(activity_win)
-    feed("<Tab>")
-    vim.cmd("redraw")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Tab from activity should focus input")
-
+    local toggled = 0
+    ui.set_plan_toggle_handler(function()
+      toggled = toggled + 1
+    end)
     vim.api.nvim_set_current_win(activity_win)
     feed("<S-Tab>")
-    vim.cmd("redraw")
-    assert_equal(
-      vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"),
-      "omniac",
-      "Shift-Tab from activity should focus chat"
-    )
+    assert_equal(toggled, 1, "Shift-Tab should toggle plan mode")
+    assert_equal(vim.api.nvim_get_current_win(), activity_win, "Shift-Tab should keep activity focused")
   end)
 
   it("closes every Omniac split when one of them is quit", function()

@@ -54,7 +54,7 @@ local state = {
   session_model = nil,
   session_config = nil,
   session_usage = nil,
-  mode_cycle_handler = nil,
+  plan_toggle_handler = nil,
   relayout_pending = false,
   user_width = nil,
   active_turn_id = nil,
@@ -220,6 +220,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacStatusModeEdge", { fg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAlt", { fg = "#cdd6f4", bg = "#45475a", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAltEdge", { fg = "#45475a", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusPlan", { fg = "#11111b", bg = "#cba6f7", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacStatusPlanEdge", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusUsage", { fg = "#11111b", bg = "#89b4fa", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusUsageEdge", { fg = "#89b4fa", bold = true })
   vim.api.nvim_set_hl(0, "OmniacCommandName", { fg = "#94e2d5", bold = true })
@@ -1336,7 +1338,7 @@ local function render_status()
   end
   append_capsule(mode, "OmniacStatusMode", "OmniacStatusModeEdge")
   if collaboration == "plan" or mode_id == "plan" then
-    append_capsule("Plan", "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
+    append_capsule("Plan", "OmniacStatusPlan", "OmniacStatusPlanEdge")
   end
   append_capsule(model, "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
   append_capsule(usage, "OmniacStatusUsage", "OmniacStatusUsageEdge")
@@ -1878,7 +1880,6 @@ local function completed_suggestion_text(text)
 end
 
 local focus_input
-local focus_chat
 
 local function complete_current_suggestion()
   local text = input_text()
@@ -2223,34 +2224,6 @@ focus_input = function()
     col = #(lines[line] or ""),
   })
   vim.cmd("startinsert!")
-end
-
-focus_chat = function()
-  if not valid_win(state.chat_win) then
-    return
-  end
-
-  pcall(vim.cmd, "stopinsert")
-  vim.api.nvim_set_current_win(state.chat_win)
-  if valid_buf(state.chat_buf) then
-    local line_count = math.max(1, vim.api.nvim_buf_line_count(state.chat_buf))
-    pcall(vim.api.nvim_win_set_cursor, state.chat_win, { line_count, 0 })
-  end
-end
-
-local function focus_adjacent_omniac_window()
-  if vim.api.nvim_get_current_win() == state.input_win then
-    focus_chat()
-  else
-    focus_input()
-  end
-end
-
-local function complete_or_focus_adjacent_omniac_window()
-  if vim.api.nvim_get_current_win() == state.input_win and complete_current_suggestion() then
-    return
-  end
-  focus_adjacent_omniac_window()
 end
 
 local function enforce_input()
@@ -2819,33 +2792,17 @@ function M.open(config, submit)
     })
   end
 
-  vim.keymap.set({ "n", "i" }, "<Tab>", focus_adjacent_omniac_window, {
-    buffer = state.chat_buf,
-    nowait = true,
-    desc = "Switch Omniac chat/input focus",
-  })
-  vim.keymap.set({ "n", "i" }, "<Tab>", focus_input, {
-    buffer = state.activity_buf,
-    nowait = true,
-    desc = "Focus Omniac input",
-  })
-  vim.keymap.set({ "n", "i" }, "<Tab>", complete_or_focus_adjacent_omniac_window, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Complete Omniac suggestion or switch focus",
-  })
-  for _, buf in ipairs({ state.chat_buf, state.input_buf }) do
-    vim.keymap.set({ "n", "i" }, "<S-Tab>", focus_adjacent_omniac_window, {
+  for _, buf in ipairs({ state.chat_buf, state.input_buf, state.activity_buf }) do
+    vim.keymap.set({ "n", "i" }, "<S-Tab>", function()
+      if state.plan_toggle_handler then
+        state.plan_toggle_handler()
+      end
+    end, {
       buffer = buf,
       nowait = true,
-      desc = "Switch Omniac chat/input focus",
+      desc = "Toggle Omniac plan mode",
     })
   end
-  vim.keymap.set({ "n", "i" }, "<S-Tab>", focus_chat, {
-    buffer = state.activity_buf,
-    nowait = true,
-    desc = "Focus Omniac chat",
-  })
 
   vim.keymap.set("n", "q", M.close, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
 
@@ -2950,8 +2907,8 @@ function M.set_change_review_handler(handler)
   state.change_review_handler = handler
 end
 
-function M.set_mode_cycle_handler(handler)
-  state.mode_cycle_handler = handler
+function M.set_plan_toggle_handler(handler)
+  state.plan_toggle_handler = handler
 end
 
 function M.set_cancel_handler(handler)

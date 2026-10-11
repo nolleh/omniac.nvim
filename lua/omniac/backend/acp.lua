@@ -1271,7 +1271,7 @@ function M.new(config)
     local modes = mode_state and mode_state.availableModes or {}
     if #modes == 0 then
       callback({
-        message = "agent did not advertise planning modes",
+        message = "agent did not advertise session modes",
       })
       return
     end
@@ -1287,6 +1287,55 @@ function M.new(config)
 
     local next_mode = modes[(index % #modes) + 1]
     self:set_session_mode(next_mode.id, callback)
+  end
+
+  function state:toggle_collaboration_mode(callback)
+    callback = callback or function() end
+    if not self.transport or not self.running then
+      callback({ message = "ACP transport is not running" })
+      return
+    end
+    if not self.session_id then
+      callback({ message = "ACP session is not ready" })
+      return
+    end
+
+    local collaboration
+    for _, option in ipairs(self.config_options or {}) do
+      if option.id == "collaboration_mode" and option.type == "select" then
+        collaboration = option
+        break
+      end
+    end
+    if not collaboration then
+      callback({ message = "agent did not advertise a collaboration mode option" })
+      return
+    end
+
+    local current = collaboration.currentValue or collaboration.current_value
+    local next_mode = current == "plan" and "default" or "plan"
+    local available = false
+    for _, option in ipairs(collaboration.options or {}) do
+      if (option.value or option.id) == next_mode then
+        available = true
+        break
+      end
+    end
+    if not available then
+      callback({ message = "agent did not advertise collaboration mode " .. next_mode })
+      return
+    end
+
+    self.transport:request("session/set_config_option", {
+      sessionId = self.session_id,
+      configId = collaboration.id,
+      value = next_mode,
+    }, function(err, result)
+      if not err then
+        self:_apply_session_state(result)
+      end
+      callback(err, next_mode)
+    end)
   end
 
   function state:cancel(callback)
