@@ -250,6 +250,71 @@ describe("omniac.nvim changes", function()
     assert_equal(result.path, "/tmp/project/lua/omniac/ui.lua", "enter should select the highlighted change")
   end)
 
+  it("change dialog stays in normal mode and cannot be edited", function()
+    package.loaded["omniac.change_dialog"] = nil
+    local dialog = require("omniac.change_dialog")
+    vim.cmd("startinsert")
+    dialog.open({ { path = "/tmp/project/README.md", operation = "modify" } }, { scope = "turn" }, function() end)
+
+    assert_true(not vim.fn.mode():match("^[iR]"), "change dialog should open in normal mode")
+    assert_equal(vim.bo.modifiable, false, "change dialog should be unmodifiable")
+    local original = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+    feed("i")
+    assert_true(
+      vim.wait(100, function()
+        return not vim.fn.mode():match("^[iR]")
+      end),
+      "change dialog should leave insert mode"
+    )
+    vim.cmd("startinsert")
+    assert_true(
+      vim.wait(100, function()
+        return not vim.fn.mode():match("^[iR]")
+      end),
+      "change dialog should reject external insert mode"
+    )
+    assert_equal(
+      table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"),
+      original,
+      "typing should not edit the dialog"
+    )
+    feed("q")
+  end)
+
+  it("reopens the selected session change after closing its preview", function()
+    package.loaded["omniac.changes"] = nil
+    local changes = require("omniac.changes")
+    changes.reset("reopen_session")
+    changes.start_turn({ sessionId = "reopen_session", turnId = 1 })
+    for _, name in ipairs({ "first.txt", "second.txt" }) do
+      changes.record({
+        sessionId = "reopen_session",
+        turnId = 1,
+        path = "/tmp/project/" .. name,
+        oldText = "before\n",
+        newText = "after\n",
+      })
+    end
+    changes.finish_turn({ sessionId = "reopen_session", turnId = 1 })
+
+    assert_equal(changes.open("session", { ui = {} }), true, "session changes should open")
+    feed("j")
+    feed("<CR>")
+    assert_true(vim.api.nvim_buf_get_name(0):match("Omniac changes:") ~= nil, "preview should open")
+    vim.cmd("q")
+    assert_true(
+      vim.wait(200, function()
+        return vim.api.nvim_buf_get_name(0) == "omniac://changes"
+      end),
+      "closing preview should reopen the change dialog"
+    )
+
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    assert_true(table.concat(lines, "\n"):match("connection started") ~= nil, "session scope should be retained")
+    assert_true(lines[vim.api.nvim_win_get_cursor(0)[1]]:match("second%.txt") ~= nil, "selection should be retained")
+    feed("q")
+  end)
+
   it("session dialog flattens multiline session titles", function()
     package.loaded["omniac.session_dialog"] = nil
     local dialog = require("omniac.session_dialog")

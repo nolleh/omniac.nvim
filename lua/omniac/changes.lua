@@ -191,25 +191,29 @@ function M.open(scope, config)
     return false
   end
 
-  change_dialog.open(available, {
-    scope = scope,
-  }, function(item)
-    if not item then
-      return
-    end
-    diff.open_preview(
-      item.path,
-      vim.split(item.oldText, "\n", { plain = true }),
-      vim.split(item.newText, "\n", {
-        plain = true,
-      }),
-      {
-        title = "Omniac changes: " .. display_path(item.path),
-        origin_win = diff.select_review_window(),
-        separate_tab = config and config.ui and config.ui.diff_separate_tab,
-      }
-    )
-  end)
+  local function open_dialog(selected)
+    change_dialog.open(available, { scope = scope, selected = selected }, function(item, index)
+      if not item then
+        return
+      end
+      diff.open_preview(
+        item.path,
+        vim.split(item.oldText, "\n", { plain = true }),
+        vim.split(item.newText, "\n", {
+          plain = true,
+        }),
+        {
+          title = "Omniac changes: " .. display_path(item.path),
+          origin_win = diff.select_review_window(),
+          separate_tab = config and config.ui and config.ui.diff_separate_tab,
+          on_close = function()
+            open_dialog(index)
+          end,
+        }
+      )
+    end)
+  end
+  open_dialog(1)
   return true
 end
 

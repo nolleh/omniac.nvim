@@ -224,6 +224,9 @@ local function close_review(review, accepted)
     review.callback(accepted, accepted_lines, review.edited == true)
   end
   close_review_windows(review)
+  if review.on_close then
+    vim.schedule(review.on_close)
+  end
 end
 
 local function close_stale_reviews()
@@ -233,6 +236,7 @@ local function close_stale_reviews()
   end
 
   for _, review in ipairs(reviews) do
+    review.on_close = nil
     close_review(review, false)
   end
 
@@ -545,6 +549,7 @@ function M.open_preview(path, before_lines, after_lines, opts)
     fixed_widths = handles.fixed_widths,
     separate_tab = handles.separate_tab,
     read_only = true,
+    on_close = opts.on_close,
   }
 
   for _, buf in ipairs({ handles.before_buf, handles.after_buf }) do

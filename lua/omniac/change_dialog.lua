@@ -116,10 +116,11 @@ end
 
 local function close(result)
   local callback = state.callback
+  local selected = state.selected
   state.callback = nil
   cleanup()
   if callback then
-    callback(result)
+    callback(result, selected)
   end
 end
 
@@ -201,6 +202,9 @@ local function choose()
 end
 
 function M.open(items, opts, callback)
+  if vim.fn.mode():match("^[iR]") then
+    vim.cmd("stopinsert")
+  end
   setup_highlights()
   if valid_buf(state.buf) or valid_buf(state.footer_buf) then
     state.callback = nil
@@ -209,8 +213,8 @@ function M.open(items, opts, callback)
 
   opts = opts or {}
   state.callback = callback
-  state.selected = 1
   state.items = items or {}
+  state.selected = math.max(1, math.min(opts.selected or 1, #state.items))
   state.scope = opts.scope == "session" and "session" or "turn"
 
   local width = math.min(math.max(72, math.floor(vim.o.columns * 0.58)), math.max(50, vim.o.columns - 8))
@@ -268,9 +272,24 @@ function M.open(items, opts, callback)
   vim.wo[state.footer_win].signcolumn = "no"
   vim.wo[state.footer_win].winhighlight = "FloatBorder:OmniacChangeBorder"
 
+  vim.api.nvim_create_autocmd("InsertEnter", {
+    buffer = state.buf,
+    callback = function()
+      vim.schedule(function()
+        if valid_win(state.win) and vim.api.nvim_get_current_win() == state.win then
+          vim.cmd("stopinsert")
+        end
+      end)
+    end,
+  })
+
   local function map(lhs, fn)
     vim.keymap.set("n", lhs, fn, { buffer = state.buf, nowait = true, silent = true })
     vim.keymap.set("n", lhs, fn, { buffer = state.footer_buf, nowait = true, silent = true })
+  end
+
+  for _, key in ipairs({ "i", "I", "a", "A", "o", "O", "s", "S", "c", "C", "R", "gI", "gi" }) do
+    map(key, function() end)
   end
 
   map("q", function()

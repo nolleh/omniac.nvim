@@ -424,6 +424,9 @@ function M.setup(opts)
 end
 
 function M.open_chat()
+  ui.set_change_review_handler(function(scope)
+    M.review_changes(scope)
+  end)
   ui.set_cancel_handler(function()
     if not M.backend or not M.backend.cancel then
       ui.handle_notification({
@@ -829,8 +832,9 @@ function M.connect(opts)
           end)
         elseif count > 0 and review_mode == "summary" then
           ui.set_activity(
-            string.format("Changed %d file%s this turn · /changes to review", count, count == 1 and "" or "s"),
-            cfg
+            string.format("Changed %d file%s this turn\nt: turn · s: session", count, count == 1 and "" or "s"),
+            cfg,
+            { change_summary = true }
           )
         end
         followup:finish_turn(params)
