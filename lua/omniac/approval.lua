@@ -152,6 +152,8 @@ local function permission_body(params)
   local tool_call = params and params.toolCall or {}
   local raw_input = type(tool_call.rawInput) == "table" and tool_call.rawInput or {}
   local lines = {}
+  local summary = raw_input.summary or tool_call.summary or params.summary
+  local reason = raw_input.reason or tool_call.reason or params.reason
   local description = raw_input.description
     or tool_call.description
     or params.description
@@ -160,6 +162,14 @@ local function permission_body(params)
   local title = tool_call.title or raw_input.title
   if type(title) == "string" and title ~= "" then
     table.insert(lines, "Title: " .. title)
+  end
+
+  if type(summary) == "string" and summary ~= "" then
+    table.insert(lines, "Summary: " .. summary)
+  end
+
+  if type(reason) == "string" and reason ~= "" then
+    table.insert(lines, "Reason: " .. reason)
   end
 
   if type(description) == "string" and description ~= "" then

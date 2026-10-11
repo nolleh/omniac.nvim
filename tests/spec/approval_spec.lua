@@ -36,6 +36,8 @@ describe("omniac.nvim approval", function()
         rawInput = {
           command = "stylua lua/omniac/clipboard.lua lua/omniac/backend/acp.lua lua/omniac/init.lua lua/omniac/ui.lua tests/headless.lua",
           cwd = "/Users/nolleh/Documents/workspace_github/omniac.nvim",
+          summary = "Format changed Lua files",
+          reason = "Prepare the files for commit",
         },
         content = {
           {
@@ -100,6 +102,14 @@ describe("omniac.nvim approval", function()
     assert_true(chat:match("stylua lua/omniac/clipboard.lua") ~= nil, "permission chat should show the command")
     assert_true(chat:match("커밋 전에 변경된 Lua 파일") ~= nil, "permission chat should show content text")
     assert_true(chat:match("Decision: Allow Once") ~= nil, "permission chat should show selected decision")
+    assert_true(
+      chat:find("Summary: Format changed Lua files", 1, true) ~= nil,
+      "permission result should retain summary"
+    )
+    assert_true(
+      chat:find("Reason: Prepare the files for commit", 1, true) ~= nil,
+      "permission result should retain reason"
+    )
     assert_true(chat:match("cwd:") ~= nil, "permission chat should show cwd")
     assert_true(chat:match("Options:") == nil, "permission chat should leave options to the selector")
     assert_true(chat:match("Details:") == nil, "permission chat should not expose protocol-ish detail labels")
@@ -113,6 +123,8 @@ describe("omniac.nvim approval", function()
       "selector should show the request text"
     )
     assert_true(dialog_text:match("cwd:") ~= nil, "selector should show the working directory")
+    assert_true(dialog_text:find("Summary: Format changed Lua files", 1, true) ~= nil, "selector should show summary")
+    assert_true(dialog_text:find("Reason: Prepare the files for commit", 1, true) ~= nil, "selector should show reason")
     assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
 
     local activity_buf = vim.fn.bufnr("omniac://activity")
