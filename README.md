@@ -135,6 +135,7 @@ Use a project-local working directory and enable debug logging:
   The initial mode is configured with `agent.mode_id`, for example `agent = { mode_id = "workspace-write" }`.
   A change made with `/mode` applies to the current session; on a new connection Omniac applies `agent.mode_id` again.
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
+- In Omniac's chat, activity, input, and status windows, `Ctrl-k` and `Ctrl-j` move to the window above or below in normal or insert mode.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
 - When the activity window shows a change summary, focus it and press `t` for the latest turn or `s` for the current session
 - `:OmniacChanges [turn|session]` opens the same read-only change browser

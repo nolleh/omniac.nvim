@@ -2790,6 +2790,21 @@ function M.open(config, submit)
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
   end
 
+  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
+    for key, direction in pairs({ ["<C-k>"] = "k", ["<C-j>"] = "j" }) do
+      vim.keymap.set({ "n", "i" }, key, function()
+        if vim.fn.mode():match("^[iR]") then
+          vim.cmd("stopinsert")
+        end
+        vim.cmd("wincmd " .. direction)
+      end, {
+        buffer = buf,
+        nowait = true,
+        desc = "Move to Omniac window " .. (direction == "k" and "above" or "below"),
+      })
+    end
+  end
+
   for key, scope in pairs({ t = "turn", s = "session" }) do
     vim.keymap.set("n", key, function()
       if state.change_summary and state.change_review_handler then
