@@ -19,8 +19,8 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Send `initialize` with `protocolVersion`, `clientInfo`, and `clientCapabilities`.
 - [x] Default ACP client capabilities to no client-side file-system or terminal access.
 - [x] Keep ACP initialization and session startup in the ACP client layer.
-- [ ] Persist and use negotiated agent capabilities from the `initialize` response.
-- [ ] Validate protocol-version compatibility before continuing session startup.
+- [x] Persist and use negotiated agent capabilities from the `initialize` response.
+- [x] Validate protocol-version compatibility before continuing session startup.
 
 ## Authentication
 
@@ -85,18 +85,15 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Complete async approval through `:OmniacDiffAccept` and `:OmniacDiffDeny`.
 - [x] Support ACP-native `fs/read_text_file`.
 - [x] Support ACP-native `fs/write_text_file`.
-- [ ] Support multi-file approval reviews instead of showing only the first recognized change.
+- [x] Review each file in a multi-file edit permission before responding to the agent.
 - [ ] Replace the lightweight unified-diff preview parser with a real patch parser or ACP-native edit representation.
 
 ## Terminals
 
 - [x] Surface known command / terminal-like tool activity summaries when included in session updates.
-- [ ] Advertise terminal capability only when real terminal methods are implemented.
-- [ ] Support `terminal/create`.
-- [ ] Support `terminal/output`.
-- [ ] Support `terminal/release`.
-- [ ] Support `terminal/wait_for_exit`.
-- [ ] Support `terminal/kill`.
+- [x] Close v1 client-provided `terminal/*` support as not implemented.
+  Agents can run commands in their own environment, and ACP v2 removes these methods.
+  Keep the client terminal capability disabled.
 
 ## Agent Plan
 
@@ -108,15 +105,16 @@ This file tracks what is already working and what still needs to be implemented 
 
 - [x] Configure an initial `agent.mode_id`.
 - [x] Send `session/set_mode` after session creation when a mode id is configured.
-- [ ] Render available modes from agent capabilities.
-- [ ] Let users switch modes during an active session.
-- [ ] Handle mode-change notifications from `session/update`.
+- [x] Render available modes from session metadata and config options.
+- [x] Let users switch modes during an active session with `/mode`.
+- [x] Handle mode-change notifications from `session/update`.
 
 ## Session Config Options
 
-- [ ] Read advertised session config options from initialization / session metadata.
+- [x] Read advertised session config options from session metadata and update notifications.
 - [ ] Render configurable options in the UI.
-- [ ] Send selected config options with session creation or prompt requests.
+- [x] Send model, mode, and collaboration selections with `session/set_config_option` when advertised.
+- [ ] Support selecting other advertised config options.
 
 ## Slash Commands
 
@@ -139,7 +137,7 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Reply to agent-initiated requests.
 - [x] Handle process stderr and exit notifications.
 - [ ] Verify remote-agent transports such as HTTP or WebSocket when needed.
-- [ ] Add transport-level timeout handling for pending requests.
+- [x] Add transport-level timeout handling for pending requests.
 
 ## Schema
 
