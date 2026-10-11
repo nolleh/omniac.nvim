@@ -2252,12 +2252,12 @@ local function complete_or_focus_adjacent_omniac_window()
   focus_adjacent_omniac_window()
 end
 
-local function enforce_input()
+local function enforce_input(args)
   if state.rendering_input or not valid_buf(state.input_buf) then
     return
   end
 
-  if not state.input_history_navigating then
+  if args and args.event ~= "InsertLeave" and not state.input_history_navigating then
     clear_input_history_navigation()
   end
   clamp_input_cursor()
@@ -2748,6 +2748,16 @@ function M.open(config, submit)
     buffer = state.input_buf,
     nowait = true,
     desc = "Delete Omniac input character",
+  })
+  vim.keymap.set({ "n", "i" }, "<C-c>", function()
+    reset_input()
+    clear_input_attachments()
+    close_command_window()
+    focus_input()
+  end, {
+    buffer = state.input_buf,
+    nowait = true,
+    desc = "Clear Omniac input",
   })
   vim.keymap.set("i", "<Up>", function()
     return navigate_input_history(-1) and "<Ignore>" or "<Up>"

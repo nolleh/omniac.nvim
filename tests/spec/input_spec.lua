@@ -107,6 +107,9 @@ describe("omniac.nvim input", function()
       return table.concat(lines, "\n"):match("second prompt") ~= nil
     end, "timed out waiting for input to show second prompt")
 
+    vim.cmd("stopinsert")
+    vim.cmd("redraw")
+
     feed("<Up>")
     vim.cmd("redraw")
     wait_for(function(lines)
@@ -145,6 +148,66 @@ describe("omniac.nvim input", function()
     vim.cmd("redraw")
     local after = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr("omniac://input"), 0, -1, false), "\n")
     assert_equal(after, before, "up should not replace non-empty input with history")
+  end)
+
+  it("editing a recalled prompt ends history navigation", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function(_) end)
+
+    feed("ifirst prompt<CR>")
+    feed("isecond prompt<CR>")
+    feed("<Up>")
+    local input_buf = vim.fn.bufnr("omniac://input")
+    assert_true(
+      vim.wait(500, function()
+        return (vim.api.nvim_buf_get_lines(input_buf, 1, 2, false)[1] or ""):find("second prompt", 1, true) ~= nil
+      end),
+      "history should recall the latest prompt"
+    )
+
+    feed(" edited")
+    vim.cmd("redraw")
+    local before = vim.api.nvim_buf_get_lines(input_buf, 1, 2, false)[1]
+    feed("<Up>")
+    vim.cmd("redraw")
+    assert_equal(vim.api.nvim_buf_get_lines(input_buf, 1, 2, false)[1], before, "editing should stop history traversal")
+  end)
+
+  it("ctrl-c clears a draft and lets empty-input history navigation start again", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local submitted = {}
+
+    ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function(text)
+      table.insert(submitted, text)
+    end)
+
+    feed("isaved prompt<CR>")
+    feed("idraft text<C-c>")
+    vim.cmd("redraw")
+    local input_buf = vim.fn.bufnr("omniac://input")
+    local lines = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)
+    assert_equal(lines[2], "│ > ", "ctrl-c should clear the draft")
+    assert_equal(#submitted, 1, "ctrl-c should not submit a prompt")
+
+    feed("<Up>")
+    assert_true(
+      vim.wait(500, function()
+        return table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n"):find("saved prompt", 1, true)
+          ~= nil
+      end),
+      "up should recall history after ctrl-c"
+    )
   end)
 
   it("tab switches between Omniac input and chat windows", function()
