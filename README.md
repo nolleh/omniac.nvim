@@ -136,7 +136,7 @@ Use a project-local working directory and enable debug logging:
   A change made with `/mode` applies to the current session; on a new connection Omniac applies `agent.mode_id` again.
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
-- When the activity window shows a change summary, focus it and press `t` for the latest turn or `s` for the current session
+- When the activity window shows a change summary, press `t` for the latest turn or `s` for the current session from any Omniac window except the input
 - `:OmniacChanges [turn|session]` opens the same read-only change browser
 - The change browser stays in normal mode; closing a file preview returns to the same list and selection
 - change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
