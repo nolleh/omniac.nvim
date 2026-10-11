@@ -473,7 +473,7 @@ function M.open_chat()
         ui.set_activity(tostring(err.message or err.error or err), M.config)
         return
       end
-      ui.set_activity(mode == "plan" and "Plan mode enabled." or "Plan mode disabled.", M.config)
+      ui.flash_activity(mode == "plan" and "Plan mode enabled." or "Plan mode disabled.", M.config)
     end)
   end)
 

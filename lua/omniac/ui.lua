@@ -48,6 +48,7 @@ local state = {
   input_chunks = nil,
   input_attachments = {},
   transient_activity = nil,
+  activity_generation = 0,
   change_summary = false,
   change_shortcut_buffers = {},
   available_commands = {},
@@ -2917,6 +2918,7 @@ function M.open(config, submit)
 end
 
 function M.set_status(status, config)
+  state.activity_generation = state.activity_generation + 1
   local previous_status = state.status
   state.status = status or "idle"
   if state.status ~= "working" then
@@ -2942,12 +2944,25 @@ function M.set_status(status, config)
 end
 
 function M.set_activity(text, config, opts)
+  state.activity_generation = state.activity_generation + 1
   state.transient_activity = text and text ~= "" and text or nil
   state.change_summary = state.transient_activity ~= nil and opts ~= nil and opts.change_summary == true
   sync_change_shortcuts()
   render_activity()
   render_status()
   sync_activity_timer()
+end
+
+function M.flash_activity(text, config, duration_ms)
+  local previous = state.transient_activity
+  local previous_change_summary = state.change_summary
+  M.set_activity(text, config)
+  local generation = state.activity_generation
+  vim.defer_fn(function()
+    if state.activity_generation == generation and valid_buf(state.activity_buf) then
+      M.set_activity(previous, config, { change_summary = previous_change_summary })
+    end
+  end, duration_ms or 1000)
 end
 
 function M.set_change_review_handler(handler)

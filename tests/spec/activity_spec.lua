@@ -7,6 +7,33 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim activity", function()
   after_each(helpers.cleanup_after_test)
 
+  it("restores the previous activity after a short notice", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }
+    ui.open(config, function(_) end)
+    local activity_buf = vim.fn.bufnr("omniac://activity")
+    local function activity()
+      return table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
+    end
+
+    ui.set_status("working", config)
+    ui.flash_activity("Plan mode enabled.", config, 30)
+    assert_true(activity():find("Plan mode enabled.", 1, true) ~= nil, "notice should appear immediately")
+    assert_true(
+      vim.wait(200, function()
+        return activity():find("Working", 1, true) ~= nil
+      end),
+      "working activity should return after the notice"
+    )
+
+    ui.flash_activity("Plan mode disabled.", config, 30)
+    ui.set_activity("New activity", config)
+    vim.wait(60)
+    assert_true(activity():find("New activity", 1, true) ~= nil, "a newer activity should not be replaced")
+  end)
+
   it("opens changes from non-input Omniac windows while the summary is visible", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
