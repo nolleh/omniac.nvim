@@ -146,6 +146,7 @@ Use a project-local working directory and enable debug logging:
 - `:OmniacReferenceBuffer` attaches the current buffer to the Omniac input; `<leader>ab` is the default mapping
 - `:'<,'>OmniacReference` captures selected lines from the source buffer and attaches them to the Omniac input
 - `Ctrl-V` in the Omniac input attaches a PNG or JPEG image from the macOS clipboard when the ACP agent advertises image prompts; otherwise it falls back to normal text paste
+- Up / Down in an empty Omniac input starts browsing submitted prompts; keep using the arrows to browse until you edit the recalled text. `Ctrl-c` clears the current input and pending references
 - visual references preserve their source path, line range, and selected unsaved text
 - current-buffer references use a file link by default, even when modified; the agent reads the on-disk version, not unsaved edits
 - set `references.include_modified_buffer = true` to attach full unsaved contents; a buffer without an on-disk file is skipped unless enabled

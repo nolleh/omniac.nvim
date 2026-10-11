@@ -6,13 +6,9 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 - [x] Show ACP context-window usage as a percentage capsule in the input status bar.
 - [x] Add a code-block handoff flow from visual mode into `omniac` input so selected code can be forwarded as reference context without manual copy / paste.
-- [ ] Let history navigation work with `Ctrl-n` / `Ctrl-p` only, instead of depending on the arrow keys.
+- [x] Start input history with Up / Down when empty, keep traversing until the user edits the recalled text.
+- [x] Clear the current input and pending references with `Ctrl-c`.
 - [ ] Add a direct model-selector command / keymap so model selection does not require entering `/model` in chat.
-
-## Session Shortcuts
-
-- [ ] Add a continue-latest-session shortcut that chooses the newest session for the current working directory and uses the agent's advertised load / resume capability.
-- [ ] Fall back to the session selector when the latest session cannot be determined safely or cannot be loaded / resumed.
 
 ## UX Safety
 
