@@ -5,6 +5,85 @@ local assert_true = helpers.assert_true
 describe("omniac.nvim acp session", function()
   after_each(helpers.cleanup_after_test)
 
+  it("checks the ACP version before starting a session", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local transport = require("omniac.transport")
+    local original_new = transport.new
+    local requests = {}
+    local closed = 0
+    transport.new = function()
+      local instance = {}
+      function instance:on_notification()
+        return self
+      end
+      function instance:on_request()
+        return self
+      end
+      function instance:on_exit()
+        return self
+      end
+      function instance:start() end
+      function instance:close()
+        closed = closed + 1
+      end
+      function instance:request(method, params, callback)
+        table.insert(requests, { method = method, params = params })
+        if method == "initialize" then
+          callback(nil, { protocolVersion = self.agent_version })
+        else
+          callback(nil, { sessionId = "sess_1" })
+        end
+      end
+      instance.agent_version = transport.agent_version
+      return instance
+    end
+
+    local function start(agent_version, client_version)
+      transport.agent_version = agent_version
+      local client = acp.new({ client = { protocol_version = client_version } })
+      local errors = {}
+      client:on_notification(function(message)
+        if message.method == "omniac/error" then
+          table.insert(errors, message.params.error.message)
+        end
+      end)
+      client:start()
+      vim.wait(100, function()
+        return #errors > 0 or client.session_id ~= nil
+      end)
+      return client, errors
+    end
+
+    local valid, valid_errors = start(1, 1)
+    assert_equal(#valid_errors, 0, "matching v1 should initialize")
+    assert_equal(valid.session_id, "sess_1", "matching v1 should start a session")
+    valid:close()
+
+    for _, agent_version in ipairs({ 2, "1" }) do
+      local count = #requests
+      local client, errors = start(agent_version, 1)
+      assert_equal(#requests, count + 1, "incompatible version should stop after initialize")
+      assert_equal(requests[#requests].method, "initialize", "session/new should not be sent")
+      assert_true(errors[1]:find("incompatible ACP protocol version", 1, true) ~= nil)
+      assert_equal(client.running, false, "incompatible connection should close")
+    end
+
+    local count = #requests
+    local missing, missing_errors = start(nil, 1)
+    assert_equal(#requests, count + 1, "missing version should stop after initialize")
+    assert_true(missing_errors[1]:find("incompatible ACP protocol version", 1, true) ~= nil)
+    assert_equal(missing.running, false, "missing version should close the connection")
+
+    count = #requests
+    local unsupported, errors = start(2, 2)
+    assert_equal(#requests, count, "unsupported client version should not initialize")
+    assert_true(errors[1]:find("unsupported ACP client protocol version", 1, true) ~= nil)
+    assert_equal(unsupported.running, false, "unsupported client version should not start")
+    assert_equal(closed, 4, "started connections should close")
+    transport.new = original_new
+  end)
+
   it("ACP protocol file logs follow debug option", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

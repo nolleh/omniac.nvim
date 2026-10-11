@@ -1426,6 +1426,20 @@ function M.new(config)
       return self
     end
 
+    local configured_version = (self.config.client or {}).protocol_version or 1
+    if configured_version ~= 1 then
+      self:_emit_notification({
+        method = "omniac/error",
+        params = {
+          message = "initialize failed",
+          error = {
+            message = "unsupported ACP client protocol version: " .. tostring(configured_version) .. " (supported: 1)",
+          },
+        },
+      })
+      return self
+    end
+
     self.closing = false
     self.transport = transport.new(self:_transport_config())
     self.transport
@@ -1470,6 +1484,25 @@ function M.new(config)
           params = {
             message = "initialize failed",
             error = err,
+          },
+        })
+        return
+      end
+
+      local agent_version = type(result) == "table" and result.protocolVersion or nil
+      if agent_version ~= configured_version then
+        self:close()
+        self:_emit_notification({
+          method = "omniac/error",
+          params = {
+            message = "initialize failed",
+            error = {
+              message = "incompatible ACP protocol version: agent returned "
+                .. tostring(agent_version)
+                .. " (supported: "
+                .. tostring(configured_version)
+                .. ")",
+            },
           },
         })
         return
