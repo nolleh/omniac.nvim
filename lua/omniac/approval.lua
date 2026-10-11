@@ -312,31 +312,51 @@ local function select_permission_option(params, reply, config, notice_index, not
   end)
 end
 
-local function diff_payload(value)
+local function diff_payloads(value)
+  local payloads = {}
   for _, item in ipairs(content_items(value)) do
     if
       type(item) == "table"
-      and (item.type == "diff" or (type(item._meta) == "table" and item._meta.kind == "update"))
+      and (item.type == "diff" or (type(item._meta) == "table" and (item._meta.kind == "update" or item._meta.kind == "add")))
       and type(item.path) == "string"
       and type(item.newText) == "string"
     then
-      return {
+      table.insert(payloads, {
         path = item.path,
         oldText = item.oldText,
         newText = item.newText,
-      }
+      })
     end
   end
 
-  if type(value) == "table" and type(value.path) == "string" and type(value.newText) == "string" then
-    return {
+  if #payloads == 0 and type(value) == "table" and type(value.path) == "string" and type(value.newText) == "string" then
+    table.insert(payloads, {
       path = value.path,
       oldText = value.oldText,
       newText = value.newText,
-    }
+    })
   end
 
-  return nil
+  return payloads
+end
+
+local function append_diff_payloads(pending, payloads)
+  for _, payload in ipairs(payloads) do
+    local found = false
+    for _, existing in ipairs(pending.payloads) do
+      if
+        existing.path == payload.path
+        and existing.oldText == payload.oldText
+        and existing.newText == payload.newText
+      then
+        found = true
+        break
+      end
+    end
+    if not found then
+      table.insert(pending.payloads, payload)
+    end
+  end
 end
 
 permission_response = function(request, accepted)
@@ -351,12 +371,60 @@ permission_response = function(request, accepted)
   }
 end
 
-local function open_permission_diff(pending, payload)
+local function finish_permission_diff(pending, accepted)
+  pending.replied = true
+  pending_acp_permissions[pending.tool_call_id] = nil
+  pending_acp_diffs[pending.tool_call_id] = nil
+  if not accepted then
+    update_permission_text(pending.notice_index, pending.notice_text, "Decision: Rejected", pending.config, "rejected")
+    pending.reply(permission_response(pending.params, false))
+    return
+  end
+
+  if #pending.adjustments > 0 then
+    local reject_id = reject_option_id(pending.params)
+    local adjusted = #pending.adjustments == 1 and pending.adjustments[1] or pending.adjustments
+    if reject_id and pending.on_adjusted and pending.on_adjusted(adjusted) then
+      update_permission_text(
+        pending.notice_index,
+        pending.notice_text,
+        "Decision: Adjusted in diff; applying after this turn finishes.",
+        pending.config,
+        "adjusted"
+      )
+      pending.reply({ outcome = { outcome = "selected", optionId = reject_id } })
+      return
+    end
+    update_permission_text(
+      pending.notice_index,
+      pending.notice_text,
+      "Decision: Adjusted diff could not be forwarded; original edit was not approved.",
+      pending.config,
+      "rejected"
+    )
+    pending.reply({ outcome = { outcome = "cancelled" } })
+    return
+  end
+
+  update_permission_text(pending.notice_index, pending.notice_text, "Decision: Accepted", pending.config, "approved")
+  pending.reply(permission_response(pending.params, true))
+end
+
+local function open_permission_diff(pending)
   if pending.opened or pending.replied then
     return false
   end
+  local payload = pending.payloads[1]
+  if not payload then
+    return false
+  end
   local allow_id = allow_once_option_id(pending.params)
-  if allow_id and pending.matches_followup and pending.matches_followup(pending.params, payload) then
+  if
+    #pending.payloads == 1
+    and allow_id
+    and pending.matches_followup
+    and pending.matches_followup(pending.params, payload)
+  then
     pending.replied = true
     pending_acp_permissions[pending.tool_call_id] = nil
     pending_acp_diffs[pending.tool_call_id] = nil
@@ -376,6 +444,8 @@ local function open_permission_diff(pending, payload)
     return true
   end
   pending.opened = true
+  pending.index = 1
+  pending.adjustments = {}
   pending.selector_open = false
   permission_dialog.dismiss()
   if pending.diff_timer then
@@ -384,66 +454,50 @@ local function open_permission_diff(pending, payload)
     pending.diff_timer = nil
   end
 
-  local before = as_lines(payload.oldText) or {}
-  local after = as_lines(payload.newText) or {}
-  diff.open_review(payload.path, before, after, {
-    title = "Omniac permission: " .. payload.path,
-    origin_win = diff.select_review_window(),
-    separate_tab = diff_separate_tab(pending.config),
-  }, function(accepted, accepted_lines, edited)
+  local function open_next()
     if pending.replied then
       return
     end
-    pending.replied = true
-    pending_acp_permissions[pending.tool_call_id] = nil
-    pending_acp_diffs[pending.tool_call_id] = nil
-    if accepted and edited then
-      local reject_id = reject_option_id(pending.params)
-      if reject_id and pending.on_adjusted then
-        local adjusted = {
-          sessionId = pending.params.sessionId,
-          path = payload.path,
-          proposedText = payload.newText,
-          adjustedText = table.concat(accepted_lines or {}, "\n"),
-        }
-        local queued = pending.on_adjusted(adjusted)
-        if queued then
-          update_permission_text(
-            pending.notice_index,
-            pending.notice_text,
-            "Decision: Adjusted in diff; applying after this turn finishes.",
-            pending.config,
-            "adjusted"
-          )
-          pending.reply({ outcome = { outcome = "selected", optionId = reject_id } })
-          return
-        end
-      end
-      update_permission_text(
-        pending.notice_index,
-        pending.notice_text,
-        "Decision: Adjusted diff could not be forwarded; original edit was not approved.",
-        pending.config,
-        "rejected"
-      )
-      pending.reply({ outcome = { outcome = "cancelled" } })
+    local current = pending.payloads[pending.index]
+    if not current then
+      finish_permission_diff(pending, true)
       return
     end
-    update_permission_text(
-      pending.notice_index,
-      pending.notice_text,
-      accepted and "Decision: Accepted" or "Decision: Rejected",
-      pending.config,
-      accepted and "approved" or "rejected"
-    )
-    pending.reply(permission_response(pending.params, accepted))
-    vim.api.nvim_echo({
-      {
-        accepted and "[omniac approval] edit permission accepted" or "[omniac approval] edit permission denied",
-        "Comment",
-      },
-    }, true, {})
-  end)
+    diff.open_review(current.path, as_lines(current.oldText) or {}, as_lines(current.newText) or {}, {
+      title = #pending.payloads == 1 and ("Omniac permission: " .. current.path)
+        or string.format("Omniac permission (%d/%d): %s", pending.index, #pending.payloads, current.path),
+      origin_win = diff.select_review_window(),
+      separate_tab = diff_separate_tab(pending.config),
+      on_close = function()
+        if not pending.replied then
+          open_next()
+        end
+      end,
+    }, function(accepted, accepted_lines, edited)
+      if pending.replied then
+        return
+      end
+      if not accepted then
+        finish_permission_diff(pending, false)
+        return
+      end
+      table.insert(pending.adjustments, {
+        sessionId = pending.params.sessionId,
+        path = current.path,
+        proposedText = current.newText,
+        adjustedText = edited and table.concat(accepted_lines or {}, "\n") or current.newText,
+      })
+      pending.edited = pending.edited or edited
+      pending.index = pending.index + 1
+      if not pending.payloads[pending.index] then
+        if not pending.edited then
+          pending.adjustments = {}
+        end
+        finish_permission_diff(pending, true)
+      end
+    end)
+  end
+  open_next()
   return true
 end
 
@@ -538,14 +592,16 @@ function M.review_acp_permission(params, reply, config, on_adjusted, matches_fol
     notice_text = notice_text,
     on_adjusted = on_adjusted,
     matches_followup = matches_followup,
+    payloads = {},
     opened = false,
     replied = false,
   }
   pending_acp_permissions[pending.tool_call_id] = pending
 
-  local payload = diff_payload(tool_call) or pending_acp_diffs[pending.tool_call_id]
-  if payload then
-    open_permission_diff(pending, payload)
+  append_diff_payloads(pending, diff_payloads(tool_call))
+  append_diff_payloads(pending, pending_acp_diffs[pending.tool_call_id] or {})
+  if #pending.payloads > 0 then
+    open_permission_diff(pending)
   else
     schedule_edit_permission_fallback(pending)
   end
@@ -553,13 +609,16 @@ end
 
 function M.attach_acp_permission_diff(params)
   local tool_call_id = params and params.toolCallId
-  local payload = diff_payload(params)
-  if not payload then
+  local payloads = diff_payloads(params)
+  if #payloads == 0 then
     return false
   end
 
   if tool_call_id then
-    pending_acp_diffs[tool_call_id] = payload
+    pending_acp_diffs[tool_call_id] = pending_acp_diffs[tool_call_id] or {}
+    for _, payload in ipairs(payloads) do
+      table.insert(pending_acp_diffs[tool_call_id], payload)
+    end
   end
 
   local pending = tool_call_id and pending_acp_permissions[tool_call_id]
@@ -567,7 +626,11 @@ function M.attach_acp_permission_diff(params)
     return false
   end
 
-  return open_permission_diff(pending, payload)
+  append_diff_payloads(pending, payloads)
+  if pending.opened then
+    return true
+  end
+  return open_permission_diff(pending)
 end
 
 function M.review_file_update(params, config)

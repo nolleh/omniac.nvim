@@ -64,6 +64,66 @@ describe("omniac.nvim core", function()
     assert_equal(sent[4].id, "agent-request", "automatic response id should be preserved")
   end)
 
+  it("times out unanswered requests and ignores late responses", function()
+    package.loaded["omniac.transport.stdio"] = nil
+    local client = require("omniac.transport.stdio").new({
+      client = { request_timeout_ms = 20, prompt_timeout_ms = 40 },
+    })
+    local errors = {}
+    client.running = true
+    client.jobid = 1
+    client._send_raw = function() end
+
+    local id = client:request("initialize", {}, function(err)
+      table.insert(errors, err)
+    end)
+    assert_true(
+      vim.wait(200, function()
+        return #errors == 1
+      end),
+      "request should time out"
+    )
+    assert_true(errors[1].message:find("initialize timed out", 1, true) ~= nil)
+    assert_equal(client.pending[id], nil, "timed-out request should be removed")
+    client:_dispatch_message({ id = id, result = {} })
+    assert_equal(#errors, 1, "late response should not call the callback again")
+
+    local prompt_calls = 0
+    local prompt_error
+    local prompt_id = client:request("session/prompt", {}, function(err)
+      prompt_calls = prompt_calls + 1
+      prompt_error = err
+    end)
+    vim.wait(25)
+    assert_equal(prompt_calls, 0, "prompt should use its longer timeout")
+    client:_dispatch_message({ id = prompt_id, result = {} })
+    vim.wait(50)
+    assert_equal(prompt_calls, 1, "successful prompt response should call once")
+    assert_equal(prompt_error, nil, "successful response should have no error")
+    client:close()
+  end)
+
+  it("fails pending requests when the agent exits", function()
+    package.loaded["omniac.transport.stdio"] = nil
+    local client = require("omniac.transport.stdio").new({ client = { request_timeout_ms = 1000 } })
+    local errors = {}
+    client.running = true
+    client._send_raw = function() end
+    client:request("initialize", {}, function(err)
+      table.insert(errors, err)
+    end)
+
+    client:_fail_pending("ACP agent exited before responding")
+    assert_true(
+      vim.wait(200, function()
+        return #errors == 1
+      end),
+      "exit should fail pending requests"
+    )
+    assert_equal(errors[1].message, "ACP agent exited before responding")
+    assert_equal(next(client.pending), nil, "exit should clear pending requests")
+  end)
+
   it("stdio transport keeps large debug chunks as summaries", function()
     package.loaded["omniac.transport.stdio"] = nil
     local client = require("omniac.transport.stdio").new({ debug = true })

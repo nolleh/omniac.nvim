@@ -1479,6 +1479,12 @@ function M.new(config)
 
     self:_initialize(function(err, result)
       if err then
+        local pending = self.pending_prompt
+        self.pending_prompt = nil
+        self:close()
+        if pending and pending.callback then
+          pending.callback(err)
+        end
         self:_emit_notification({
           method = "omniac/error",
           params = {
@@ -1519,6 +1525,12 @@ function M.new(config)
 
       self:_setup_session(function(session_err, session_result, session_method)
         if session_err then
+          local pending = self.pending_prompt
+          self.pending_prompt = nil
+          self:close()
+          if pending and pending.callback then
+            pending.callback(session_err)
+          end
           self:_emit_notification({
             method = "omniac/error",
             params = {
@@ -1534,6 +1546,12 @@ function M.new(config)
 
         self:_set_session_mode(function(mode_err)
           if mode_err then
+            local pending = self.pending_prompt
+            self.pending_prompt = nil
+            self:close()
+            if pending and pending.callback then
+              pending.callback(mode_err)
+            end
             self:_emit_notification({
               method = "omniac/error",
               params = {

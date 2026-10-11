@@ -461,6 +461,7 @@ function M.open_review(path, before_lines, after_lines, opts, callback)
     fixed_widths = handles.fixed_widths,
     separate_tab = handles.separate_tab,
     callback = callback,
+    on_close = opts.on_close,
     edited = false,
   }
 

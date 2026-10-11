@@ -1,5 +1,8 @@
 local M = {}
 
+local DEFAULT_REQUEST_TIMEOUT_MS = 30000
+local DEFAULT_PROMPT_TIMEOUT_MS = 600000
+
 local function encode_json(value)
   if vim.json and vim.json.encode then
     return vim.json.encode(value)
@@ -131,6 +134,25 @@ function M.new(config)
     vim.fn.chansend(self.jobid, line .. "\n")
   end
 
+  function state:_clear_pending(id)
+    local pending = self.pending[id]
+    self.pending[id] = nil
+    if pending and pending.timer then
+      pending.timer:stop()
+      pending.timer:close()
+    end
+    return pending
+  end
+
+  function state:_fail_pending(message)
+    for id in pairs(self.pending) do
+      local pending = self:_clear_pending(id)
+      if pending then
+        self:_emit(pending.callback, { code = -32000, message = message })
+      end
+    end
+  end
+
   function state:_handle_server_request(message)
     local replied = false
 
@@ -171,11 +193,10 @@ function M.new(config)
     self:_debug("recv", message)
 
     if message.id ~= nil and (message.result ~= nil or message.error ~= nil) then
-      local callback = self.pending[message.id]
-      self.pending[message.id] = nil
+      local pending = self:_clear_pending(message.id)
 
-      if callback then
-        self:_emit(callback, message.error, message.result, message)
+      if pending then
+        self:_emit(pending.callback, message.error, message.result, message)
       end
       self:_emit(self.response_handler, message)
       return
@@ -303,6 +324,7 @@ function M.new(config)
         })
         self.running = false
         self.jobid = nil
+        self:_fail_pending("ACP agent exited before responding")
         self:_emit(self.exit_handler, code, signal)
       end,
     })
@@ -326,15 +348,42 @@ function M.new(config)
     self.next_id = self.next_id + 1
 
     if callback then
-      self.pending[id] = callback
+      local client = self.config.client or {}
+      local timeout = method == "session/prompt" and client.prompt_timeout_ms or client.request_timeout_ms
+      if timeout == nil then
+        timeout = method == "session/prompt" and DEFAULT_PROMPT_TIMEOUT_MS or DEFAULT_REQUEST_TIMEOUT_MS
+      end
+      local pending = { callback = callback }
+      self.pending[id] = pending
+      if type(timeout) == "number" and timeout > 0 then
+        pending.timer = vim.loop.new_timer()
+        pending.timer:start(
+          timeout,
+          0,
+          vim.schedule_wrap(function()
+            if self.pending[id] ~= pending then
+              return
+            end
+            self:_clear_pending(id)
+            self:_emit(callback, {
+              code = -32000,
+              message = string.format("ACP %s timed out after %d ms", method, timeout),
+            })
+          end)
+        )
+      end
     end
 
-    self:_send_raw({
+    local ok, err = pcall(self._send_raw, self, {
       jsonrpc = "2.0",
       id = id,
       method = method,
       params = params or {},
     })
+    if not ok then
+      self:_clear_pending(id)
+      error(err)
+    end
 
     return id
   end
@@ -367,6 +416,9 @@ function M.new(config)
     end
     self.running = false
     self.jobid = nil
+    for id in pairs(self.pending) do
+      self:_clear_pending(id)
+    end
   end
 
   return state

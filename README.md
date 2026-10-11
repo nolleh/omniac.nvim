@@ -105,6 +105,8 @@ Use a project-local working directory and enable debug logging:
 | `client.title`                         | `"omniac.nvim"`             | Client title sent during initialization.                                              |
 | `client.version`                       | `"0.1.0"`                   | Client version sent during initialization.                                            |
 | `client.protocol_version`              | `1`                         | Protocol version sent during initialization.                                          |
+| `client.request_timeout_ms`            | `30000`                     | Timeout for ACP requests other than prompts, in milliseconds. Set to `0` to disable. |
+| `client.prompt_timeout_ms`             | `600000`                    | Timeout for a prompt response, in milliseconds. Set to `0` to disable.               |
 | `client.capabilities.fs.readTextFile`  | `true`                      | Advertises ACP text-file read capability.                                             |
 | `client.capabilities.fs.writeTextFile` | `true`                      | Advertises ACP text-file write capability.                                            |
 | `client.capabilities.terminal`         | `false`                     | Advertises terminal capability.                                                       |

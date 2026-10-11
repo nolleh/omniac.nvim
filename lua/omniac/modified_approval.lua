@@ -2,14 +2,14 @@ local M = {}
 
 local function followup_prompt(adjustments)
   local parts = {
-    "The user adjusted an edit in the approval diff. The original edit was rejected so that the adjusted version can be applied instead.",
-    "Apply the adjusted content for each path below. Preserve the user's changes exactly. Do not restore the original proposal.",
+    "The user adjusted an edit in the approval diff. The original edit batch was rejected so that the reviewed versions can be applied instead.",
+    "Apply the reviewed content for each path below. Preserve the user's changes exactly. Do not restore the original proposal.",
   }
 
   for index, item in ipairs(adjustments) do
     table.insert(parts, string.format("File %d: %s", index, item.path))
     table.insert(parts, "Original proposal:\n" .. item.proposedText)
-    table.insert(parts, "User-approved adjusted content:\n" .. item.adjustedText)
+    table.insert(parts, "User-reviewed content:\n" .. item.adjustedText)
   end
 
   return table.concat(parts, "\n\n")
@@ -73,11 +73,19 @@ function M.new(client, config, is_current)
 
   function state:queue(item)
     local turn_id = client.active_turn_id
-    if not current() or not turn_id or item.sessionId ~= client.session_id then
+    local items = item.path and { item } or item
+    if not current() or not turn_id or type(items) ~= "table" or #items == 0 then
       return false
     end
+    for _, entry in ipairs(items) do
+      if entry.sessionId ~= client.session_id then
+        return false
+      end
+    end
     self.pending[turn_id] = self.pending[turn_id] or {}
-    table.insert(self.pending[turn_id], item)
+    for _, entry in ipairs(items) do
+      table.insert(self.pending[turn_id], entry)
+    end
     ui.set_activity("Adjusted approval captured; waiting for this turn to finish.", config)
     return true
   end

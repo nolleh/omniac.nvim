@@ -395,6 +395,104 @@ describe("omniac.nvim approval", function()
     assert_equal(replied.outcome.optionId, "allow_once", "accepted late diff should use the allow option")
   end)
 
+  it("reviews every file before approving one edit permission", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.approval"] = nil
+    local approval = require("omniac.approval")
+    local replied
+    approval.review_acp_permission({
+      sessionId = "sess_multi",
+      toolCall = {
+        kind = "edit",
+        toolCallId = "call_multi",
+        content = {
+          { type = "diff", path = "/tmp/omniac-multi-a.txt", oldText = "a", newText = "A" },
+          { type = "diff", path = "/tmp/omniac-multi-b.txt", oldText = "b", newText = "B" },
+        },
+      },
+      options = { { optionId = "allow_once", kind = "allow_once" } },
+    }, function(result)
+      replied = result
+    end, {})
+
+    assert_true(vim.api.nvim_buf_get_name(0):find("omniac-multi-a", 1, true) ~= nil)
+    vim.cmd("w")
+    assert_equal(replied, nil, "first file should not approve the whole request")
+    assert_true(
+      vim.wait(200, function()
+        return vim.api.nvim_buf_get_name(0):find("omniac-multi-b", 1, true) ~= nil
+      end),
+      "second file should open after the first closes"
+    )
+    vim.cmd("w")
+    assert_equal(replied.outcome.optionId, "allow_once", "all files should approve one request")
+  end)
+
+  it("rejects the whole edit permission when one file is denied", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.approval"] = nil
+    local approval = require("omniac.approval")
+    local replied
+    approval.review_acp_permission({
+      sessionId = "sess_multi",
+      toolCall = {
+        kind = "edit",
+        toolCallId = "call_multi_denied",
+        content = {
+          { type = "diff", path = "/tmp/omniac-denied-a.txt", oldText = "a", newText = "A" },
+          { type = "diff", path = "/tmp/omniac-denied-b.txt", oldText = "b", newText = "B" },
+        },
+      },
+      options = { { optionId = "allow_once", kind = "allow_once" } },
+    }, function(result)
+      replied = result
+    end, {})
+
+    vim.cmd("q")
+    assert_equal(replied.outcome.outcome, "cancelled", "denial should reject the entire request")
+    vim.wait(30)
+    assert_true(vim.api.nvim_buf_get_name(0):find("omniac-denied-b", 1, true) == nil)
+  end)
+
+  it("forwards all reviewed files when one proposed diff is adjusted", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.approval"] = nil
+    local approval = require("omniac.approval")
+    local replied
+    local adjusted
+    approval.review_acp_permission({
+      sessionId = "sess_multi",
+      toolCall = {
+        kind = "edit",
+        toolCallId = "call_multi_adjusted",
+        content = {
+          { type = "diff", path = "/tmp/omniac-adjusted-a.txt", oldText = "a", newText = "A" },
+          { type = "diff", path = "/tmp/omniac-adjusted-b.txt", oldText = "b", newText = "B" },
+        },
+      },
+      options = {
+        { optionId = "allow_once", kind = "allow_once" },
+        { optionId = "reject_once", kind = "reject_once" },
+      },
+    }, function(result)
+      replied = result
+    end, {}, function(items)
+      adjusted = items
+      return true
+    end)
+
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "Adjusted A" })
+    vim.cmd("w")
+    assert_true(vim.wait(200, function()
+      return vim.api.nvim_buf_get_name(0):find("omniac-adjusted-b", 1, true) ~= nil
+    end))
+    vim.cmd("w")
+    assert_equal(replied.outcome.optionId, "reject_once", "the original batch should be rejected")
+    assert_equal(#adjusted, 2, "follow-up should include both files")
+    assert_equal(adjusted[1].adjustedText, "Adjusted A")
+    assert_equal(adjusted[2].adjustedText, "B")
+  end)
+
   it("edited diff approval rejects the original edit and captures adjusted text", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.approval"] = nil
