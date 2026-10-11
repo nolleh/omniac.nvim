@@ -248,24 +248,12 @@ local function mode_state_from_config_options(config_options)
     return nil
   end
 
-  local function looks_like_planning_modes(options)
-    for _, option in ipairs(options or {}) do
-      local value = type(option) == "table" and (option.value or option.id) or option
-      value = type(value) == "string" and value:lower() or ""
-      if value == "plan" or value == "planning" then
-        return true
-      end
-    end
-    return false
-  end
-
   for _, option in ipairs(config_options) do
     if
       type(option) == "table"
       and (option.category == "mode" or option.id == "mode")
       and option.type == "select"
       and type(option.options) == "table"
-      and looks_like_planning_modes(option.options)
     then
       local modes = {}
       for _, value in ipairs(option.options) do
@@ -337,13 +325,8 @@ local function mode_state_from_modes(modes)
   end
 
   local result = {}
-  local has_planning_mode = false
   for _, mode in ipairs(available) do
     if type(mode) == "table" and type(mode.id) == "string" and mode.id ~= "" then
-      local id = mode.id:lower()
-      if id == "plan" or id == "planning" then
-        has_planning_mode = true
-      end
       table.insert(result, {
         id = mode.id,
         name = mode.name or mode.id,
@@ -351,10 +334,6 @@ local function mode_state_from_modes(modes)
       })
     end
   end
-  if not has_planning_mode then
-    return nil
-  end
-
   return {
     source = "modes",
     currentModeId = modes.currentModeId or modes.current_mode_id,
@@ -1182,6 +1161,10 @@ function M.new(config)
 
   function state:get_session_model()
     return deepcopy(self.session_model)
+  end
+
+  function state:get_session_mode()
+    return deepcopy(self.session_mode)
   end
 
   function state:set_session_model(model_id, callback)

@@ -1708,6 +1708,10 @@ local function local_commands()
       description = "Review files changed by Omniac",
     },
     {
+      name = "mode",
+      description = "Choose an advertised mode for the active session",
+    },
+    {
       name = "model",
       description = "Choose the model for the active session",
     },

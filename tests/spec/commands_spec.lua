@@ -48,8 +48,8 @@ describe("omniac.nvim commands", function()
     assert_true(lines:match("/exit") ~= nil, "local exit command should be listed")
     assert_true(lines:match("/changes") ~= nil, "local changes command should be listed")
     assert_true(lines:match("/model") ~= nil, "local model command should be listed")
+    assert_true(lines:match("/mode") ~= nil, "local mode command should be listed")
     assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
-    assert_true(lines:match("/plan") ~= nil, "agent command should be listed")
     assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
 
     feed("a<BS>hello<Esc>")
@@ -338,6 +338,66 @@ describe("omniac.nvim commands", function()
     assert_equal(has_window_for_buffer_name("omniac"), false, "chat window should close")
   end)
 
+  it("slash mode changes an advertised ACP config option without submitting", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac"] = nil
+    package.loaded["omniac.ui"] = nil
+    local omniac = require("omniac")
+    omniac.setup({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 }, keymaps = false })
+    local selected
+    omniac.backend = {
+      get_session_mode = function()
+        return {
+          currentModeId = "read-only",
+          availableModes = {
+            { id = "read-only", name = "Read-only" },
+            { id = "agent", name = "Auto review" },
+          },
+        }
+      end,
+      set_session_mode = function(_, mode_id, callback)
+        selected = mode_id
+        callback(nil)
+      end,
+    }
+    local submitted = false
+    omniac.ask = function()
+      submitted = true
+    end
+
+    omniac.open_chat()
+    feed("i/mode agent<CR>")
+
+    assert_equal(selected, "agent", "/mode should select the advertised ID")
+    assert_equal(submitted, false, "/mode should not submit a prompt")
+    assert_equal(omniac.config.agent.mode_id, "read-only", "session changes should not change the configured default")
+  end)
+
+  it("mode selector presents the agent's mode names and descriptions", function()
+    package.loaded["omniac.mode_dialog"] = nil
+    local dialog = require("omniac.mode_dialog")
+    local permission_dialog = require("omniac.permission_dialog")
+    local original_open = permission_dialog.open
+    local shown_options, shown_config
+    permission_dialog.open = function(options, config)
+      shown_options, shown_config = options, config
+    end
+
+    local opened = dialog.open({
+      currentModeId = "agent",
+      availableModes = {
+        { id = "read-only", name = "Read-only", description = "Ask before edits" },
+        { id = "agent", name = "Auto review", description = "Review requests automatically" },
+      },
+    }, function() end)
+    permission_dialog.open = original_open
+
+    assert_equal(opened, true, "advertised modes should open the selector")
+    assert_equal(shown_options[2].name, "Auto review  (current)", "selector should use the advertised name")
+    assert_equal(shown_options[2].description, "Review requests automatically", "selector should show the description")
+    assert_equal(shown_config.selected, 2, "selector should focus the current mode")
+  end)
+
   it("slash model argument changes the ACP session model without submitting", function()
     cleanup_omniac_buffers()
     package.loaded["omniac"] = nil
@@ -526,7 +586,7 @@ describe("omniac.nvim commands", function()
     assert_equal(submitted, nil, "tab completion should not submit")
   end)
 
-  it("tab completes local model command without submitting", function()
+  it("tab completes a local mode command without submitting", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
@@ -544,7 +604,7 @@ describe("omniac.nvim commands", function()
 
     local input_buf = vim.fn.bufnr("omniac://input")
     local lines = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
-    assert_true(lines:match("/model") ~= nil, "tab should complete /mo to the local model command")
+    assert_true(lines:match("/mode") ~= nil or lines:match("/model") ~= nil, "tab should complete a local mode command")
     assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "model completion should keep input focused")
     assert_equal(submitted, nil, "model completion should not submit")
   end)

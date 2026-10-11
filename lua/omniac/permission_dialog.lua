@@ -37,10 +37,10 @@ local function stop_insert()
 end
 
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "OmniacPermissionBorder", { link = "FloatBorder" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionTitle", { link = "FloatTitle" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionText", { link = "NormalFloat" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionMuted", { link = "Comment" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionBorder", { fg = "#f38ba8" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionTitle", { fg = "#f9e2af", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacPermissionText", { fg = "#cdd6f4" })
+  vim.api.nvim_set_hl(0, "OmniacPermissionMuted", { fg = "#7f849c" })
   vim.api.nvim_set_hl(0, "OmniacPermissionSelected", { fg = "#11111b", bg = "#94e2d5", bold = true })
 end
 

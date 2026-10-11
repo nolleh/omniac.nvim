@@ -6,6 +6,7 @@ local ui = require("omniac.ui")
 local approval = require("omniac.approval")
 local session_dialog = require("omniac.session_dialog")
 local model_dialog = require("omniac.model_dialog")
+local mode_dialog = require("omniac.mode_dialog")
 local filesystem = require("omniac.filesystem")
 local tree = require("omniac.tree")
 local changes = require("omniac.changes")
@@ -535,6 +536,48 @@ function M.open_chat()
         })
         ui.set_activity("Model changed to " .. selected .. ".", M.config)
       end)
+      return
+    end
+    if command == "mode" and #(attachments or {}) == 0 then
+      if not M.backend or not M.backend.get_session_mode then
+        ui.set_activity("Mode selection is not available until the ACP session is ready.", M.config)
+        return
+      end
+      local mode_state = M.backend:get_session_mode()
+      local modes = mode_state and mode_state.availableModes or {}
+      if #modes == 0 then
+        ui.set_activity("The agent did not advertise selectable modes.", M.config)
+        return
+      end
+      local function select_mode(mode_id)
+        local selected
+        for _, mode in ipairs(modes) do
+          if mode.id == mode_id then
+            selected = mode
+            break
+          end
+        end
+        if not selected then
+          ui.set_activity("Unknown mode: " .. mode_id, M.config)
+          return
+        end
+        M.backend:set_session_mode(mode_id, function(err)
+          if err then
+            ui.set_activity(tostring(err.message or err.error or err), M.config)
+            return
+          end
+          ui.set_activity("Mode changed to " .. (selected.name or selected.id) .. ".", M.config)
+        end)
+      end
+      if arguments == "" then
+        mode_dialog.open(mode_state, function(choice)
+          if choice then
+            select_mode(choice.id)
+          end
+        end)
+      else
+        select_mode(arguments)
+      end
       return
     end
 

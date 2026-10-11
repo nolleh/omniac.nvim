@@ -199,7 +199,7 @@ describe("omniac.nvim acp session", function()
     assert_equal(updates[#updates].currentModelName, "GPT-5 Mini", "model update should follow model changes")
   end)
 
-  it("ACP permission-like config modes are ignored", function()
+  it("ACP mode config options are exposed without a plan option", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")
     local client = acp.new({})
@@ -227,8 +227,12 @@ describe("omniac.nvim acp session", function()
       },
     })
 
-    vim.wait(20)
-    assert_equal(#updates, 0, "permission-like modes should not be treated as planning modes")
+    assert_equal(client:get_session_mode().currentModeId, "agent", "current mode should be exposed")
+    vim.wait(50, function()
+      return #updates > 0
+    end)
+    assert_equal(#updates[#updates].availableModes, 3, "all advertised modes should be available")
+    assert_equal(updates[#updates].currentModeName, "Agent", "agent-provided name should be exposed")
   end)
 
   it("ACP legacy planning modes cycle with set_mode", function()

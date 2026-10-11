@@ -92,7 +92,7 @@ Use a project-local working directory and enable debug logging:
 | `agent.args`                           | `{}`                        | Additional agent arguments.                                                           |
 | `agent.env`                            | `{}`                        | Environment variables passed to the agent subprocess.                                 |
 | `agent.cwd`                            | `nil`                       | Working directory for the agent subprocess.                                           |
-| `agent.mode_id`                        | `"read-only"`               | Initial ACP agent mode.                                                               |
+| `agent.mode_id`                        | `"read-only"`               | Initial ACP agent mode ID; choose one advertised by the agent.                        |
 | `agent.pty`                            | `false`                     | Runs the subprocess through a PTY when supported.                                     |
 | `agent.session.action`                 | `"new"`                     | ACP session startup action: `"new"`, `"load"`, `"resume"`, or `"select"`.            |
 | `agent.session.id`                     | `nil`                       | ACP session ID used when `agent.session.action` is `"load"` or `"resume"`.            |
@@ -131,6 +131,9 @@ Use a project-local working directory and enable debug logging:
 - `:Omniac` opens a Neovim chat/input/status UI
 - In pinned-card mode, focus the welcome card and move the cursor normally: nearby vertical movement draws a small hop, moving sideways across the mascot pets it, and repeated pets make it briefly flee. These reactions do not remap `h/j/k/l`.
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
+- `/mode` opens the agent's mode selector; `/mode <id>` changes the active session mode directly
+  The initial mode is configured with `agent.mode_id`, for example `agent = { mode_id = "workspace-write" }`.
+  A change made with `/mode` applies to the current session; on a new connection Omniac applies `agent.mode_id` again.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
 - `:OmniacChanges [turn|session]` opens the same read-only change browser
 - change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
