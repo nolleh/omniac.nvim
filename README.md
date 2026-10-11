@@ -137,7 +137,7 @@ Use a project-local working directory and enable debug logging:
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
 - In Omniac's chat, activity, input, and status windows, `Ctrl-k` and `Ctrl-j` move to the window above or below in normal or insert mode.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
-- When the activity window shows a change summary, focus it and press `t` for the latest turn or `s` for the current session
+- When the activity window shows a change summary, press `t` for the latest turn or `s` for the current session from any Omniac window except the input
 - `:OmniacChanges [turn|session]` opens the same read-only change browser
 - The change browser stays in normal mode; closing a file preview returns to the same list and selection
 - change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac

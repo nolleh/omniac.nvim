@@ -49,6 +49,7 @@ local state = {
   input_attachments = {},
   transient_activity = nil,
   change_summary = false,
+  change_shortcut_buffers = {},
   available_commands = {},
   session_mode = nil,
   session_model = nil,
@@ -110,6 +111,36 @@ end
 
 local function valid_win(win)
   return win and vim.api.nvim_win_is_valid(win)
+end
+
+local function sync_change_shortcuts()
+  for _, buf in ipairs(state.change_shortcut_buffers) do
+    if valid_buf(buf) then
+      pcall(vim.keymap.del, "n", "t", { buffer = buf })
+      pcall(vim.keymap.del, "n", "s", { buffer = buf })
+    end
+  end
+  state.change_shortcut_buffers = {}
+
+  if not state.change_summary or not state.change_review_handler then
+    return
+  end
+
+  for _, name in ipairs({ "chat_buf", "activity_buf", "status_buf", "card_buf" }) do
+    local buf = state[name]
+    if valid_buf(buf) and (name ~= "card_buf" or state.card_pinned) then
+      for key, scope in pairs({ t = "turn", s = "session" }) do
+        vim.keymap.set("n", key, function()
+          state.change_review_handler(scope)
+        end, {
+          buffer = buf,
+          nowait = true,
+          desc = "Review Omniac " .. scope .. " changes",
+        })
+      end
+      table.insert(state.change_shortcut_buffers, buf)
+    end
+  end
 end
 
 local function floating_win(win)
@@ -2805,18 +2836,6 @@ function M.open(config, submit)
     end
   end
 
-  for key, scope in pairs({ t = "turn", s = "session" }) do
-    vim.keymap.set("n", key, function()
-      if state.change_summary and state.change_review_handler then
-        state.change_review_handler(scope)
-      end
-    end, {
-      buffer = state.activity_buf,
-      nowait = true,
-      desc = "Review Omniac " .. scope .. " changes",
-    })
-  end
-
   for _, buf in ipairs({ state.chat_buf, state.input_buf, state.activity_buf }) do
     vim.keymap.set({ "n", "i" }, "<S-Tab>", function()
       if state.plan_toggle_handler then
@@ -2883,6 +2902,7 @@ function M.open(config, submit)
   render_chat(state.config)
   render_card()
   render_activity()
+  sync_change_shortcuts()
   reset_input()
   render_status()
   sync_activity_timer()
@@ -2908,6 +2928,7 @@ function M.set_status(status, config)
     state.transient_activity = nil
     state.change_summary = false
   end
+  sync_change_shortcuts()
   render_chat(config)
   if state.card_pinned then
     render_card()
@@ -2923,6 +2944,7 @@ end
 function M.set_activity(text, config, opts)
   state.transient_activity = text and text ~= "" and text or nil
   state.change_summary = state.transient_activity ~= nil and opts ~= nil and opts.change_summary == true
+  sync_change_shortcuts()
   render_activity()
   render_status()
   sync_activity_timer()
@@ -2930,6 +2952,7 @@ end
 
 function M.set_change_review_handler(handler)
   state.change_review_handler = handler
+  sync_change_shortcuts()
 end
 
 function M.set_plan_toggle_handler(handler)

@@ -7,27 +7,50 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim activity", function()
   after_each(helpers.cleanup_after_test)
 
-  it("opens turn and session changes from a visible change summary", function()
+  it("opens changes from non-input Omniac windows while the summary is visible", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
-    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }
+    local previous_lines = vim.o.lines
+    vim.o.lines = 40
+    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42, welcome_card = "pinned" } }
     local scopes = {}
     ui.set_change_review_handler(function(scope)
       table.insert(scopes, scope)
     end)
     local ui_state = ui.open(config, function(_) end)
 
-    vim.api.nvim_set_current_win(ui_state.activity_win)
     ui.set_activity("Changed 2 files this turn", config, { change_summary = true })
+    vim.api.nvim_set_current_win(ui_state.chat_win)
     feed("t")
+    vim.api.nvim_set_current_win(ui_state.status_win)
+    feed("s")
+    vim.api.nvim_set_current_win(ui_state.activity_win)
+    feed("t")
+    vim.api.nvim_set_current_win(ui_state.card_win)
     feed("s")
     assert_equal(scopes[1], "turn", "t should review the latest turn")
     assert_equal(scopes[2], "session", "s should review the session")
+    assert_equal(scopes[3], "turn", "activity should keep its shortcut")
+    assert_equal(scopes[4], "session", "card should support session changes")
+
+    local function mapped(buf, key)
+      for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+        if mapping.lhs == key then
+          return true
+        end
+      end
+      return false
+    end
+    assert_true(not mapped(ui_state.input_buf, "t"), "input should not map t")
+    assert_true(not mapped(ui_state.input_buf, "s"), "input should not map s")
 
     ui.set_activity("Another activity", config)
-    feed("t")
-    assert_equal(#scopes, 2, "change keys should stop working after the summary is replaced")
+    for _, buf in ipairs({ ui_state.chat_buf, ui_state.activity_buf, ui_state.status_buf, ui_state.card_buf }) do
+      assert_true(not mapped(buf, "t"), "t should be unmapped when the summary is replaced")
+      assert_true(not mapped(buf, "s"), "s should be unmapped when the summary is replaced")
+    end
+    vim.o.lines = previous_lines
   end)
 
   it("activity text keeps horizontal padding when truncated", function()
