@@ -72,6 +72,7 @@ function M.new(config)
     request_handler = nil,
     notification_handler = nil,
     response_handler = nil,
+    protocol_handler = nil,
     exit_handler = nil,
     debug_log = {},
   }
@@ -89,6 +90,17 @@ function M.new(config)
   function state:on_response(handler)
     self.response_handler = handler
     return self
+  end
+
+  function state:on_protocol(handler)
+    self.protocol_handler = handler
+    return self
+  end
+
+  function state:_record_protocol(direction, payload)
+    if self.protocol_handler then
+      pcall(self.protocol_handler, direction, payload)
+    end
   end
 
   function state:on_exit(handler)
@@ -132,6 +144,7 @@ function M.new(config)
     self:_debug("send", payload)
     table.insert(self.sent_echoes, line)
     vim.fn.chansend(self.jobid, line .. "\n")
+    self:_record_protocol("send", payload)
   end
 
   function state:_clear_pending(id)
@@ -190,6 +203,7 @@ function M.new(config)
       return
     end
 
+    self:_record_protocol("recv", message)
     self:_debug("recv", message)
 
     if message.id ~= nil and (message.result ~= nil or message.error ~= nil) then

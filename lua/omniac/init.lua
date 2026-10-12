@@ -15,7 +15,41 @@ local modified_approval = require("omniac.modified_approval")
 local M = {
   config = config.defaults,
   backend = nil,
+  failed_submission = nil,
+  active_submission = nil,
 }
+
+local function submission_failure(item, err)
+  if M.active_submission ~= item then
+    return
+  end
+  M.active_submission = nil
+  M.failed_submission = item
+  ui.set_status("error", M.config)
+  ui.set_activity("Prompt failed or its outcome is unknown. Check the session before resending.", M.config)
+  ui.add_message("Error", tostring(type(err) == "table" and (err.message or err.error) or err), M.config)
+  vim.schedule(function()
+    if M.failed_submission ~= item then
+      return
+    end
+    vim.ui.select({ "Keep for later", "Resend", "Restore to input" }, {
+      prompt = "The agent may have processed this prompt. Choose an action:",
+    }, function(choice)
+      if M.failed_submission ~= item then
+        return
+      end
+      if choice == "Resend" then
+        M.retry_failed_submission()
+      elseif choice == "Restore to input" then
+        if ui.restore_input(item.text, item.attachments) then
+          M.failed_submission = nil
+        else
+          ui.set_activity("Clear the current input before restoring the failed prompt.", M.config)
+        end
+      end
+    end)
+  end)
+end
 
 local default_keymaps = {
   { name = "open", mode = "n", command = "Omniac", desc = "Open Omniac" },
@@ -403,6 +437,21 @@ function M.setup(opts)
   register_command("OmniacExit", exit, {})
   register_command("OmniacSession", choose_session, {})
   register_command("OmniacAsk", ask, { nargs = "?" })
+  register_command("OmniacRetry", function()
+    if not M.retry_failed_submission() then
+      ui.set_activity("No failed prompt is ready to resend.", M.config)
+    end
+  end, {})
+  register_command("OmniacRestore", function()
+    local item = M.failed_submission
+    if not item then
+      ui.set_activity("No failed prompt is saved.", M.config)
+    elseif ui.restore_input(item.text, item.attachments) then
+      M.failed_submission = nil
+    else
+      ui.set_activity("Clear the current input before restoring the failed prompt.", M.config)
+    end
+  end, {})
   register_command("OmniacResize", resize, { nargs = 1 })
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
@@ -479,6 +528,21 @@ function M.open_chat(connect_opts)
   end)
 
   ui.open(M.config, function(text, attachments)
+    if M.active_submission then
+      ui.set_activity("Wait for the current prompt before sending another.", M.config)
+      return false
+    end
+    if M.failed_submission then
+      vim.ui.select({ "Keep failed prompt", "Discard failed prompt" }, {
+        prompt = "One failed prompt is saved. Discard it before sending a new one?",
+      }, function(choice)
+        if choice == "Discard failed prompt" then
+          M.failed_submission = nil
+          ui.set_activity("Failed prompt discarded. Send the current input again.", M.config)
+        end
+      end)
+      return false
+    end
     local command, arguments = slash_command(text)
     if command == "exit" and #(attachments or {}) == 0 then
       M.exit()
@@ -603,21 +667,22 @@ function M.open_chat(connect_opts)
       return
     end
 
+    local item = { text = text, attachments = vim.deepcopy(attachments or {}) }
+    M.active_submission = item
     ui.submit(text, M.config, attachments)
     if not M.backend then
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.connect)
       if not ok then
-        ui.add_message("Error", err, M.config)
-        ui.set_status("error", M.config)
-        return
+        submission_failure(item, err)
+        return true
       end
     end
-    local ok, err = pcall(M.ask, text, attachments)
+    local ok, err = pcall(M.ask, text, attachments, item)
     if not ok then
-      ui.add_message("Error", err, M.config)
-      ui.set_status("error", M.config)
+      submission_failure(item, err)
     end
+    return true
   end)
 
   if not M.backend then
@@ -700,21 +765,40 @@ function M.resize(width)
   return ui.resize(width)
 end
 
-function M.ask(extra, attachments)
-  local prompt = build_prompt(extra)
+function M.ask(extra, attachments, item)
+  local prompt = item and item.prompt or build_prompt(extra)
+  if item then
+    item.prompt = prompt
+  end
   if M.backend then
-    local params = nil
-    if attachments and #attachments > 0 then
+    local client = M.backend
+    local params = item and item.params or nil
+    if not params and attachments and #attachments > 0 then
       params = {
         prompt = build_prompt_items(prompt, attachments),
       }
     end
-    M.backend:prompt(prompt, params, function(err, result)
+    if item then
+      item.params = vim.deepcopy(params)
+      item.client = client
+    end
+    client:prompt(prompt, params, function(err, result)
+      if item and (M.active_submission ~= item or item.client ~= client) then
+        return
+      end
       if err then
+        if item then
+          submission_failure(item, err)
+          return
+        end
         vim.notify(vim.inspect(err), vim.log.levels.ERROR, { title = "omniac response" })
         ui.add_message("Error", tostring(err.message or err.error or err), M.config)
         ui.set_status("error", M.config)
         return
+      end
+
+      if item then
+        M.active_submission = nil
       end
 
       if result and M.config.debug then
@@ -726,6 +810,31 @@ function M.ask(extra, attachments)
 
   vim.notify(prompt, vim.log.levels.INFO, { title = "omniac prompt" })
   return prompt
+end
+
+function M.retry_failed_submission()
+  local item = M.failed_submission
+  if not item or M.active_submission then
+    return false
+  end
+  M.failed_submission = nil
+  M.active_submission = item
+  if M.backend and not M.backend.running then
+    M.backend = nil
+  end
+  if not M.backend then
+    local ok, err = pcall(M.connect)
+    if not ok then
+      submission_failure(item, err)
+      return false
+    end
+  end
+  local ok, err = pcall(M.ask, item.text, item.attachments, item)
+  if not ok then
+    submission_failure(item, err)
+    return false
+  end
+  return true
 end
 
 function M.ask_with_files(extra, paths)
@@ -813,6 +922,9 @@ function M.connect(opts)
       logged_reply({})
     end)
     :on_notification(function(message)
+      if M.backend ~= client then
+        return
+      end
       local method = message and message.method
       local params = message and message.params or {}
 
@@ -877,6 +989,9 @@ function M.connect(opts)
         return
       end
 
+      if M.active_submission and M.active_submission.client == client then
+        submission_failure(M.active_submission, "ACP agent exited before the prompt completed")
+      end
       ui.set_status("closed", cfg)
       vim.notify(
         string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),

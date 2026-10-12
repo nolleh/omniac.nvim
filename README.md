@@ -122,9 +122,12 @@ Use a project-local working directory and enable debug logging:
 | `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
 | `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |
 
+With `debug = true`, `acp-*.jsonl` records client requests and notifications (`client_request`, `client_notification`), agent responses (`agent_response`), and agent requests and notifications with their client responses (`request`, `notification`, `response`). This includes `session/prompt` and `session/cancel` traffic.
+
 ## Features
 
 - `:OmniacConnect` starts the configured subprocess
+- If a prompt fails, Omniac keeps one submission with its attachments. Choose **Resend** only after checking whether the agent already handled it; use `:OmniacRetry` or `:OmniacRestore` later to resend or restore the saved input.
 - type `/resume` in the Omniac chat to list sessions and open the session-selection dialog
 - `:OmniacSession` opens the session selector; when disconnected, it opens Omniac and asks the agent for its available sessions
 - type `/clear` to start a fresh ACP session while keeping the current connection

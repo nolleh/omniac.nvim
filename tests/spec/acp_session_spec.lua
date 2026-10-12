@@ -5,6 +5,47 @@ local assert_true = helpers.assert_true
 describe("omniac.nvim acp session", function()
   after_each(helpers.cleanup_after_test)
 
+  it("returns a queued prompt when initialization rejects the protocol version", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local transport = require("omniac.transport")
+    local original_new = transport.new
+    local initialize_callback
+    transport.new = function()
+      local instance = {}
+      function instance:on_notification()
+        return self
+      end
+      function instance:on_request()
+        return self
+      end
+      function instance:on_exit()
+        return self
+      end
+      function instance:start() end
+      function instance:close() end
+      function instance:request(method, _, callback)
+        if method == "initialize" then
+          initialize_callback = callback
+        end
+      end
+      return instance
+    end
+
+    local client = acp.new({})
+    local failure
+    client:start()
+    client:prompt("saved input", nil, function(err)
+      failure = err
+    end)
+    initialize_callback(nil, { protocolVersion = 2 })
+
+    assert_true(failure ~= nil, "queued prompt should receive the startup failure")
+    assert_true(failure.message:find("incompatible ACP protocol version", 1, true) ~= nil)
+    assert_equal(client.pending_prompt, nil, "failed queued prompt should be cleared")
+    transport.new = original_new
+  end)
+
   it("checks the ACP version before starting a session", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

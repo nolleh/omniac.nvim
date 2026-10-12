@@ -2725,13 +2725,13 @@ function M.open(config, submit)
       return
     end
     text = completed_suggestion_text(text)
+    if state.submit and state.submit(text, attachments) == false then
+      return
+    end
     remember_input_history(text)
     reset_input()
     close_command_window()
     clear_input_attachments()
-    if state.submit then
-      state.submit(text, attachments)
-    end
   end, { buffer = state.input_buf, nowait = true, desc = "Send Omniac prompt" })
 
   vim.keymap.set("i", "<C-v>", function()
@@ -3211,6 +3211,18 @@ function M.submit(text, config, attachments)
   end
   M.add_message("You", display, config)
   M.set_status("working", config)
+end
+
+function M.restore_input(text, attachments)
+  if raw_input_text() ~= "" or #state.input_attachments > 0 then
+    return false
+  end
+  local lines = vim.split(text or "", "\n", { plain = true })
+  state.input_attachments = vim.deepcopy(attachments or {})
+  render_input(lines, { line = #lines, col = #(lines[#lines] or "") })
+  render_activity()
+  focus_input()
+  return true
 end
 
 function M.handle_notification(message, config)

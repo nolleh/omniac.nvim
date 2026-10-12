@@ -1491,6 +1491,18 @@ function M.new(config)
 
     self.closing = false
     self.transport = transport.new(self:_transport_config())
+    if self.transport.on_protocol then
+      self.transport:on_protocol(function(direction, message)
+        if type(message) ~= "table" then
+          return
+        end
+        if direction == "send" and message.method then
+          append_protocol_log(self.config, message.id ~= nil and "client_request" or "client_notification", message)
+        elseif direction == "recv" and message.id ~= nil and (message.result ~= nil or message.error ~= nil) then
+          append_protocol_log(self.config, "agent_response", message)
+        end
+      end)
+    end
     self.transport
       :on_notification(function(message)
         if message and message.method == "_transport/debug" then
@@ -1546,18 +1558,24 @@ function M.new(config)
 
       local agent_version = type(result) == "table" and result.protocolVersion or nil
       if agent_version ~= configured_version then
+        local pending = self.pending_prompt
+        self.pending_prompt = nil
+        local version_error = {
+          message = "incompatible ACP protocol version: agent returned "
+            .. tostring(agent_version)
+            .. " (supported: "
+            .. tostring(configured_version)
+            .. ")",
+        }
         self:close()
+        if pending and pending.callback then
+          pending.callback(version_error)
+        end
         self:_emit_notification({
           method = "omniac/error",
           params = {
             message = "initialize failed",
-            error = {
-              message = "incompatible ACP protocol version: agent returned "
-                .. tostring(agent_version)
-                .. " (supported: "
-                .. tostring(configured_version)
-                .. ")",
-            },
+            error = version_error,
           },
         })
         return

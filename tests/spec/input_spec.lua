@@ -7,6 +7,98 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim input", function()
   after_each(helpers.cleanup_after_test)
 
+  it("keeps input when submission is rejected and restores saved attachments", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local accepted = false
+    local submissions = {}
+
+    ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }, function(text, attachments)
+      if not accepted then
+        return false
+      end
+      table.insert(submissions, { text = text, attachments = attachments })
+    end)
+
+    feed("ihello<CR>")
+    local input_buf = vim.fn.bufnr("omniac://input")
+    assert_true(
+      table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n"):find("hello", 1, true) ~= nil,
+      "rejected submission should remain in input"
+    )
+
+    accepted = true
+    feed("<CR>")
+    assert_equal(submissions[1].text, "hello", "accepted submission should send the draft")
+    assert_equal(
+      ui.restore_input("saved prompt", { { type = "reference", text = "context", path = "/tmp/example" } }),
+      true
+    )
+    feed("<CR>")
+    assert_equal(submissions[2].text, "saved prompt", "restored text should be sent")
+    assert_equal(submissions[2].attachments[1].path, "/tmp/example", "restored reference should be sent")
+  end)
+
+  it("retains one failed prompt with its content and resends only on request", function()
+    local omniac = require("omniac")
+    local ui = require("omniac.ui")
+    local original_select = vim.ui.select
+    local original_status = ui.set_status
+    local original_activity = ui.set_activity
+    local original_message = ui.add_message
+    local prompts = {}
+    local callbacks = {}
+    local menu
+    local client = { running = true }
+    function client:prompt(text, params, callback)
+      table.insert(prompts, { text = text, params = params })
+      table.insert(callbacks, callback)
+    end
+    vim.ui.select = function(_, _, callback)
+      menu = callback
+    end
+    ui.set_status = function() end
+    ui.set_activity = function() end
+    ui.add_message = function() end
+
+    local item = {
+      text = "question",
+      attachments = { { type = "reference", path = "/tmp/example" } },
+      prompt = "question with context",
+      params = { prompt = { { type = "text", text = "question with context" } } },
+    }
+    omniac.backend = client
+    omniac.active_submission = item
+    omniac.failed_submission = nil
+    omniac.ask(item.text, item.attachments, item)
+    callbacks[1]({ message = "timed out" })
+    assert_equal(#prompts, 1, "failure should not resend automatically")
+    assert_equal(omniac.failed_submission, item, "failed submission should be saved")
+    assert_true(
+      vim.wait(200, function()
+        return menu ~= nil
+      end),
+      "failure action menu should open"
+    )
+    menu("Keep for later")
+    assert_equal(#prompts, 1, "keeping a failed prompt should not resend it")
+
+    assert_equal(omniac.retry_failed_submission(), true)
+    assert_equal(#prompts, 2, "explicit retry should send exactly once")
+    assert_equal(prompts[2].params.prompt[1].text, "question with context", "retry should reuse original prompt")
+    assert_equal(item.attachments[1].path, "/tmp/example", "saved attachment should remain available")
+    callbacks[2](nil, {})
+    assert_equal(omniac.active_submission, nil, "successful retry should release the submission")
+    assert_equal(omniac.failed_submission, nil, "successful retry should clear the saved failure")
+
+    omniac.backend = nil
+    vim.ui.select = original_select
+    ui.set_status = original_status
+    ui.set_activity = original_activity
+    ui.add_message = original_message
+  end)
+
   it("input focus returns to end of wrapped message", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
