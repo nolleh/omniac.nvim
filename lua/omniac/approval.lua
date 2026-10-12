@@ -419,12 +419,8 @@ local function open_permission_diff(pending)
     return false
   end
   local allow_id = allow_once_option_id(pending.params)
-  if
-    #pending.payloads == 1
-    and allow_id
-    and pending.matches_followup
-    and pending.matches_followup(pending.params, payload)
-  then
+  local followup_payload = #pending.payloads == 1 and payload or pending.payloads
+  if allow_id and pending.matches_followup and pending.matches_followup(pending.params, followup_payload) then
     pending.replied = true
     pending_acp_permissions[pending.tool_call_id] = nil
     pending_acp_diffs[pending.tool_call_id] = nil

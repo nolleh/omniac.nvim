@@ -690,6 +690,54 @@ describe("omniac.nvim approval", function()
     vim.fn.delete(path)
   end)
 
+  it("matches a follow-up edit batch atomically", function()
+    local ui = require("omniac.ui")
+    local original_activity = ui.set_activity
+    ui.set_activity = function() end
+    local first = "/private/tmp/omniac-batch-first-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    local second = "/private/tmp/omniac-batch-second-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    vim.fn.writefile({ "first=old" }, first)
+    vim.fn.writefile({ "second=old" }, second)
+
+    local client = { session_id = "sess_batch", active_turn_id = 20 }
+    client.prompt = function(self, _, _, callback)
+      self.active_turn_id = 21
+      self.prompt_callback = callback
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    followup:queue({
+      { sessionId = "sess_batch", path = first, proposedText = "first=proposed\n", adjustedText = "first=reviewed\n" },
+      {
+        sessionId = "sess_batch",
+        path = second,
+        proposedText = "second=proposed\n",
+        adjustedText = "second=proposed\n",
+      },
+    })
+    followup:finish_turn({ sessionId = "sess_batch", turnId = 20 })
+    client.active_turn_id = nil
+    assert_true(vim.wait(100, function()
+      return client.active_turn_id == 21
+    end))
+
+    local request = { sessionId = "sess_batch" }
+    local batch = {
+      { path = first, oldText = "first=old\n", newText = "first=reviewed\n" },
+      { path = second, oldText = "second=old\n", newText = "second=wrong\n" },
+    }
+    assert_equal(followup:matches_followup(request, batch), false, "one mismatched file must reject the whole batch")
+    batch[2].newText = "second=proposed\n"
+    assert_equal(followup:matches_followup(request, batch), true, "a fully matching batch should be accepted")
+    assert_equal(followup:matches_followup(request, batch), false, "accepted edits should be consumed once")
+
+    followup:close()
+    vim.fn.delete(first)
+    vim.fn.delete(second)
+    ui.set_activity = original_activity
+  end)
+
   it("adjusted approval queue is discarded when its connection closes", function()
     local ui = require("omniac.ui")
     local original_activity = ui.set_activity
@@ -752,8 +800,49 @@ describe("omniac.nvim approval", function()
     end)
     client.active_turn_id = nil
     client.prompt_callback(nil, { stopReason = "error" })
-    assert_true(messages[1]:match("follow%-up failed") ~= nil, "failed follow-up should be visible")
+    assert_true(messages[1]:match("follow%-up ended") ~= nil, "failed follow-up should be visible")
 
+    ui.set_activity = original_activity
+    ui.add_message = original_message
+  end)
+
+  it("reports reviewed files as applied when a follow-up ends cancelled", function()
+    local ui = require("omniac.ui")
+    local original_activity = ui.set_activity
+    local original_message = ui.add_message
+    local messages = {}
+    ui.set_activity = function() end
+    ui.add_message = function(kind, message)
+      table.insert(messages, { kind = kind, message = message })
+    end
+
+    local path = "/private/tmp/omniac-adjusted-result-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    local client = { session_id = "sess_result", active_turn_id = 12 }
+    client.prompt = function(self, _, _, callback)
+      self.active_turn_id = 13
+      self.prompt_callback = callback
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    followup:queue({
+      sessionId = "sess_result",
+      path = path,
+      proposedText = "proposal",
+      adjustedText = "reviewed\n",
+    })
+    followup:finish_turn({ sessionId = "sess_result", turnId = 12 })
+    client.active_turn_id = nil
+    vim.wait(100, function()
+      return client.prompt_callback ~= nil
+    end)
+    vim.fn.writefile({ "reviewed" }, path)
+    client.active_turn_id = nil
+    client.prompt_callback(nil, { stopReason = "cancelled" })
+
+    assert_equal(messages[1].kind, "Notice", "applied edit should not appear as an error")
+    assert_true(messages[1].message:match("present in all 1 file") ~= nil)
+    vim.fn.delete(path)
     ui.set_activity = original_activity
     ui.add_message = original_message
   end)

@@ -1,5 +1,17 @@
 local M = {}
 
+local function applied_count(batch)
+  local filesystem = require("omniac.filesystem")
+  local count = 0
+  for _, item in ipairs(batch) do
+    local file = filesystem.read_text_file({ path = item.path })
+    if file and file.content == item.adjustedText then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function followup_prompt(adjustments)
   local parts = {
     "The user adjusted an edit in the approval diff. The original edit batch was rejected so that the reviewed versions can be applied instead.",
@@ -53,8 +65,23 @@ function M.new(client, config, is_current)
         if prompt_err or stop_reason == "cancelled" or stop_reason == "canceled" or stop_reason == "error" then
           local reason = type(prompt_err) == "table" and (prompt_err.message or prompt_err)
             or (prompt_err or stop_reason)
-          ui.add_message("Error", "Adjusted approval follow-up failed: " .. tostring(reason), config)
-          ui.set_activity("Adjusted approval follow-up failed.", config)
+          local applied = applied_count(batch)
+          if applied == #batch then
+            ui.add_message("Notice", "Reviewed content is present in all " .. #batch .. " file(s).", config)
+            ui.set_activity("Reviewed edits applied.", config)
+          else
+            ui.add_message(
+              "Error",
+              string.format(
+                "Adjusted approval follow-up ended (%s). Reviewed content confirmed in %d of %d file(s); check the remaining files.",
+                tostring(reason),
+                applied,
+                #batch
+              ),
+              config
+            )
+            ui.set_activity("Adjusted approval follow-up ended; check remaining files.", config)
+          end
         else
           ui.add_message("Notice", "Adjusted approval follow-up finished for " .. #batch .. " file(s).", config)
           ui.set_activity("Adjusted approval follow-up finished.", config)
@@ -95,20 +122,37 @@ function M.new(client, config, is_current)
     if not current() or not active or not active.turn_id or client.active_turn_id ~= active.turn_id then
       return false
     end
-    if params.sessionId ~= client.session_id or type(payload.oldText) ~= "string" then
+    if params.sessionId ~= client.session_id or type(payload) ~= "table" then
       return false
     end
-    local file = require("omniac.filesystem").read_text_file({ path = payload.path })
-    if not file or file.content ~= payload.oldText then
+    local payloads = payload.path and { payload } or payload
+    if type(payloads) ~= "table" or #payloads == 0 then
       return false
     end
-    for index, item in ipairs(active.items) do
-      if item.path == payload.path and item.adjustedText == payload.newText then
-        table.remove(active.items, index)
-        return true
+    local remaining = vim.deepcopy(active.items)
+    local filesystem = require("omniac.filesystem")
+    for _, entry in ipairs(payloads) do
+      if type(entry.oldText) ~= "string" then
+        return false
       end
+      local file = filesystem.read_text_file({ path = entry.path })
+      if not file or file.content ~= entry.oldText then
+        return false
+      end
+      local match_index
+      for index, item in ipairs(remaining) do
+        if item.path == entry.path and item.adjustedText == entry.newText then
+          match_index = index
+          break
+        end
+      end
+      if not match_index then
+        return false
+      end
+      table.remove(remaining, match_index)
     end
-    return false
+    active.items = remaining
+    return true
   end
 
   function state:finish_turn(params)
