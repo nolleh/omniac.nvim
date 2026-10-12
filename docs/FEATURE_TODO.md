@@ -10,6 +10,11 @@ This file tracks Omniac-facing product and interaction work that is independent 
 - [x] Clear the current input and pending references with `Ctrl-c`.
 - [ ] Add a direct model-selector command / keymap so model selection does not require entering `/model` in chat.
 
+## Session Workflow
+
+- [x] Open the session selector with `:OmniacSession` while disconnected, using the agent's advertised session list and load / resume support.
+- [x] Add `/clear` to start a fresh ACP session while keeping the current connection.
+
 ## UX Safety
 
 - [ ] Prevent ambient floating windows opened by normal typing, completion, or file navigation from interrupting the Omniac experience.
