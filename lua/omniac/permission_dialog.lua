@@ -262,7 +262,6 @@ local function render_body()
     for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
       table.insert(lines, line)
     end
-    table.insert(lines, "")
   end
 
   vim.bo[state.body_buf].readonly = false
@@ -317,7 +316,7 @@ function M.open(options, opts, callback)
   local content_width = math.max(1, width - 4)
   local body_text_lines = math.max(1, math.ceil(vim.fn.strdisplaywidth(state.prompt) / content_width))
   if state.body ~= "" then
-    body_text_lines = body_text_lines + 2
+    body_text_lines = body_text_lines + 1
     for _, line in ipairs(vim.split(state.body, "\n", { plain = true, trimempty = false })) do
       body_text_lines = body_text_lines + math.max(1, math.ceil(vim.fn.strdisplaywidth(line) / content_width))
     end
@@ -325,11 +324,11 @@ function M.open(options, opts, callback)
   local selector_lines = math.max(3, #state.options + 2)
   local max_total = math.max(8, vim.o.lines - 8)
   local selector_height = math.min(selector_lines, max_total)
-  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - 5))
-  local total_height = body_height + selector_height + 5
+  local body_height = math.min(math.max(3, body_text_lines), math.max(3, max_total - selector_height - 4))
+  local total_height = body_height + selector_height + 4
   if total_height > max_total then
-    selector_height = math.max(3, max_total - body_height - 5)
-    total_height = body_height + selector_height + 5
+    selector_height = math.max(3, max_total - body_height - 4)
+    total_height = body_height + selector_height + 4
   end
   local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
@@ -373,7 +372,7 @@ function M.open(options, opts, callback)
     relative = "editor",
     width = width,
     height = selector_height,
-    row = row + body_height + 3,
+    row = row + body_height + 2,
     col = col,
     style = "minimal",
     border = "rounded",

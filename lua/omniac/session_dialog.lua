@@ -274,7 +274,6 @@ local function render()
       if current_file and current_file ~= "" then
         add("     current file: " .. current_file, "OmniacSessionMuted")
       end
-      add("", nil)
     end
   end
 

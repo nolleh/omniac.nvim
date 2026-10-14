@@ -152,7 +152,6 @@ local function render()
     local row = string.format("%s%s  %s", prefix, operation_label(item.operation), display_path(item.path))
     add(row, index == state.selected and "OmniacChangeSelected" or "OmniacChangeText")
     add("     " .. item_detail(item), "OmniacChangeMuted")
-    add("", nil)
   end
 
   vim.bo[state.buf].readonly = false

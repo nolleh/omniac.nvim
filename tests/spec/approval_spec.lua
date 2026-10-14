@@ -64,7 +64,7 @@ describe("omniac.nvim approval", function()
     local dialog_buf = vim.fn.bufnr("omniac://permission")
     local body_lines = vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false)
     dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
-    assert_equal(body_lines[#body_lines], "", "permission body should leave a blank line below cwd")
+    assert_true(body_lines[#body_lines]:match("^cwd:") ~= nil, "permission body should end with cwd")
     local chat_buf = vim.fn.bufnr("omniac")
     local namespace = vim.api.nvim_get_namespaces()["omniac.ui"]
     local function permission_badge()
@@ -188,7 +188,7 @@ describe("omniac.nvim approval", function()
     assert_equal(selector_config.col, body_config.col, "permission actions should align with the card")
     assert_equal(
       selector_config.row,
-      body_config.row + body_config.height + 3,
+      body_config.row + body_config.height + 2,
       "permission actions should sit below the request card"
     )
     assert_true(selector_lines[1]:match("^› 1  Allow Once") ~= nil, "selected permission action should use a cursor")
