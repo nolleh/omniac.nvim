@@ -1,6 +1,7 @@
 local helpers = require("tests.helpers")
 local assert_equal = helpers.assert_equal
 local assert_true = helpers.assert_true
+local feed = helpers.feed
 local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 
 describe("omniac.nvim mascot", function()
@@ -62,6 +63,12 @@ describe("omniac.nvim mascot", function()
       assert_true(vim.api.nvim_buf_get_lines(ui_state.card_buf, 13, 14, false)[1]:find("╰", 1, true) ~= nil)
       assert_equal(vim.fn.line("w0", ui_state.card_win), 1, "pinned card must start at the top")
       assert_equal(vim.fn.line("w$", ui_state.card_win), 14, "pinned card must show its bottom border")
+
+      vim.api.nvim_set_current_win(ui_state.card_win)
+      feed("<C-j>")
+      assert_equal(vim.api.nvim_get_current_win(), ui_state.chat_win, "Ctrl-j should move below the welcome card")
+      feed("<C-k>")
+      assert_equal(vim.api.nvim_get_current_win(), ui_state.card_win, "Ctrl-k should move back to the welcome card")
 
       local initial_chat_height = vim.api.nvim_win_get_height(ui_state.chat_win)
       vim.cmd("botright 6split")
@@ -224,6 +231,45 @@ describe("omniac.nvim mascot", function()
       vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
       assert_equal(ui_state.mascot_vertical_gaze, 1, "the mascot should look down as the cursor falls")
       assert_equal(vim.api.nvim_win_get_cursor(ui_state.card_win)[1], ui_state.mascot_last_line)
+    end, debug.traceback)
+    ui.close()
+    vim.o.lines = previous_lines
+    if not ok then
+      error(err)
+    end
+  end)
+
+  it("reacts to real horizontal keys on the card", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    vim.o.lines = 50
+    local ui = require("omniac.ui")
+    local ok, err = xpcall(function()
+      local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+      ui.set_status("ready", ui_state.config)
+      vim.api.nvim_set_current_win(ui_state.card_win)
+      vim.cmd("stopinsert")
+      local row = ui_state.mascot_first_line + 2
+      local line = vim.api.nvim_buf_get_lines(ui_state.card_buf, row - 1, row, false)[1]
+      local block = line:find("█", 1, true)
+      vim.api.nvim_win_set_cursor(ui_state.card_win, { row, block - 1 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      feed("l")
+      assert_equal(
+        vim.api.nvim_win_get_cursor(ui_state.card_win)[2],
+        block - 1 + #"█",
+        "l should move the card cursor"
+      )
+      vim.wait(50)
+      assert_equal(ui_state.mascot_pet_count, 1, "moving with l should pet the mascot")
+      assert_equal(ui_state.mascot_hop, 1, "moving with l should make the mascot hop")
+      feed("h")
+      vim.wait(50)
+      feed("l")
+      vim.wait(50)
+      assert_equal(ui_state.mascot_pet_count, 0, "repeated keys should make the mascot flee")
+      assert_true(ui_state.mascot_x ~= 0, "fleeing should move the mascot sideways")
     end, debug.traceback)
     ui.close()
     vim.o.lines = previous_lines

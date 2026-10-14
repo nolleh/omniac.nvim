@@ -4,6 +4,7 @@ local clipboard = require("omniac.clipboard")
 local ns = vim.api.nvim_create_namespace("omniac.ui")
 local augroup = vim.api.nvim_create_augroup("omniac.ui", { clear = false })
 local mascot_augroup = vim.api.nvim_create_augroup("omniac.mascot", { clear = true })
+local mascot_key_ns = vim.api.nvim_create_namespace("omniac.mascot.keys")
 
 local state = {
   chat_buf = nil,
@@ -2607,6 +2608,7 @@ function M.close()
   state.mascot_eye_height = 2
   state.mascot_reaction_id = state.mascot_reaction_id + 1
   vim.api.nvim_clear_autocmds({ group = mascot_augroup })
+  vim.on_key(nil, mascot_key_ns)
   state.chat_render_generation = state.chat_render_generation + 1
   state.chat_render_pending = false
   state.chat_render_config = nil
@@ -2879,7 +2881,7 @@ function M.open(config, submit)
     vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
   end
 
-  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
+  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf, state.card_buf }) do
     for key, direction in pairs({ ["<C-k>"] = "k", ["<C-j>"] = "j" }) do
       vim.keymap.set({ "n", "i" }, key, function()
         if vim.fn.mode():match("^[iR]") then
@@ -2971,6 +2973,15 @@ function M.open(config, submit)
     group = mascot_augroup,
     callback = schedule_mascot_gaze,
   })
+  vim.on_key(function()
+    if vim.api.nvim_get_current_win() == state.card_win then
+      vim.schedule(function()
+        if valid_win(state.card_win) and vim.api.nvim_get_current_win() == state.card_win then
+          schedule_mascot_gaze({ event = "CursorMoved" })
+        end
+      end)
+    end
+  end, mascot_key_ns)
   return state
 end
 
