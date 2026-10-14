@@ -278,6 +278,50 @@ describe("omniac.nvim mascot", function()
     end
   end)
 
+  it("keeps pet reactions visible while working", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    vim.o.lines = 50
+    local ui = require("omniac.ui")
+    local ok, err = xpcall(function()
+      local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+      ui.set_status("working", ui_state.config)
+      vim.api.nvim_set_current_win(ui_state.card_win)
+      local row = ui_state.mascot_first_line + 2
+      local line = vim.api.nvim_buf_get_lines(ui_state.card_buf, row - 1, row, false)[1]
+      local block = line:find("█", 1, true)
+      for _, column in ipairs({ block - 1, block - 1 + #"█" }) do
+        vim.api.nvim_win_set_cursor(ui_state.card_win, { row, column })
+        vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      end
+      assert_equal(ui_state.mascot_hop, 1, "working should not suppress the hop")
+      vim.wait(400)
+      assert_true(not ui_state.mascot_interacting, "the pet reaction should end when movement stops")
+      assert_equal(ui_state.mascot_arm_frame, 1, "working pose should return as soon as the pet ends")
+      for _, column in ipairs({ block - 1, block - 1 + #"█" }) do
+        vim.api.nvim_win_set_cursor(ui_state.card_win, { row, column })
+        vim.api.nvim_exec_autocmds("CursorMoved", { buffer = ui_state.card_buf })
+      end
+      assert_equal(ui_state.mascot_pet_count, 0, "three pets should trigger a flee while working")
+      local flee_x = ui_state.mascot_x
+      assert_true(flee_x ~= 0, "the mascot should move away while working")
+      vim.wait(750)
+      assert_equal(ui_state.mascot_x, flee_x, "working animation should leave the flee in place")
+      assert_true(
+        vim.wait(800, function()
+          return not ui_state.mascot_interacting and ui_state.mascot_arm_frame ~= 0
+        end),
+        "working animation should resume after the reaction"
+      )
+    end, debug.traceback)
+    ui.close()
+    vim.o.lines = previous_lines
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("takes occasional idle walks and returns to the center", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

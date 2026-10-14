@@ -84,6 +84,7 @@ local state = {
   mascot_vertical_gaze = 0,
   mascot_walk_direction = 1,
   mascot_interaction_generation = 0,
+  mascot_interacting = false,
   mascot_card_cursor = nil,
   mascot_pet_count = 0,
   mascot_last_pet_at = 0,
@@ -1044,6 +1045,7 @@ end
 local function restart_mascot_actions()
   state.mascot_action_generation = state.mascot_action_generation + 1
   state.mascot_interaction_generation = state.mascot_interaction_generation + 1
+  state.mascot_interacting = false
   local generation = state.mascot_action_generation
   state.mascot_arm_frame = 0
   state.mascot_antenna_offset = 0
@@ -1070,10 +1072,12 @@ local function restart_mascot_actions()
           return
         end
         frame = frame % #frames + 1
-        state.mascot_arm_frame = frames[frame]
-        state.mascot_x = sway[frame]
-        if mascot_visible() then
-          render_mascot()
+        if not state.mascot_interacting then
+          state.mascot_arm_frame = frames[frame]
+          state.mascot_x = sway[frame]
+          if mascot_visible() then
+            render_mascot()
+          end
         end
         tick()
       end, MASCOT_WORK_FRAME_MS)
@@ -1109,7 +1113,7 @@ local function restart_mascot_actions()
               if generation ~= state.mascot_action_generation then
                 return
               end
-              if vim.uv.now() - state.mascot_last_pet_at < MASCOT_PET_WINDOW_MS then
+              if state.mascot_interacting or vim.uv.now() - state.mascot_last_pet_at < MASCOT_PET_WINDOW_MS then
                 state.mascot_walk_frame = 0
                 idle()
                 return
@@ -1201,8 +1205,16 @@ local function react_to_omniac_focus()
   end
 end
 
+local function finish_mascot_interaction()
+  state.mascot_interacting = false
+  state.mascot_arm_frame = state.status == "working" and 1 or 0
+  if mascot_visible() then
+    render_mascot()
+  end
+end
+
 local function react_to_card_pet(direction)
-  if state.status ~= "ready" or ((state.config or {}).ui or {}).mascot_motion == false then
+  if ((state.config or {}).ui or {}).mascot_motion == false then
     return
   end
   local now = vim.uv.now()
@@ -1216,6 +1228,7 @@ local function react_to_card_pet(direction)
   end
   state.mascot_interaction_generation = state.mascot_interaction_generation + 1
   local generation = state.mascot_interaction_generation
+  state.mascot_interacting = true
   state.mascot_hop = 1
   state.mascot_walk_frame = 0
   state.mascot_arm_frame = direction > 0 and 1 or 2
@@ -1225,12 +1238,14 @@ local function react_to_card_pet(direction)
       return
     end
     state.mascot_hop = 0
-    state.mascot_arm_frame = 0
     if not flee then
       state.mascot_x = 0
-    end
-    if mascot_visible() then
-      render_mascot()
+      finish_mascot_interaction()
+    else
+      state.mascot_arm_frame = 0
+      if mascot_visible() then
+        render_mascot()
+      end
     end
     if flee then
       vim.defer_fn(function()
@@ -1238,20 +1253,19 @@ local function react_to_card_pet(direction)
           return
         end
         state.mascot_x = 0
-        if mascot_visible() then
-          render_mascot()
-        end
+        finish_mascot_interaction()
       end, 800)
     end
   end, MASCOT_PET_DURATION_MS)
 end
 
 local function react_to_card_vertical(direction)
-  if state.status ~= "ready" or ((state.config or {}).ui or {}).mascot_motion == false then
+  if ((state.config or {}).ui or {}).mascot_motion == false then
     return
   end
   state.mascot_interaction_generation = state.mascot_interaction_generation + 1
   local generation = state.mascot_interaction_generation
+  state.mascot_interacting = true
   state.mascot_hop = 1
   state.mascot_arm_frame = direction > 0 and 2 or 1
   render_mascot()
@@ -1260,10 +1274,7 @@ local function react_to_card_vertical(direction)
       return
     end
     state.mascot_hop = 0
-    state.mascot_arm_frame = 0
-    if mascot_visible() then
-      render_mascot()
-    end
+    finish_mascot_interaction()
   end, 180)
 end
 
@@ -2592,6 +2603,7 @@ function M.close()
   stop_tool_activity_timer()
   state.mascot_action_generation = state.mascot_action_generation + 1
   state.mascot_interaction_generation = state.mascot_interaction_generation + 1
+  state.mascot_interacting = false
   state.mascot_arm_frame = 0
   state.mascot_antenna_offset = 0
   state.mascot_x = 0
