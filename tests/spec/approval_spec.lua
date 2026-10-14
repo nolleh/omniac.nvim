@@ -806,6 +806,55 @@ describe("omniac.nvim approval", function()
     ui.add_message = original_message
   end)
 
+  it("continues a follow-up after another adjusted approval", function()
+    local ui = require("omniac.ui")
+    local original_activity = ui.set_activity
+    local original_message = ui.add_message
+    local messages = {}
+    ui.set_activity = function() end
+    ui.add_message = function(kind, message)
+      table.insert(messages, { kind = kind, message = message })
+    end
+
+    local client = { session_id = "sess_nested", active_turn_id = 30 }
+    local callbacks = {}
+    local next_turn = 31
+    client.prompt = function(self, _, _, callback)
+      self.active_turn_id = next_turn
+      next_turn = next_turn + 1
+      table.insert(callbacks, callback)
+    end
+    local followup = require("omniac.modified_approval").new(client, {}, function()
+      return true
+    end)
+    local function adjusted(path)
+      return { sessionId = "sess_nested", path = path, proposedText = "before", adjustedText = "after" }
+    end
+
+    assert_true(followup:queue(adjusted("/tmp/first.txt")))
+    followup:finish_turn({ sessionId = "sess_nested", turnId = 30 })
+    client.active_turn_id = nil
+    assert_true(vim.wait(100, function()
+      return #callbacks == 1
+    end))
+
+    assert_true(followup:queue(adjusted("/tmp/second.txt")))
+    followup:finish_turn({ sessionId = "sess_nested", turnId = 31 })
+    client.active_turn_id = nil
+    callbacks[1](nil, { stopReason = "cancelled" })
+    assert_equal(#messages, 0, "another adjusted approval should not report an error")
+    assert_true(
+      vim.wait(100, function()
+        return #callbacks == 2
+      end),
+      "next reviewed edit should start automatically"
+    )
+
+    followup:close()
+    ui.set_activity = original_activity
+    ui.add_message = original_message
+  end)
+
   it("reports reviewed files as applied when a follow-up ends cancelled", function()
     local ui = require("omniac.ui")
     local original_activity = ui.set_activity
