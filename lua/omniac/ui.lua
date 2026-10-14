@@ -2304,6 +2304,12 @@ focus_input = function()
   vim.cmd("startinsert!")
 end
 
+local function focus_input_if_active()
+  if valid_win(state.input_win) and vim.api.nvim_get_current_win() == state.input_win then
+    focus_input()
+  end
+end
+
 local function enforce_input(args)
   if state.rendering_input or not valid_buf(state.input_buf) then
     return
@@ -3157,7 +3163,7 @@ function M.add_tool_result(params, config)
     expanded = false,
   })
   request_chat_render(config, { immediate = true, follow = true })
-  focus_input()
+  focus_input_if_active()
 end
 
 function M.add_message(role, text, config, opts)
@@ -3174,7 +3180,7 @@ function M.add_message(role, text, config, opts)
     state.streaming_message_index = nil
   end
   request_chat_render(config, { immediate = true, follow = true })
-  focus_input()
+  focus_input_if_active()
 end
 
 function M.add_notice(role, text, config)
@@ -3188,7 +3194,7 @@ function M.add_notice(role, text, config)
   })
   local index = #state.messages
   request_chat_render(config, { immediate = true, follow = true })
-  focus_input()
+  focus_input_if_active()
   return index
 end
 
@@ -3201,7 +3207,7 @@ function M.update_notice(index, text, config, opts)
     state.messages[index].permission_status = opts.permission_status
   end
   request_chat_render(config, { immediate = true, follow = true })
-  focus_input()
+  focus_input_if_active()
 end
 
 function M.append_response_chunk(text, config)
