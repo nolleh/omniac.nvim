@@ -148,6 +148,38 @@ local function content_text(value, seen)
   return nil
 end
 
+local function permission_paths(tool_call, raw_input)
+  local paths = {}
+  local seen = {}
+  local function add(path)
+    if type(path) == "string" and path ~= "" and not seen[path] then
+      seen[path] = true
+      table.insert(paths, path)
+    end
+  end
+  local function add_locations(locations)
+    if type(locations) ~= "table" then
+      return
+    end
+    for _, location in ipairs(locations) do
+      if type(location) == "table" then
+        add(location.path or location.filePath or location.uri)
+      end
+    end
+  end
+
+  add(raw_input.path or raw_input.filePath)
+  add(tool_call.path)
+  add_locations(tool_call.locations)
+  add_locations(raw_input.locations)
+  for _, item in ipairs(content_items(tool_call)) do
+    if type(item) == "table" then
+      add(item.path or item.filePath)
+    end
+  end
+  return paths
+end
+
 local function permission_body(params)
   local tool_call = params and params.toolCall or {}
   local raw_input = type(tool_call.rawInput) == "table" and tool_call.rawInput or {}
@@ -201,10 +233,16 @@ local function permission_body(params)
     table.insert(lines, "cwd: `" .. cwd .. "`")
   end
 
-  local path = raw_input.path or tool_call.path
-  if type(path) == "string" and path ~= "" then
+  local paths = permission_paths(tool_call, raw_input)
+  if #paths == 1 then
     table.insert(lines, "")
-    table.insert(lines, "path: `" .. path .. "`")
+    table.insert(lines, "path: `" .. paths[1] .. "`")
+  elseif #paths > 1 then
+    table.insert(lines, "")
+    table.insert(lines, "Files:")
+    for _, path in ipairs(paths) do
+      table.insert(lines, "- `" .. path .. "`")
+    end
   end
 
   return table.concat(lines, "\n")
@@ -356,6 +394,27 @@ local function append_diff_payloads(pending, payloads)
     if not found then
       table.insert(pending.payloads, payload)
     end
+  end
+end
+
+local function show_pending_paths(pending)
+  if not pending.notice_text then
+    return
+  end
+  local missing = {}
+  for _, payload in ipairs(pending.payloads) do
+    if not pending.notice_text:find("`" .. payload.path .. "`", 1, true) then
+      table.insert(missing, "- `" .. payload.path .. "`")
+    end
+  end
+  if #missing == 0 then
+    return
+  end
+
+  pending.notice_text = pending.notice_text .. "\n\nFiles:\n" .. table.concat(missing, "\n")
+  local ok, ui = pcall(require, "omniac.ui")
+  if ok and ui and ui.update_notice then
+    ui.update_notice(pending.notice_index, pending.notice_text, pending.config)
   end
 end
 
@@ -596,6 +655,7 @@ function M.review_acp_permission(params, reply, config, on_adjusted, matches_fol
 
   append_diff_payloads(pending, diff_payloads(tool_call))
   append_diff_payloads(pending, pending_acp_diffs[pending.tool_call_id] or {})
+  show_pending_paths(pending)
   if #pending.payloads > 0 then
     open_permission_diff(pending)
   else
@@ -623,6 +683,7 @@ function M.attach_acp_permission_diff(params)
   end
 
   append_diff_payloads(pending, payloads)
+  show_pending_paths(pending)
   if pending.opened then
     return true
   end

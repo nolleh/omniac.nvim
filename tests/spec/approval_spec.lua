@@ -33,6 +33,10 @@ describe("omniac.nvim approval", function()
         kind = "execute",
         status = "pending",
         toolCallId = "call_NoA8PXYCbZ2V0zw4BmoF62T3",
+        locations = {
+          { path = "lua/omniac/clipboard.lua" },
+          { path = "lua/omniac/backend/acp.lua" },
+        },
         rawInput = {
           command = "stylua lua/omniac/clipboard.lua lua/omniac/backend/acp.lua lua/omniac/init.lua lua/omniac/ui.lua tests/headless.lua",
           cwd = "/Users/nolleh/Documents/workspace_github/omniac.nvim",
@@ -64,13 +68,14 @@ describe("omniac.nvim approval", function()
     local dialog_buf = vim.fn.bufnr("omniac://permission")
     local body_lines = vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false)
     dialog_text = table.concat(vim.api.nvim_buf_get_lines(dialog_buf, 0, -1, false), "\n")
-    assert_true(body_lines[#body_lines]:match("^cwd:") ~= nil, "permission body should end with cwd")
+    assert_true(table.concat(body_lines, "\n"):match("cwd:") ~= nil, "permission body should include cwd")
     local chat_buf = vim.fn.bufnr("omniac")
     local namespace = vim.api.nvim_get_namespaces()["omniac.ui"]
     local function permission_badge()
       for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat_buf, namespace, 0, -1, { details = true })) do
         local chunks = mark[4].virt_text
         if chunks and chunks[1] then
+          assert_equal(chunks[2][1], "  ", "permission badge should have right padding")
           return chunks[1][1], chunks[1][2]
         end
       end
@@ -111,6 +116,8 @@ describe("omniac.nvim approval", function()
       "permission result should retain reason"
     )
     assert_true(chat:match("cwd:") ~= nil, "permission chat should show cwd")
+    assert_true(chat:find("Files:", 1, true) ~= nil, "permission chat should list affected files")
+    assert_true(chat:find("lua/omniac/backend/acp.lua", 1, true) ~= nil, "permission chat should show ACP locations")
     assert_true(chat:match("Options:") == nil, "permission chat should leave options to the selector")
     assert_true(chat:match("Details:") == nil, "permission chat should not expose protocol-ish detail labels")
     assert_true(dialog_text:match("Permission requested: execute") ~= nil, "selector prompt should still be shown")
@@ -123,6 +130,7 @@ describe("omniac.nvim approval", function()
       "selector should show the request text"
     )
     assert_true(dialog_text:match("cwd:") ~= nil, "selector should show the working directory")
+    assert_true(dialog_text:find("lua/omniac/backend/acp.lua", 1, true) ~= nil, "selector should show affected files")
     assert_true(dialog_text:find("Summary: Format changed Lua files", 1, true) ~= nil, "selector should show summary")
     assert_true(dialog_text:find("Reason: Prepare the files for commit", 1, true) ~= nil, "selector should show reason")
     assert_equal(replied.outcome.optionId, "allow_once", "permission reply should select the chosen option")
@@ -377,6 +385,8 @@ describe("omniac.nvim approval", function()
     })
 
     assert_true(opened, "late permission diff should open a review")
+    local chat = table.concat(vim.api.nvim_buf_get_lines(vim.fn.bufnr("omniac"), 0, -1, false), "\n")
+    assert_true(chat:find("/tmp/omniac-late-new-file.md", 1, true) ~= nil, "late diff path should appear in chat")
     assert_equal(vim.fn.bufnr("omniac://permission"), -1, "late diff should close fallback selector")
     local current = vim.api.nvim_get_current_buf()
     local current_name = vim.api.nvim_buf_get_name(current)

@@ -985,7 +985,7 @@ render_chat = function(config, opts)
   end
   for _, mark in ipairs(permission_marks) do
     vim.api.nvim_buf_set_extmark(state.chat_buf, ns, mark.line - 1, 0, {
-      virt_text = { { mark.label, mark.group } },
+      virt_text = { { mark.label, mark.group }, { "  ", "Normal" } },
       virt_text_pos = "right_align",
     })
   end
