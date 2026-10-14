@@ -235,6 +235,16 @@ describe("omniac.nvim changes", function()
     assert_true(rendered:match("connection started") ~= nil, "change dialog should explain the session scope")
     assert_true(rendered:match("README%.md") ~= nil, "change dialog should list changed files")
     assert_true(rendered:match("ACP edit") ~= nil, "change dialog should render change metadata")
+    local first_detail_line
+    for index, line in ipairs(lines) do
+      if line:find("ACP edit", 1, true) then
+        first_detail_line = index
+        break
+      end
+    end
+    assert_true(first_detail_line ~= nil, "first change should show its details")
+    assert_true(lines[first_detail_line + 1]:match("^%s+$") ~= nil, "change rows should keep a blank line")
+    assert_true(lines[first_detail_line + 2]:match("ui%.lua") ~= nil, "next change should follow the blank line")
 
     local footer_rendered = ""
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -339,6 +349,7 @@ describe("omniac.nvim changes", function()
     assert_true(rendered:match("%[LOAD%]") == nil, "session rows should not repeat the load action label")
     assert_true(rendered:match("sess_1") ~= nil, "session item should render after flattening multiline text")
     assert_true(rendered:match("전") ~= nil, "session metadata should include relative time")
+    assert_true(lines[#lines]:match("^%s+$") ~= nil, "session rows should retain a blank line after their details")
     local footer_rendered = ""
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.bo[buf].filetype == "omniac-session-footer" then
