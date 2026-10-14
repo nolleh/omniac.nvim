@@ -30,6 +30,8 @@ describe("omniac.nvim changes", function()
     local diff = require("omniac.diff")
     local result
 
+    local origin_win = vim.api.nvim_get_current_win()
+    local origin_buf = vim.api.nvim_get_current_buf()
     diff.open_review("/tmp/omniac-test.txt", { "old" }, { "new" }, {}, function(accepted, lines)
       result = {
         accepted = accepted,
@@ -38,10 +40,17 @@ describe("omniac.nvim changes", function()
     end)
 
     vim.cmd("q")
+    assert_true(
+      vim.wait(1000, function()
+        return result ~= nil
+      end),
+      "review callback should run after quit"
+    )
 
-    assert_true(result ~= nil, "review callback should run")
     assert_equal(result.accepted, false, "review should be denied")
     assert_equal(result.lines, nil, "denied review should not return accepted lines")
+    assert_true(vim.api.nvim_win_is_valid(origin_win), "original editor window should remain open")
+    assert_equal(vim.api.nvim_win_get_buf(origin_win), origin_buf, "original editor buffer should be restored")
   end)
 
   it("diff review can deny edited proposed buffer with :q", function()
@@ -60,8 +69,13 @@ describe("omniac.nvim changes", function()
     vim.cmd("doautocmd TextChanged")
     assert_equal(vim.bo.modified, false, "review buffer should stay quit-safe after edit")
     vim.cmd("q")
+    assert_true(
+      vim.wait(1000, function()
+        return result ~= nil
+      end),
+      "edited review callback should run after quit"
+    )
 
-    assert_true(result ~= nil, "review callback should run")
     assert_equal(result.accepted, false, "edited review should still be denied by :q")
   end)
 
@@ -92,6 +106,27 @@ describe("omniac.nvim changes", function()
     local cursor = vim.api.nvim_win_get_cursor(0)
     assert_equal(cursor[1], 2, "diff review should place the cursor on the first changed line")
     assert_equal(cursor[2], 0, "diff review cursor should start at column 0")
+    diff.deny_current_review()
+  end)
+
+  it("opens a second diff in the existing review area", function()
+    package.loaded["omniac.diff"] = nil
+    local diff = require("omniac.diff")
+    local origin_win = vim.api.nvim_get_current_win()
+    local first = diff.open_preview("/tmp/omniac-first.txt", { "old" }, { "new" }, {})
+
+    assert_equal(diff.select_review_window(), first.before_win, "active review should be selected")
+    local second = diff.open_preview("/tmp/omniac-second.txt", { "before" }, { "after" }, {
+      origin_win = diff.select_review_window(),
+    })
+
+    assert_equal(second.before_win, origin_win, "second diff should reuse the original editor window")
+    assert_true(not vim.api.nvim_buf_is_valid(first.after_buf), "previous proposed buffer should close")
+    assert_equal(vim.api.nvim_win_get_buf(origin_win), second.before_buf, "second diff should replace the first")
+    vim.cmd("q")
+    vim.wait(1000, function()
+      return vim.api.nvim_win_get_buf(origin_win) ~= second.before_buf
+    end)
   end)
 
   it("change preview is read-only and does not write the file", function()
@@ -109,6 +144,10 @@ describe("omniac.nvim changes", function()
     assert_equal(vim.fn.readfile(path)[1], "disk", "opening a preview should not touch the file")
 
     vim.cmd("q")
+    vim.wait(1000, function()
+      return not vim.api.nvim_win_is_valid(handles.before_win)
+        or vim.api.nvim_win_get_buf(handles.before_win) ~= handles.before_buf
+    end)
     pcall(vim.fn.delete, path)
   end)
 

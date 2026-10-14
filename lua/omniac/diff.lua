@@ -293,6 +293,11 @@ end
 
 function M.select_review_window()
   local current = vim.api.nvim_get_current_win()
+  for _, review in pairs(active_reviews) do
+    if not review.separate_tab and review.before_win and vim.api.nvim_win_is_valid(review.before_win) then
+      return review.before_win
+    end
+  end
   if vim.api.nvim_win_is_valid(current) and is_review_candidate(current) then
     return current
   end
@@ -324,6 +329,10 @@ function M.open(before_lines, after_lines, opts)
   local after_buf = vim.api.nvim_create_buf(false, true)
   local origin_win = opts.origin_win
   if not origin_win or not vim.api.nvim_win_is_valid(origin_win) then
+    origin_win = M.select_review_window()
+  end
+  if not origin_win then
+    vim.cmd("topleft vnew")
     origin_win = vim.api.nvim_get_current_win()
   end
   local origin_buf = vim.api.nvim_win_get_buf(origin_win)
@@ -504,7 +513,9 @@ function M.open_review(path, before_lines, after_lines, opts, callback)
       callback = function()
         local review = active_reviews[review_id]
         if review then
-          close_review(review, false)
+          vim.schedule(function()
+            close_review(review, false)
+          end)
         end
       end,
     })
@@ -560,7 +571,9 @@ function M.open_preview(path, before_lines, after_lines, opts)
       callback = function()
         local review = active_reviews[review_id]
         if review then
-          close_review(review, false)
+          vim.schedule(function()
+            close_review(review, false)
+          end)
         end
       end,
     })

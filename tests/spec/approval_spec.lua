@@ -459,6 +459,12 @@ describe("omniac.nvim approval", function()
     end, {})
 
     vim.cmd("q")
+    assert_true(
+      vim.wait(1000, function()
+        return replied ~= nil
+      end),
+      "denial should reply after the diff window closes"
+    )
     assert_equal(replied.outcome.outcome, "cancelled", "denial should reject the entire request")
     vim.wait(30)
     assert_true(vim.api.nvim_buf_get_name(0):find("omniac-denied-b", 1, true) == nil)
