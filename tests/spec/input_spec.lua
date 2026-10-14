@@ -43,7 +43,7 @@ describe("omniac.nvim input", function()
   it("retains one failed prompt with its content and resends only on request", function()
     local omniac = require("omniac")
     local ui = require("omniac.ui")
-    local original_select = vim.ui.select
+    local original_show_failure_action = ui.show_failure_action
     local original_status = ui.set_status
     local original_activity = ui.set_activity
     local original_message = ui.add_message
@@ -55,7 +55,7 @@ describe("omniac.nvim input", function()
       table.insert(prompts, { text = text, params = params })
       table.insert(callbacks, callback)
     end
-    vim.ui.select = function(_, _, callback)
+    ui.show_failure_action = function(callback)
       menu = callback
     end
     ui.set_status = function() end
@@ -81,10 +81,7 @@ describe("omniac.nvim input", function()
       end),
       "failure action menu should open"
     )
-    menu("Keep for later")
-    assert_equal(#prompts, 1, "keeping a failed prompt should not resend it")
-
-    assert_equal(omniac.retry_failed_submission(), true)
+    menu("resend")
     assert_equal(#prompts, 2, "explicit retry should send exactly once")
     assert_equal(prompts[2].params.prompt[1].text, "question with context", "retry should reuse original prompt")
     assert_equal(item.attachments[1].path, "/tmp/example", "saved attachment should remain available")
@@ -93,7 +90,7 @@ describe("omniac.nvim input", function()
     assert_equal(omniac.failed_submission, nil, "successful retry should clear the saved failure")
 
     omniac.backend = nil
-    vim.ui.select = original_select
+    ui.show_failure_action = original_show_failure_action
     ui.set_status = original_status
     ui.set_activity = original_activity
     ui.add_message = original_message

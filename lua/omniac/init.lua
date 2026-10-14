@@ -32,20 +32,25 @@ local function submission_failure(item, err)
     if M.failed_submission ~= item then
       return
     end
-    vim.ui.select({ "Keep for later", "Resend", "Restore to input" }, {
-      prompt = "The agent may have processed this prompt. Choose an action:",
-    }, function(choice)
+    ui.show_failure_action(function(choice)
       if M.failed_submission ~= item then
         return
       end
-      if choice == "Resend" then
+      if choice == "resend" then
         M.retry_failed_submission()
-      elseif choice == "Restore to input" then
+      elseif choice == "restore" then
         if ui.restore_input(item.text, item.attachments) then
           M.failed_submission = nil
         else
           ui.set_activity("Clear the current input before restoring the failed prompt.", M.config)
+          ui.show_failure_action(function(action)
+            if M.failed_submission == item and action == "dismiss" then
+              M.failed_submission = nil
+            end
+          end)
         end
+      else
+        M.failed_submission = nil
       end
     end)
   end)
@@ -437,21 +442,6 @@ function M.setup(opts)
   register_command("OmniacExit", exit, {})
   register_command("OmniacSession", choose_session, {})
   register_command("OmniacAsk", ask, { nargs = "?" })
-  register_command("OmniacRetry", function()
-    if not M.retry_failed_submission() then
-      ui.set_activity("No failed prompt is ready to resend.", M.config)
-    end
-  end, {})
-  register_command("OmniacRestore", function()
-    local item = M.failed_submission
-    if not item then
-      ui.set_activity("No failed prompt is saved.", M.config)
-    elseif ui.restore_input(item.text, item.attachments) then
-      M.failed_submission = nil
-    else
-      ui.set_activity("Clear the current input before restoring the failed prompt.", M.config)
-    end
-  end, {})
   register_command("OmniacResize", resize, { nargs = 1 })
   register_command("OmniacDebug", debug, {})
   register_command("OmniacAskFiles", ask_files, { nargs = "?" })
@@ -963,7 +953,7 @@ function M.connect(opts)
           end)
         elseif count > 0 and review_mode == "summary" then
           ui.set_activity(
-            string.format("Changed %d file%s this turn\nt: turn · s: session", count, count == 1 and "" or "s"),
+            string.format("Changed %d file%s this turn\n[t] turn · [s] session", count, count == 1 and "" or "s"),
             cfg,
             { change_summary = true }
           )

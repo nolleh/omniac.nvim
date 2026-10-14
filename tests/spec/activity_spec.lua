@@ -7,6 +7,24 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim activity", function()
   after_each(helpers.cleanup_after_test)
 
+  it("shows failed prompt actions in the activity bar and handles a shortcut once", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }
+    local ui_state = ui.open(config, function(_) end)
+    local actions = {}
+    ui.show_failure_action(function(action)
+      table.insert(actions, action)
+    end)
+    local activity = table.concat(vim.api.nvim_buf_get_lines(ui_state.activity_buf, 0, -1, false), "\n")
+    assert_true(activity:find("[r] Resend", 1, true) ~= nil, "failure actions should appear in activity")
+    vim.api.nvim_set_current_win(ui_state.chat_win)
+    feed("r")
+    assert_equal(actions[1], "resend", "shortcut should choose resend")
+    assert_equal(#actions, 1, "shortcut should run once")
+  end)
+
   it("restores the previous activity after a short notice", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

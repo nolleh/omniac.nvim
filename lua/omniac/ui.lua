@@ -48,6 +48,7 @@ local state = {
   input_chunks = nil,
   input_attachments = {},
   transient_activity = nil,
+  failure_action = nil,
   activity_generation = 0,
   change_summary = false,
   change_shortcut_buffers = {},
@@ -140,6 +141,24 @@ local function sync_change_shortcuts()
         })
       end
       table.insert(state.change_shortcut_buffers, buf)
+    end
+  end
+end
+
+local function sync_failure_shortcuts()
+  for _, name in ipairs({ "chat_buf", "activity_buf", "status_buf", "card_buf", "input_buf" }) do
+    local buf = state[name]
+    if valid_buf(buf) then
+      for key, action in pairs({ r = "resend", e = "restore", d = "dismiss" }) do
+        pcall(vim.keymap.del, "n", key, { buffer = buf })
+        if state.failure_action then
+          vim.keymap.set("n", key, function()
+            local handler = state.failure_action
+            M.clear_failure_action()
+            handler(action)
+          end, { buffer = buf, nowait = true, desc = "Omniac failed prompt: " .. action })
+        end
+      end
     end
   end
 end
@@ -1424,7 +1443,9 @@ render_activity = function()
     "OmniacWorking4",
   }
   local text = ""
-  if state.transient_activity then
+  if state.failure_action then
+    text = "Prompt failed. Agent may have processed it.\n[r] Resend  [e] Restore input  [d] Dismiss"
+  elseif state.transient_activity then
     text = state.transient_activity
   elseif state.status == "working" and state.tool_activity then
     text = state.tool_activity
@@ -2546,6 +2567,11 @@ local function schedule_relayout()
 end
 
 function M.close()
+  local failure_action = state.failure_action
+  M.clear_failure_action()
+  if failure_action then
+    failure_action("dismiss")
+  end
   stop_activity_timer()
   stop_tool_activity_timer()
   state.mascot_action_generation = state.mascot_action_generation + 1
@@ -2968,6 +2994,21 @@ function M.set_activity(text, config, opts)
   render_activity()
   render_status()
   sync_activity_timer()
+end
+
+function M.show_failure_action(handler)
+  state.failure_action = handler
+  sync_failure_shortcuts()
+  if vim.fn.mode():match("^[iR]") then
+    vim.cmd("stopinsert")
+  end
+  render_activity()
+end
+
+function M.clear_failure_action()
+  state.failure_action = nil
+  sync_failure_shortcuts()
+  render_activity()
 end
 
 function M.flash_activity(text, config, duration_ms)

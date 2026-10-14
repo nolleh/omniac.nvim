@@ -127,7 +127,7 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 ## Features
 
 - `:OmniacConnect` starts the configured subprocess
-- If a prompt fails, Omniac keeps one submission with its attachments. Choose **Resend** only after checking whether the agent already handled it; use `:OmniacRetry` or `:OmniacRestore` later to resend or restore the saved input.
+- If a prompt fails, the activity bar offers `[r]` Resend, `[e]` Restore input, and `[d]` Dismiss in Omniac normal mode. Check whether the agent already handled it before resending.
 - type `/resume` in the Omniac chat to list sessions and open the session-selection dialog
 - `:OmniacSession` opens the session selector; when disconnected, it opens Omniac and asks the agent for its available sessions
 - type `/clear` to start a fresh ACP session while keeping the current connection
