@@ -52,6 +52,31 @@ describe("omniac.nvim activity", function()
     assert_true(activity():find("New activity", 1, true) ~= nil, "a newer activity should not be replaced")
   end)
 
+  it("shows complete thought activity during a turn and clears it afterward", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }
+    local ui_state = ui.open(config, function(_) end)
+    local function activity()
+      return table.concat(vim.api.nvim_buf_get_lines(ui_state.activity_buf, 0, -1, false), "\n")
+    end
+
+    ui.handle_notification({ method = "omniac/prompt_started", params = { turnId = 1 } }, config)
+    ui.handle_notification(
+      { method = "omniac/thought_activity", params = { turnId = 1, text = "Adding a test" } },
+      config
+    )
+    assert_true(activity():find("Adding a test", 1, true) ~= nil, "thought should replace Working")
+
+    ui.handle_notification({ method = "omniac/thought_activity", params = { turnId = 0, text = "Old turn" } }, config)
+    assert_true(activity():find("Old turn", 1, true) == nil, "stale thoughts should be ignored")
+
+    ui.handle_notification({ method = "omniac/response_completed", params = { turnId = 1 } }, config)
+    ui.handle_notification({ method = "omniac/prompt_started", params = { turnId = 2 } }, config)
+    assert_true(activity():find("Working", 1, true) ~= nil, "new turns should start with Working")
+  end)
+
   it("opens changes from non-input Omniac windows while the summary is visible", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

@@ -850,6 +850,22 @@ function M.new(config)
         return
       end
 
+      if update_type == "agent_thought_chunk" or update_type == "agentThoughtChunk" then
+        local text = extract_text(update.content or update.delta or update)
+        local title = type(text) == "string" and text:match("^%s*%*%*(.-)%*%*%s*$") or nil
+        if title and title ~= "" and self.active_turn_id ~= nil then
+          self:_emit_notification({
+            method = "omniac/thought_activity",
+            params = {
+              text = title,
+              sessionId = self.session_id,
+              turnId = self.active_turn_id,
+            },
+          })
+        end
+        return
+      end
+
       if update_type == "agent_message_chunk" or update_type == "agentMessageChunk" then
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then

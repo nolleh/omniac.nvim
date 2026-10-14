@@ -486,6 +486,32 @@ describe("omniac.nvim acp session", function()
     assert_equal(notification.params.sessionId, "sess_1", "cancel should target the active session")
   end)
 
+  it("ACP complete thought headings emit activity", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local client = require("omniac.backend.acp").new({})
+    client.active_turn_id = 7
+    local notices = {}
+    client:on_notification(function(message)
+      if message.method == "omniac/thought_activity" then
+        table.insert(notices, message)
+      end
+    end)
+
+    for _, value in ipairs({ "\n\n", "**Adding a test**", "**Incomplete" }) do
+      client:_handle_notification({
+        method = "session/update",
+        params = { update = { sessionUpdate = "agent_thought_chunk", content = { type = "text", text = value } } },
+      })
+    end
+
+    vim.wait(50, function()
+      return #notices > 0
+    end)
+    assert_equal(#notices, 1, "only a complete thought heading should become activity")
+    assert_equal(notices[1].params.text, "Adding a test", "activity should omit markdown markers")
+    assert_equal(notices[1].params.turnId, 7, "activity should retain its turn")
+  end)
+
   it("ACP completed tool call emits tool result output", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

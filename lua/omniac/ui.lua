@@ -25,6 +25,7 @@ local state = {
   activity_frame = 1,
   activity_height = 1,
   tool_activity = nil,
+  thought_activity = nil,
   messages = {},
   input_history = {},
   input_history_index = nil,
@@ -1454,6 +1455,8 @@ render_activity = function()
     text = state.transient_activity
   elseif state.status == "working" and state.tool_activity then
     text = state.tool_activity
+  elseif state.status == "working" and state.thought_activity then
+    text = state.thought_activity
   elseif state.status == "working" then
     text = frames[state.activity_frame]
   elseif state.status == "connecting" then
@@ -2971,6 +2974,7 @@ function M.set_status(status, config)
   state.status = status or "idle"
   if state.status ~= "working" then
     state.tool_activity = nil
+    state.thought_activity = nil
     state.cancel_requested = false
     stop_tool_activity_timer()
   end
@@ -3282,6 +3286,7 @@ function M.handle_notification(message, config)
       method == "omniac/response"
       or method == "omniac/response_chunk"
       or method == "omniac/response_completed"
+      or method == "omniac/thought_activity"
       or method == "omniac/prompt_cancelled"
     then
       return
@@ -3299,6 +3304,7 @@ function M.handle_notification(message, config)
   if method == "omniac/prompt_started" then
     state.streaming_message_index = nil
     state.tool_activity = nil
+    state.thought_activity = nil
     state.cancel_requested = false
     state.suppress_current_turn = false
     state.active_turn_id = turn_id
@@ -3327,6 +3333,7 @@ function M.handle_notification(message, config)
       method == "omniac/response"
       or method == "omniac/response_chunk"
       or method == "omniac/tool_activity"
+      or method == "omniac/thought_activity"
       or method == "omniac/tool_result"
     )
   then
@@ -3354,6 +3361,14 @@ function M.handle_notification(message, config)
 
   if method == "omniac/tool_activity" then
     M.set_tool_activity(params, config)
+    return
+  end
+
+  if method == "omniac/thought_activity" then
+    if state.status == "working" and type(params.text) == "string" and params.text ~= "" then
+      state.thought_activity = params.text
+      render_activity()
+    end
     return
   end
 
