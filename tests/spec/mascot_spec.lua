@@ -112,6 +112,24 @@ describe("omniac.nvim mascot", function()
     end
   end)
 
+  it("returns the chat view to the top after clearing a session", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local ui_state = ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }, function(_) end)
+
+    for index = 1, 30 do
+      ui.add_message("You", "Message " .. index, ui_state.config)
+    end
+    vim.api.nvim_win_set_cursor(ui_state.chat_win, { vim.api.nvim_buf_line_count(ui_state.chat_buf), 0 })
+    assert_true(vim.fn.line("w0", ui_state.chat_win) > 1, "chat should be scrolled before clearing")
+
+    ui.clear_conversation(ui_state.config)
+
+    assert_equal(vim.api.nvim_win_get_cursor(ui_state.chat_win)[1], 1, "chat cursor should return to the first line")
+    assert_equal(vim.fn.line("w0", ui_state.chat_win), 1, "session card should start at the top")
+  end)
+
   it("alternates mascot arms while working and stops when ready", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

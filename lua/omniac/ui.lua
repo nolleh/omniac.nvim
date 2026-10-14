@@ -994,7 +994,12 @@ render_chat = function(config, opts)
     render_chat_markdown()
   end
 
-  if should_follow and valid_win(state.chat_win) and #lines > 0 then
+  if opts.reset_view and valid_win(state.chat_win) then
+    pcall(vim.api.nvim_win_set_cursor, state.chat_win, { 1, 0 })
+    pcall(vim.api.nvim_win_call, state.chat_win, function()
+      vim.fn.winrestview({ topline = 1, lnum = 1, col = 0 })
+    end)
+  elseif should_follow and valid_win(state.chat_win) and #lines > 0 then
     pcall(vim.api.nvim_win_set_cursor, state.chat_win, { #lines, 0 })
   elseif previous_view and valid_win(state.chat_win) then
     local line_count = math.max(#lines, 1)
@@ -2045,7 +2050,7 @@ function M.clear_conversation(config)
   close_command_window()
   reset_input()
   M.set_status("ready", config or state.config)
-  request_chat_render(config or state.config, { immediate = true, follow = false })
+  request_chat_render(config or state.config, { immediate = true, follow = false, reset_view = true })
 end
 
 local update_command_window
