@@ -40,6 +40,64 @@ describe("omniac.nvim input", function()
     assert_equal(submissions[2].attachments[1].path, "/tmp/example", "restored reference should be sent")
   end)
 
+  it("queues the input with Tab and clears the draft", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local queued = {}
+    ui.open({ agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }, function() end, function(text, attachments)
+      table.insert(queued, { text = text, attachments = attachments })
+      return true
+    end)
+
+    feed("iqueued prompt<Tab>")
+    assert_equal(#queued, 1, "Tab should queue one prompt")
+    assert_equal(queued[1].text, "queued prompt", "queued text should match the draft")
+    assert_equal(#queued[1].attachments, 0, "queued attachments should be captured")
+    local input_buf = vim.fn.bufnr("omniac://input")
+    assert_true(
+      vim.wait(200, function()
+        local lines = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)
+        return table.concat(lines, "\n"):find("queued prompt", 1, true) == nil
+      end),
+      "queued input should be cleared"
+    )
+  end)
+
+  it("sends queued prompts in order after the active response completes", function()
+    local omniac = require("omniac")
+    local ui = require("omniac.ui")
+    local original_submit = ui.submit
+    ui.submit = function() end
+    local prompts = {}
+    local callbacks = {}
+    omniac.backend = { running = true }
+    function omniac.backend:prompt(text, _, callback)
+      table.insert(prompts, text)
+      table.insert(callbacks, callback)
+    end
+    local first = { text = "first", attachments = {} }
+    omniac.active_submission = first
+    omniac.failed_submission = nil
+    omniac.queued_submissions = {
+      { text = "second", attachments = {} },
+      { text = "third", attachments = {} },
+    }
+
+    omniac.ask(first.text, first.attachments, first)
+    assert_equal(#prompts, 1, "only the active prompt should be sent")
+    callbacks[1](nil, {})
+    assert_equal(prompts[2], "second", "the first queued prompt should be next")
+    callbacks[2](nil, {})
+    assert_equal(prompts[3], "third", "queued prompts should keep their order")
+    callbacks[3](nil, {})
+    assert_equal(omniac.active_submission, nil, "the queue should finish without an active prompt")
+    assert_equal(#omniac.queued_submissions, 0, "the queue should be empty")
+
+    omniac.backend = nil
+    ui.submit = original_submit
+  end)
+
   it("retains one failed prompt with its content and resends only on request", function()
     local omniac = require("omniac")
     local ui = require("omniac.ui")

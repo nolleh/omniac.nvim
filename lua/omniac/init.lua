@@ -17,9 +17,25 @@ local M = {
   backend = nil,
   failed_submission = nil,
   active_submission = nil,
+  queued_submissions = {},
 }
 
-local function submission_failure(item, err)
+local submission_failure
+
+local function send_next_queued()
+  if M.active_submission or M.failed_submission or #M.queued_submissions == 0 then
+    return
+  end
+  local item = table.remove(M.queued_submissions, 1)
+  M.active_submission = item
+  ui.submit(item.text, M.config, item.attachments)
+  local ok, err = pcall(M.ask, item.text, item.attachments, item)
+  if not ok then
+    submission_failure(item, err)
+  end
+end
+
+submission_failure = function(item, err)
   if M.active_submission ~= item then
     return
   end
@@ -41,16 +57,19 @@ local function submission_failure(item, err)
       elseif choice == "restore" then
         if ui.restore_input(item.text, item.attachments) then
           M.failed_submission = nil
+          send_next_queued()
         else
           ui.set_activity("Clear the current input before restoring the failed prompt.", M.config)
           ui.show_failure_action(function(action)
             if M.failed_submission == item and action == "dismiss" then
               M.failed_submission = nil
+              send_next_queued()
             end
           end)
         end
       else
         M.failed_submission = nil
+        send_next_queued()
       end
     end)
   end)
@@ -673,6 +692,13 @@ function M.open_chat(connect_opts)
       submission_failure(item, err)
     end
     return true
+  end, function(text, attachments)
+    if not M.active_submission or M.failed_submission then
+      return false
+    end
+    table.insert(M.queued_submissions, { text = text, attachments = vim.deepcopy(attachments or {}) })
+    ui.set_activity("Queued prompt (" .. #M.queued_submissions .. ").", M.config)
+    return true
   end)
 
   if not M.backend then
@@ -789,6 +815,7 @@ function M.ask(extra, attachments, item)
 
       if item then
         M.active_submission = nil
+        send_next_queued()
       end
 
       if result and M.config.debug then

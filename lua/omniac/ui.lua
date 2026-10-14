@@ -43,6 +43,7 @@ local state = {
   chat_render_opts = nil,
   config = nil,
   submit = nil,
+  queue_submit = nil,
   cancel_handler = nil,
   cancel_requested = false,
   suppress_current_turn = false,
@@ -2635,10 +2636,11 @@ function M.close()
   end
 end
 
-function M.open(config, submit)
+function M.open(config, submit, queue_submit)
   setup_highlights()
   state.config = config or state.config
   state.submit = submit or state.submit
+  state.queue_submit = queue_submit or state.queue_submit
 
   if
     valid_win(state.chat_win)
@@ -2775,6 +2777,27 @@ function M.open(config, submit)
     close_command_window()
     clear_input_attachments()
   end, { buffer = state.input_buf, nowait = true, desc = "Send Omniac prompt" })
+
+  if state.queue_submit then
+    vim.keymap.set("i", "<Tab>", function()
+      local text = input_text()
+      local attachments = vim.deepcopy(state.input_attachments or {})
+      if (text == "" and #attachments == 0) or not state.queue_submit then
+        return "<Tab>"
+      end
+      text = completed_suggestion_text(text)
+      if state.queue_submit(text, attachments) == false then
+        return "<Tab>"
+      end
+      vim.schedule(function()
+        remember_input_history(text)
+        reset_input()
+        clear_input_attachments()
+        close_command_window()
+      end)
+      return "<Ignore>"
+    end, { buffer = state.input_buf, expr = true, nowait = true, desc = "Queue Omniac prompt during a turn" })
+  end
 
   vim.keymap.set("i", "<C-v>", function()
     local ok = add_clipboard_image()
