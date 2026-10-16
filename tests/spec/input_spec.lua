@@ -445,6 +445,70 @@ describe("omniac.nvim input", function()
     assert_equal(vim.api.nvim_buf_get_name(0), "omniac://activity", "Ctrl-j should move below chat")
   end)
 
+  it("moves every Omniac window together with control-w H and L", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local previous_lines = vim.o.lines
+    vim.o.lines = 50
+    local ok, err = xpcall(function()
+      local ui = require("omniac.ui")
+      local original_win = vim.api.nvim_get_current_win()
+      local ui_state = ui.open({
+        agent = { cmd = { "codex-acp" } },
+        ui = { chat_width = 42 },
+      }, function(_) end)
+      assert_true(ui_state.card_pinned, "test requires the pinned welcome card")
+      local omniac_wins = {}
+      if ui_state.card_win then
+        table.insert(omniac_wins, ui_state.card_win)
+      end
+      vim.list_extend(omniac_wins, {
+        ui_state.chat_win,
+        ui_state.activity_win,
+        ui_state.input_win,
+        ui_state.status_win,
+      })
+
+      local function leaves(layout, result)
+        result = result or {}
+        if layout[1] == "leaf" then
+          table.insert(result, layout[2])
+        else
+          for _, child in ipairs(layout[2]) do
+            leaves(child, result)
+          end
+        end
+        return result
+      end
+
+      local function assert_sidebar_at(index)
+        local layout = vim.fn.winlayout()
+        assert_equal(layout[1], "row", "sidebar should remain a vertical column")
+        local sidebar_wins = leaves(layout[2][index])
+        assert_equal(#sidebar_wins, #omniac_wins, "sidebar should contain every Omniac window")
+        for position, win in ipairs(omniac_wins) do
+          assert_equal(sidebar_wins[position], win, "sidebar window order should be preserved")
+        end
+        assert_equal(leaves(layout[2][index == 1 and 2 or 1])[1], original_win, "editor should remain outside sidebar")
+      end
+
+      vim.api.nvim_set_current_win(ui_state.activity_win)
+      feed("<C-w>H")
+      assert_sidebar_at(1)
+      assert_equal(vim.api.nvim_get_current_win(), ui_state.activity_win, "moving left should preserve focus")
+      assert_true(ui.is_open(), "moving left should keep Omniac open")
+
+      feed("<C-w>L")
+      assert_sidebar_at(2)
+      assert_equal(vim.api.nvim_get_current_win(), ui_state.activity_win, "moving right should preserve focus")
+      assert_true(ui.is_open(), "moving right should keep Omniac open")
+    end, debug.traceback)
+    vim.o.lines = previous_lines
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("closes every Omniac split when one of them is quit", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
