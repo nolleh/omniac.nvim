@@ -142,8 +142,8 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 - `Ctrl-k` and `Ctrl-j` move between the welcome card, chat, and input in normal or insert mode, skipping the activity and status bars. When the welcome card is hidden, they move between chat and input.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
 - When the activity window shows a change summary, press `t` for the latest turn or `s` for the current session from any Omniac window except the input
-- `:OmniacChanges [turn|session]` opens the same read-only change browser
-- The change browser stays in normal mode; closing a file preview returns to the same list and selection
+- `:OmniacChanges [turn|session]` opens the change browser in Telescope when available, with a diff preview; otherwise it uses the built-in dialog
+- Closing a selected file's full preview returns to the same list and selection
 - change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
 - change review history is kept in memory and starts fresh after `load`, `resume`, or reconnect; use `git diff` as the source of truth for the current working tree
 - `:OmniacResize {width}` resizes the Omniac side UI as one body

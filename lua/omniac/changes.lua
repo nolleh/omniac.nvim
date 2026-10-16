@@ -1,5 +1,6 @@
 local diff = require("omniac.diff")
 local change_dialog = require("omniac.change_dialog")
+local change_telescope = require("omniac.change_telescope")
 
 local M = {}
 
@@ -191,8 +192,10 @@ function M.open(scope, config)
     return false
   end
 
-  local function open_dialog(selected)
-    change_dialog.open(available, { scope = scope, selected = selected }, function(item, index)
+  local use_telescope = change_telescope.available()
+  local picker = use_telescope and change_telescope or change_dialog
+  local function open_picker(selected)
+    picker.open(available, { scope = scope, selected = selected }, function(item, index)
       if not item then
         return
       end
@@ -207,13 +210,13 @@ function M.open(scope, config)
           origin_win = diff.select_review_window(),
           separate_tab = config and config.ui and config.ui.diff_separate_tab,
           on_close = function()
-            open_dialog(index)
+            open_picker(index)
           end,
         }
       )
     end)
   end
-  open_dialog(1)
+  open_picker(1)
   return true
 end
 
