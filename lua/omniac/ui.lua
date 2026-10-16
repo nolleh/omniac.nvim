@@ -2917,16 +2917,44 @@ function M.open(config, submit, queue_submit)
   end
 
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf, state.card_buf }) do
-    for key, direction in pairs({ ["<C-k>"] = "k", ["<C-j>"] = "j" }) do
+    for key, direction in pairs({ ["<C-k>"] = -1, ["<C-j>"] = 1 }) do
       vim.keymap.set({ "n", "i" }, key, function()
         if vim.fn.mode():match("^[iR]") then
           vim.cmd("stopinsert")
         end
-        vim.cmd("wincmd " .. direction)
+        local windows = {}
+        if valid_win(state.card_win) then
+          table.insert(windows, state.card_win)
+        end
+        for _, win in ipairs({ state.chat_win, state.input_win }) do
+          if valid_win(win) then
+            table.insert(windows, win)
+          end
+        end
+        local current = vim.api.nvim_get_current_win()
+        local index = nil
+        for i, win in ipairs(windows) do
+          if win == current then
+            index = i
+            break
+          end
+        end
+        local target_index
+        if index then
+          target_index = index + direction
+        elseif current == state.activity_win then
+          target_index = direction == -1 and #windows - 1 or #windows
+        elseif current == state.status_win and direction == -1 then
+          target_index = #windows
+        end
+        local target = target_index and windows[target_index]
+        if target then
+          vim.api.nvim_set_current_win(target)
+        end
       end, {
         buffer = buf,
         nowait = true,
-        desc = "Move to Omniac window " .. (direction == "k" and "above" or "below"),
+        desc = "Move to Omniac area " .. (direction == -1 and "above" or "below"),
       })
     end
   end

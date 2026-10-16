@@ -407,18 +407,22 @@ describe("omniac.nvim input", function()
     assert_equal(vim.api.nvim_get_current_win(), activity_win, "Shift-Tab should keep activity focused")
   end)
 
-  it("control-k and control-j move vertically across Omniac windows", function()
+  it("control-k and control-j move between the main Omniac areas", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
 
-    ui.open({
+    local ui_state = ui.open({
       agent = { cmd = { "codex-acp" } },
       ui = { chat_width = 42 },
     }, function(_) end)
 
     feed("i<C-k>")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://activity", "Ctrl-k should move above input")
+    assert_equal(
+      vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"),
+      "omniac",
+      "Ctrl-k should move from input to chat"
+    )
 
     local input_win
     for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -429,20 +433,32 @@ describe("omniac.nvim input", function()
     end
     vim.api.nvim_set_current_win(input_win)
     feed("<C-j>")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://status", "Ctrl-j should move below input")
+    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Ctrl-j should stay at the last area")
 
     feed("<C-k>")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Ctrl-k should move above status")
+    assert_equal(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), "omniac", "Ctrl-k should move to chat")
     feed("<C-k>")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://activity", "Ctrl-k should move above input")
-    feed("<C-k>")
-    assert_equal(
-      vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"),
-      "omniac",
-      "Ctrl-k should move above activity to chat"
-    )
+    if ui_state.card_pinned then
+      assert_equal(vim.api.nvim_buf_get_name(0), "omniac://card", "Ctrl-k should move to welcome card")
+    else
+      assert_equal(vim.api.nvim_get_current_win(), ui_state.chat_win, "Ctrl-k should stay at chat without a card")
+    end
     feed("<C-j>")
-    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://activity", "Ctrl-j should move below chat")
+    if ui_state.card_pinned then
+      assert_equal(vim.api.nvim_get_current_win(), ui_state.chat_win, "Ctrl-j should move to chat")
+      feed("<C-j>")
+    end
+    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "Ctrl-j should move to input")
+
+    vim.api.nvim_set_current_win(ui_state.activity_win)
+    feed("<C-k>")
+    assert_equal(vim.api.nvim_get_current_win(), ui_state.chat_win, "Ctrl-k should move from activity to chat")
+    vim.api.nvim_set_current_win(ui_state.activity_win)
+    feed("<C-j>")
+    assert_equal(vim.api.nvim_get_current_win(), ui_state.input_win, "Ctrl-j should move from activity to input")
+    vim.api.nvim_set_current_win(ui_state.status_win)
+    feed("<C-k>")
+    assert_equal(vim.api.nvim_get_current_win(), ui_state.input_win, "Ctrl-k should move from status to input")
   end)
 
   it("closes every Omniac split when one of them is quit", function()
