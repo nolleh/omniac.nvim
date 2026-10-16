@@ -2593,6 +2593,51 @@ local function schedule_relayout()
   end)
 end
 
+local function move_sidebar(direction)
+  local windows = {}
+  if valid_win(state.card_win) then
+    table.insert(windows, state.card_win)
+  end
+  for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
+    if valid_win(win) then
+      table.insert(windows, win)
+    end
+  end
+  if #windows == 0 then
+    return
+  end
+
+  local current = vim.api.nvim_get_current_win()
+  local fixed = {}
+  for _, win in ipairs(windows) do
+    fixed[win] = {
+      height = vim.wo[win].winfixheight,
+      width = vim.wo[win].winfixwidth,
+    }
+    vim.wo[win].winfixheight = false
+    vim.wo[win].winfixwidth = false
+  end
+
+  vim.api.nvim_win_call(windows[1], function()
+    vim.cmd("wincmd " .. direction)
+  end)
+  for index = 2, #windows do
+    vim.fn.win_splitmove(windows[index], windows[index - 1], {
+      rightbelow = true,
+      vertical = false,
+    })
+  end
+
+  for _, win in ipairs(windows) do
+    vim.wo[win].winfixheight = fixed[win].height
+    vim.wo[win].winfixwidth = fixed[win].width
+  end
+  resize_aux_windows()
+  if valid_win(current) then
+    vim.api.nvim_set_current_win(current)
+  end
+end
+
 function M.close()
   local failure_action = state.failure_action
   M.clear_failure_action()
@@ -2955,6 +3000,15 @@ function M.open(config, submit, queue_submit)
         buffer = buf,
         nowait = true,
         desc = "Move to Omniac area " .. (direction == -1 and "above" or "below"),
+      })
+    end
+    for key, direction in pairs({ ["<C-w>H"] = "H", ["<C-w>L"] = "L" }) do
+      vim.keymap.set("n", key, function()
+        move_sidebar(direction)
+      end, {
+        buffer = buf,
+        nowait = true,
+        desc = "Move Omniac sidebar " .. (direction == "H" and "left" or "right"),
       })
     end
   end
