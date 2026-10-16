@@ -3005,6 +3005,15 @@ function M.open(config, submit, queue_submit)
 
   if state.queue_submit then
     vim.keymap.set("i", "<Tab>", function()
+      if complete_current_suggestion() then
+        return "<Ignore>"
+      end
+
+      local trigger = command_prefix()
+      if trigger ~= nil then
+        return "<Tab>"
+      end
+
       local text, attachments = prepared_input()
       if (text == "" and #attachments == 0) or not state.queue_submit then
         return "<Tab>"
