@@ -63,6 +63,7 @@ local state = {
   session_usage = nil,
   plan_toggle_handler = nil,
   relayout_pending = false,
+  close_pending = false,
   user_width = nil,
   active_turn_id = nil,
   mascot_gaze = "center",
@@ -2762,6 +2763,21 @@ local function schedule_relayout()
   end)
 end
 
+local function schedule_close()
+  if state.close_pending then
+    return
+  end
+
+  state.close_pending = true
+  vim.schedule(function()
+    if not state.close_pending then
+      return
+    end
+    state.close_pending = false
+    M.close()
+  end)
+end
+
 local function move_sidebar(direction)
   local windows = {}
   if valid_win(state.card_win) then
@@ -2808,6 +2824,7 @@ local function move_sidebar(direction)
 end
 
 function M.close()
+  state.close_pending = false
   local failure_action = state.failure_action
   M.clear_failure_action()
   if failure_action then
@@ -2842,7 +2859,7 @@ function M.close()
   state.chat_render_opts = nil
   vim.api.nvim_clear_autocmds({
     group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed" },
+    event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout" },
   })
   close_command_window()
   if valid_win(state.input_win) then
@@ -3216,8 +3233,27 @@ function M.open(config, submit, queue_submit)
   })
   vim.api.nvim_clear_autocmds({
     group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed", "WinEnter", "FocusGained", "BufEnter", "BufWinEnter" },
+    event = {
+      "VimResized",
+      "WinResized",
+      "WinClosed",
+      "WinEnter",
+      "FocusGained",
+      "BufEnter",
+      "BufWinEnter",
+      "BufDelete",
+      "BufWipeout",
+    },
   })
+  for _, buf in ipairs({ state.card_buf, state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
+    if valid_buf(buf) then
+      vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+        group = augroup,
+        buffer = buf,
+        callback = schedule_close,
+      })
+    end
+  end
   if state.card_pinned then
     vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
       group = augroup,
@@ -3240,7 +3276,7 @@ function M.open(config, submit, queue_submit)
     callback = function(args)
       local closed_win = tonumber(args.match)
       if closed_win and omniac_split_win(closed_win) then
-        vim.schedule(M.close)
+        schedule_close()
         return
       end
       if closed_win and floating_win(closed_win) then

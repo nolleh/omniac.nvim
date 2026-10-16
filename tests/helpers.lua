@@ -38,6 +38,10 @@ local function has_window_for_buffer_name(name)
 end
 
 local function cleanup_after_test()
+  local ui = package.loaded["omniac.ui"]
+  if ui and type(ui.close) == "function" then
+    pcall(ui.close)
+  end
   cleanup_omniac_buffers()
   pcall(vim.api.nvim_del_user_command, "OmniacReferenceBuffer")
   package.preload["render-markdown"] = nil

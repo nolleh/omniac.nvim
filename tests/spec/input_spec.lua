@@ -560,6 +560,43 @@ describe("omniac.nvim input", function()
     assert_true(vim.api.nvim_win_is_valid(original_win), "quitting Omniac should preserve the original editor window")
   end)
 
+  it("closes every Omniac split when one of its buffers is deleted", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local original_win = vim.api.nvim_get_current_win()
+    local ui_state = ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function(_) end)
+    local omniac_wins = {
+      ui_state.card_win,
+      ui_state.chat_win,
+      ui_state.activity_win,
+      ui_state.input_win,
+      ui_state.status_win,
+    }
+
+    vim.api.nvim_buf_delete(ui_state.input_buf, { force = true })
+
+    assert_true(
+      vim.wait(250, function()
+        for _, win in ipairs(omniac_wins) do
+          if win and vim.api.nvim_win_is_valid(win) then
+            return false
+          end
+        end
+        return true
+      end),
+      "deleting one Omniac buffer should close the whole UI"
+    )
+    assert_true(not ui.is_open(), "deleting one Omniac buffer should mark the UI closed")
+    assert_true(
+      vim.api.nvim_win_is_valid(original_win),
+      "deleting an Omniac buffer should preserve the original editor window"
+    )
+  end)
+
   it("input ctrl-v attaches clipboard image and submits it", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
