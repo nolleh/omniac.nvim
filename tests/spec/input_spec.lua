@@ -589,13 +589,70 @@ describe("omniac.nvim input", function()
     feed("<C-v>")
     vim.wait(20)
     vim.cmd("stopinsert")
-    vim.api.nvim_buf_set_lines(vim.api.nvim_get_current_buf(), 1, 2, false, { "│ > describe image" })
+    local line = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 1, 2, false)[1]
+    vim.api.nvim_buf_set_lines(vim.api.nvim_get_current_buf(), 1, 2, false, { line .. "describe image" })
     feed("<CR>")
     vim.cmd("redraw")
 
     assert_equal(submitted_text, "describe image", "submit should keep typed prompt text")
     assert_equal(#submitted_attachments, 1, "submit should include the pasted image")
     assert_equal(submitted_attachments[1].mimeType, "image/png", "image mime type should be preserved")
+    assert_equal(submitted_attachments[1]._position, 0, "image should retain its position before the typed text")
+
+    package.loaded["omniac.clipboard"] = nil
+  end)
+
+  it("renders an inline attachment as one highlighted backspace unit", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    package.loaded["omniac.clipboard"] = {
+      read_image = function()
+        return {
+          type = "image",
+          mimeType = "image/png",
+          data = "aW1n",
+          byteSize = 3,
+        }
+      end,
+    }
+    local ui = require("omniac.ui")
+    local submissions = 0
+
+    local ui_state = ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function()
+      submissions = submissions + 1
+    end)
+
+    vim.cmd("startinsert")
+    feed("<C-v>")
+    vim.wait(20)
+
+    local input = table.concat(vim.api.nvim_buf_get_lines(ui_state.input_buf, 0, -1, false), "\n")
+    assert_true(input:match("%[Image %d+%]") ~= nil, "image token should be rendered inside the input")
+    local highlighted = false
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ui_state.input_buf, -1, 0, -1, { details = true })) do
+      if mark[4].hl_group == "OmniacAttachment" then
+        highlighted = true
+        break
+      end
+    end
+    assert_true(highlighted, "image token should use the attachment highlight")
+
+    vim.cmd("stopinsert")
+    local marker_line = vim.api.nvim_buf_get_lines(ui_state.input_buf, 1, 2, false)[1]
+    vim.api.nvim_win_set_cursor(ui_state.input_win, { 2, #marker_line })
+    for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(ui_state.input_buf, "i")) do
+      if mapping.lhs == "<BS>" and mapping.callback then
+        mapping.callback()
+        break
+      end
+    end
+    input = table.concat(vim.api.nvim_buf_get_lines(ui_state.input_buf, 0, -1, false), "\n")
+    assert_true(input:match("%[Image %d+%]") == nil, "one backspace should remove the whole image token")
+    feed("<CR>")
+    assert_equal(submissions, 0, "a removed attachment should not be submitted")
 
     package.loaded["omniac.clipboard"] = nil
   end)

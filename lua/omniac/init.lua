@@ -185,76 +185,110 @@ local function reference_label(reference)
   return path
 end
 
-local function build_prompt_items(text, attachments)
-  local items = {}
-  if text ~= "" then
-    table.insert(items, {
-      type = "text",
-      text = text,
-    })
+local function append_attachment_items(items, attachment)
+  if type(attachment) ~= "table" then
+    return
   end
 
-  for _, attachment in ipairs(attachments or {}) do
-    if type(attachment) == "table" and attachment.type == "image" then
+  if attachment.type == "image" then
+    table.insert(items, {
+      type = "image",
+      mimeType = attachment.mimeType,
+      data = attachment.data,
+    })
+  elseif attachment.type == "reference" then
+    if attachment.pathOnly then
+      local filename = vim.fn.fnamemodify(attachment.path, ":t")
+      local instruction
+      local description = "Source file reference."
+      if attachment.startLine and attachment.endLine then
+        instruction = string.format(
+          "Please inspect lines %d-%d in %s.",
+          attachment.startLine,
+          attachment.endLine,
+          reference_label(attachment)
+        )
+        description = string.format("Source file reference, lines %d-%d.", attachment.startLine, attachment.endLine)
+      else
+        instruction = string.format("Please inspect the referenced file: %s.", reference_label(attachment))
+      end
       table.insert(items, {
-        type = "image",
-        mimeType = attachment.mimeType,
-        data = attachment.data,
+        type = "text",
+        text = instruction,
       })
-    elseif type(attachment) == "table" and attachment.type == "reference" then
-      if attachment.pathOnly then
-        local filename = vim.fn.fnamemodify(attachment.path, ":t")
-        local instruction
-        if attachment.startLine and attachment.endLine then
-          instruction = string.format(
-            "Please inspect lines %d-%d in %s.",
-            attachment.startLine,
-            attachment.endLine,
-            reference_label(attachment)
-          )
-        else
-          instruction = string.format("Please inspect the referenced file: %s.", reference_label(attachment))
-        end
+      table.insert(items, {
+        type = "resource_link",
+        uri = attachment.uri,
+        name = filename ~= "" and filename or "[No Name]",
+        title = reference_label(attachment),
+        mimeType = "text/plain",
+        description = description,
+      })
+    else
+      table.insert(items, {
+        type = "text",
+        text = string.format(
+          "Please inspect this selected buffer content from %s (unsaved buffer contents are included below).",
+          reference_label(attachment)
+        ),
+      })
+      local supports_embedded_context = M.backend
+        and M.backend.supports_prompt_capability
+        and M.backend:supports_prompt_capability("embeddedContext")
+      if supports_embedded_context then
         table.insert(items, {
-          type = "text",
-          text = instruction,
-        })
-        table.insert(items, {
-          type = "resource_link",
-          uri = attachment.uri,
-          name = filename ~= "" and filename or "[No Name]",
-          title = reference_label(attachment),
-          mimeType = "text/plain",
-          description = string.format("Source file reference, lines %d-%d.", attachment.startLine, attachment.endLine),
+          type = "resource",
+          resource = {
+            uri = attachment.uri,
+            mimeType = "text/plain",
+            text = attachment.text,
+          },
         })
       else
         table.insert(items, {
           type = "text",
-          text = string.format(
-            "Please inspect this selected buffer content from %s (unsaved buffer contents are included below).",
-            reference_label(attachment)
-          ),
+          text = string.format("Referenced code from %s:\n%s", reference_label(attachment), attachment.text or ""),
         })
-        local supports_embedded_context = M.backend
-          and M.backend.supports_prompt_capability
-          and M.backend:supports_prompt_capability("embeddedContext")
-        if supports_embedded_context then
-          table.insert(items, {
-            type = "resource",
-            resource = {
-              uri = attachment.uri,
-              mimeType = "text/plain",
-              text = attachment.text,
-            },
-          })
-        else
-          table.insert(items, {
-            type = "text",
-            text = string.format("Referenced code from %s:\n%s", reference_label(attachment), attachment.text or ""),
-          })
-        end
       end
     end
+  end
+end
+
+local function build_prompt_items(text, attachments)
+  local items = {}
+  local positioned = {}
+  local trailing = {}
+  for index, attachment in ipairs(attachments or {}) do
+    if type(attachment) == "table" and type(attachment._position) == "number" then
+      attachment._order = attachment._order or index
+      table.insert(positioned, attachment)
+    else
+      table.insert(trailing, attachment)
+    end
+  end
+  table.sort(positioned, function(left, right)
+    if left._position == right._position then
+      return (left._order or 0) < (right._order or 0)
+    end
+    return left._position < right._position
+  end)
+
+  local cursor = 1
+  for _, attachment in ipairs(positioned) do
+    local position = math.min(math.max(attachment._position, 0), #text)
+    local segment = text:sub(cursor, position)
+    if segment ~= "" then
+      table.insert(items, { type = "text", text = segment })
+    end
+    append_attachment_items(items, attachment)
+    cursor = position + 1
+  end
+  local remainder = text:sub(cursor)
+  if remainder ~= "" then
+    table.insert(items, { type = "text", text = remainder })
+  end
+  for _, attachment in ipairs(trailing) do
+    append_attachment_items(items, attachment)
   end
 
   if #items == 0 then

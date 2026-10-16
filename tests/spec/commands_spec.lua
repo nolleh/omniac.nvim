@@ -253,10 +253,6 @@ describe("omniac.nvim commands", function()
     feed("Vj:OmniacReference<CR>")
     require("omniac.ui").set_status("ready", omniac.config)
 
-    local activity_buf = vim.fn.bufnr("omniac://activity")
-    local activity = table.concat(vim.api.nvim_buf_get_lines(activity_buf, 0, -1, false), "\n")
-    assert_true(activity:match("Attached ref:") ~= nil, "reference should be visible")
-
     local input_buf = vim.fn.bufnr("omniac://input")
     local input_win
     for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -266,23 +262,27 @@ describe("omniac.nvim commands", function()
       end
     end
     vim.api.nvim_set_current_win(input_win)
-    vim.api.nvim_buf_set_lines(input_buf, 1, 2, false, { "│ > explain this" })
+    local input = table.concat(vim.api.nvim_buf_get_lines(input_buf, 0, -1, false), "\n")
+    assert_true(input:match("%[Reference %d+%]") ~= nil, "reference should be visible in the input")
+    vim.cmd("stopinsert")
+    local line = vim.api.nvim_buf_get_lines(input_buf, 1, 2, false)[1]
+    vim.api.nvim_buf_set_lines(input_buf, 1, 2, false, { line .. "explain this" })
     feed("<CR>")
 
     assert_true(request ~= nil, "submitting should send the referenced prompt")
-    assert_equal(request.prompt[1].type, "text", "typed instructions should remain text")
-    assert_equal(request.prompt[2].type, "text", "selection should include instructions to inspect the selected range")
+    assert_equal(request.prompt[1].type, "text", "selection should include instructions to inspect the selected range")
     assert_true(
-      request.prompt[2].text:find("Please inspect", 1, true) ~= nil,
+      request.prompt[1].text:find("Please inspect", 1, true) ~= nil,
       "selection should include instructions to inspect its source"
     )
-    assert_equal(request.prompt[3].type, "resource", "selection should use ACP embedded context")
-    assert_equal(request.prompt[3].resource.uri:match("#L2%-L3$") ~= nil, true, "resource should retain its range")
+    assert_equal(request.prompt[2].type, "resource", "selection should use ACP embedded context")
+    assert_equal(request.prompt[2].resource.uri:match("#L2%-L3$") ~= nil, true, "resource should retain its range")
     assert_equal(
-      request.prompt[3].resource.text,
+      request.prompt[2].resource.text,
       "local selected = true\nreturn selected",
       "resource should contain the selected buffer text"
     )
+    assert_equal(request.prompt[3].text, "explain this", "text after the inline reference should keep its order")
 
     cleanup_omniac_buffers()
     if vim.api.nvim_buf_is_valid(source_buf) then

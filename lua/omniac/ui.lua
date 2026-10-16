@@ -50,6 +50,7 @@ local state = {
   rendering_input = false,
   input_chunks = nil,
   input_attachments = {},
+  next_attachment_id = 0,
   transient_activity = nil,
   failure_action = nil,
   activity_generation = 0,
@@ -269,6 +270,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacInput", { bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputText", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputPrompt", { fg = "#89b4fa", bg = "#313244", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacAttachment", { fg = "#89b4fa", bg = "#313244", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusMode", { fg = "#11111b", bg = "#f38ba8", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatus", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacStatusCapsule", { fg = "#11111b", bg = "#94e2d5", bold = true })
@@ -1475,8 +1477,6 @@ render_activity = function()
     text = frames[state.activity_frame]
   elseif state.status == "connecting" then
     text = "Connecting..."
-  elseif #state.input_attachments > 0 then
-    text = "Attached " .. (attachment_summary(state.input_attachments) or "context") .. "."
   end
   local lines = { "" }
   if text ~= "" then
@@ -1637,6 +1637,54 @@ attachment_summary = function(attachments)
   return table.concat(parts, ", ")
 end
 
+local function attachment_marker(attachment)
+  if attachment._input_marker then
+    return attachment._input_marker
+  end
+
+  state.next_attachment_id = state.next_attachment_id + 1
+  local kind = attachment.type == "image" and "Image" or "Reference"
+  attachment._input_marker = string.format("[%s %d]", kind, state.next_attachment_id)
+  return attachment._input_marker
+end
+
+local function attachment_ranges(line)
+  local ranges = {}
+  for _, attachment in ipairs(state.input_attachments) do
+    local marker = attachment._input_marker
+    if marker then
+      local from = 1
+      while true do
+        local start_col, end_col = line:find(marker, from, true)
+        if not start_col then
+          break
+        end
+        table.insert(ranges, {
+          from = start_col - 1,
+          to = end_col,
+          attachment = attachment,
+        })
+        from = end_col + 1
+      end
+    end
+  end
+  table.sort(ranges, function(left, right)
+    return left.from < right.from
+  end)
+  return ranges
+end
+
+local function prune_missing_attachments(lines)
+  local text = table.concat(lines or {}, "\n")
+  local retained = {}
+  for _, attachment in ipairs(state.input_attachments) do
+    if attachment._input_marker and text:find(attachment._input_marker, 1, true) then
+      table.insert(retained, attachment)
+    end
+  end
+  state.input_attachments = retained
+end
+
 local function strip_input_prefix(line, index)
   local prefix = index == 1 and INPUT_PROMPT or INPUT_CONTINUATION
   if line:sub(1, #prefix) == prefix then
@@ -1704,6 +1752,7 @@ local function raw_input_text()
 end
 
 local render_input
+local logical_cursor_from_display
 clear_input_history_navigation = function()
   state.input_history_index = nil
   state.input_history_draft = nil
@@ -1787,6 +1836,46 @@ end
 
 local function input_text()
   return (raw_input_text():gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function prepared_input()
+  local source = input_text()
+  local occurrences = {}
+
+  for _, attachment in ipairs(state.input_attachments) do
+    local marker = attachment._input_marker
+    local from = marker and source:find(marker, 1, true) or nil
+    if from then
+      table.insert(occurrences, {
+        from = from,
+        to = from + #marker - 1,
+        attachment = attachment,
+      })
+    end
+  end
+
+  table.sort(occurrences, function(left, right)
+    return left.from < right.from
+  end)
+
+  local clean = {}
+  local attachments = {}
+  local cursor = 1
+  local clean_length = 0
+  for _, occurrence in ipairs(occurrences) do
+    local preceding = source:sub(cursor, occurrence.from - 1)
+    table.insert(clean, preceding)
+    clean_length = clean_length + #preceding
+
+    local attachment = vim.deepcopy(occurrence.attachment)
+    attachment._position = clean_length
+    attachment._order = #attachments + 1
+    table.insert(attachments, attachment)
+    cursor = occurrence.to + 1
+  end
+  table.insert(clean, source:sub(cursor))
+
+  return table.concat(clean), attachments
 end
 
 local function local_commands()
@@ -2008,9 +2097,19 @@ local function add_clipboard_image()
     return false, err
   end
 
-  table.insert(state.input_attachments, image)
+  local attachment = vim.deepcopy(image)
+  local marker = attachment_marker(attachment)
+  table.insert(state.input_attachments, attachment)
+
+  local lines = raw_input_lines()
+  local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
+  local input_cursor = logical_cursor_from_display(cursor)
+  local line_index = math.min(math.max(input_cursor.line, 1), #lines)
+  local line = lines[line_index] or ""
+  local col = math.min(math.max(input_cursor.col, 0), #line)
+  lines[line_index] = line:sub(1, col) .. marker .. line:sub(col + 1)
+  render_input(lines, { line = line_index, col = col + #marker })
   vim.schedule(function()
-    M.set_activity("Attached " .. (attachment_summary({ image }) or "image") .. ".", state.config)
     focus_input()
   end)
   return true
@@ -2022,13 +2121,25 @@ local function clear_input_attachments()
 end
 
 function M.attach_reference(reference, config)
-  if type(reference) ~= "table" or reference.type ~= "reference" or not reference.text then
+  if type(reference) ~= "table" or reference.type ~= "reference" or (not reference.text and not reference.pathOnly) then
     return false
   end
 
-  table.insert(state.input_attachments, vim.deepcopy(reference))
-  M.set_activity("Attached " .. attachment_summary({ reference }) .. ".", config or state.config)
-  focus_input()
+  local attachment = vim.deepcopy(reference)
+  local marker = attachment_marker(attachment)
+  table.insert(state.input_attachments, attachment)
+
+  local lines = raw_input_lines()
+  local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
+  local input_cursor = logical_cursor_from_display(cursor)
+  local line_index = math.min(math.max(input_cursor.line, 1), #lines)
+  local line = lines[line_index] or ""
+  local col = math.min(math.max(input_cursor.col, 0), #line)
+  lines[line_index] = line:sub(1, col) .. marker .. line:sub(col + 1)
+  render_input(lines, { line = line_index, col = col + #marker })
+  vim.schedule(function()
+    focus_input()
+  end)
   return true
 end
 
@@ -2162,8 +2273,18 @@ local function wrap_input_lines(lines, cursor, win_width)
       local current_width = 0
       local current_start = 0
       local byte_col = 0
+      local ranges = attachment_ranges(line)
+      local range_index = 1
 
-      for char in chars(line) do
+      while byte_col < #line do
+        local range = ranges[range_index]
+        local char
+        if range and range.from == byte_col then
+          char = line:sub(range.from + 1, range.to)
+          range_index = range_index + 1
+        else
+          char = line:sub(byte_col + 1):match("^[%z\1-\127\194-\244][\128-\191]*")
+        end
         local prefix = #wrapped_lines == 0 and INPUT_PROMPT or INPUT_CONTINUATION
         local max_width = input_content_width(win_width, prefix)
         local char_width = vim.fn.strdisplaywidth(char)
@@ -2215,6 +2336,7 @@ render_input = function(lines, cursor, opts)
   if not lines or #lines == 0 then
     lines = { "" }
   end
+  local source_lines = vim.deepcopy(lines)
 
   local win_width = valid_win(state.input_win) and vim.api.nvim_win_get_width(state.input_win) or target_width()
   local chunks
@@ -2251,6 +2373,22 @@ render_input = function(lines, cursor, opts)
       add_hl(state.input_buf, line_number, #"│", #prefix, "OmniacInputPrompt")
     end
     add_hl(state.input_buf, line_number, #prefix, -1, "OmniacInputText")
+    local chunk = chunks[index]
+    if chunk and not chunk.padding then
+      for _, range in ipairs(attachment_ranges(source_lines[chunk.source_line] or "")) do
+        local from = math.max(range.from, chunk.start_col or 0)
+        local to = math.min(range.to, chunk.end_col or 0)
+        if from < to then
+          add_hl(
+            state.input_buf,
+            line_number,
+            #prefix + from - (chunk.start_col or 0),
+            #prefix + to - (chunk.start_col or 0),
+            "OmniacAttachment"
+          )
+        end
+      end
+    end
   end
   add_hl(state.input_buf, #buffer_lines, 0, -1, "OmniacBorder")
   vim.bo[state.input_buf].modified = false
@@ -2272,7 +2410,7 @@ render_input = function(lines, cursor, opts)
   end
 end
 
-local function logical_cursor_from_display(cursor)
+logical_cursor_from_display = function(cursor)
   local input_line = math.max(cursor[1] - 1, 1)
   local chunks = state.input_chunks
   if chunks and chunks[input_line] then
@@ -2349,6 +2487,7 @@ local function enforce_input(args)
   clamp_input_cursor()
   local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
   local lines = raw_input_lines()
+  prune_missing_attachments(lines)
   local input_cursor = logical_cursor_from_display(cursor)
   render_input(lines, {
     line = math.min(math.max(input_cursor.line, 1), #lines),
@@ -2388,6 +2527,21 @@ local function delete_input_backwards()
   local input_line = math.min(math.max(input_cursor.line, 1), #lines)
   local text = lines[input_line] or ""
   local col = math.min(math.max(input_cursor.col, 0), #text)
+
+  for _, range in ipairs(attachment_ranges(text)) do
+    if col > range.from and col <= range.to then
+      lines[input_line] = text:sub(1, range.from) .. text:sub(range.to + 1)
+      for index, attachment in ipairs(state.input_attachments) do
+        if attachment == range.attachment then
+          table.remove(state.input_attachments, index)
+          break
+        end
+      end
+      render_input(lines, { line = input_line, col = range.from })
+      render_activity()
+      return ""
+    end
+  end
 
   if col > 0 then
     local start_col = previous_char_start(text, col)
@@ -2827,8 +2981,7 @@ function M.open(config, submit, queue_submit)
   capture_user_width()
 
   vim.keymap.set({ "n", "i" }, "<CR>", function()
-    local text = input_text()
-    local attachments = vim.deepcopy(state.input_attachments or {})
+    local text, attachments = prepared_input()
     if text == "" and #attachments == 0 then
       reset_input()
       close_command_window()
@@ -2852,8 +3005,7 @@ function M.open(config, submit, queue_submit)
 
   if state.queue_submit then
     vim.keymap.set("i", "<Tab>", function()
-      local text = input_text()
-      local attachments = vim.deepcopy(state.input_attachments or {})
+      local text, attachments = prepared_input()
       if (text == "" and #attachments == 0) or not state.queue_submit then
         return "<Tab>"
       end
@@ -3403,8 +3555,28 @@ end
 function M.submit(text, config, attachments)
   state.suppress_current_turn = false
   clear_input_history_navigation()
-  local display = text
-  local summary = attachment_summary(attachments)
+  local display = text or ""
+  local positioned = {}
+  local trailing = {}
+  for _, attachment in ipairs(attachments or {}) do
+    if type(attachment._position) == "number" and attachment._input_marker then
+      table.insert(positioned, attachment)
+    else
+      table.insert(trailing, attachment)
+    end
+  end
+  table.sort(positioned, function(left, right)
+    if left._position == right._position then
+      return (left._order or 0) < (right._order or 0)
+    end
+    return left._position < right._position
+  end)
+  for index = #positioned, 1, -1 do
+    local attachment = positioned[index]
+    local position = math.min(math.max(attachment._position, 0), #display)
+    display = display:sub(1, position) .. attachment._input_marker .. display:sub(position + 1)
+  end
+  local summary = attachment_summary(trailing)
   if summary then
     display = display ~= "" and (display .. "\n[" .. summary .. "]") or ("[" .. summary .. "]")
   end
@@ -3416,8 +3588,21 @@ function M.restore_input(text, attachments)
   if raw_input_text() ~= "" or #state.input_attachments > 0 then
     return false
   end
-  local lines = vim.split(text or "", "\n", { plain = true })
+  local restored = text or ""
   state.input_attachments = vim.deepcopy(attachments or {})
+  table.sort(state.input_attachments, function(left, right)
+    if (left._position or math.huge) == (right._position or math.huge) then
+      return (left._order or 0) < (right._order or 0)
+    end
+    return (left._position or math.huge) < (right._position or math.huge)
+  end)
+  for index = #state.input_attachments, 1, -1 do
+    local attachment = state.input_attachments[index]
+    local marker = attachment_marker(attachment)
+    local position = math.min(math.max(attachment._position or #restored, 0), #restored)
+    restored = restored:sub(1, position) .. marker .. restored:sub(position + 1)
+  end
+  local lines = vim.split(restored, "\n", { plain = true })
   render_input(lines, { line = #lines, col = #(lines[#lines] or "") })
   render_activity()
   focus_input()
