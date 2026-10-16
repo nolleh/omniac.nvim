@@ -114,13 +114,13 @@ local function cleanup()
   state.selected = 1
 end
 
-local function close(result)
+local function close(result, action)
   local callback = state.callback
   local selected = state.selected
   state.callback = nil
   cleanup()
   if callback then
-    callback(result, selected)
+    callback(result, selected, action)
   end
 end
 
@@ -170,7 +170,7 @@ local function render()
   end
 
   if valid_buf(state.footer_buf) then
-    local footer_line = "  " .. fit("[Enter] review   [j/k] move   [q] close", inner_width)
+    local footer_line = "  " .. fit("[Enter] review   [Ctrl-e] edit file   [j/k] move   [q] close", inner_width)
     vim.bo[state.footer_buf].readonly = false
     vim.bo[state.footer_buf].modifiable = true
     vim.api.nvim_buf_set_lines(state.footer_buf, 0, -1, false, { footer_line })
@@ -194,10 +194,10 @@ local function move(delta)
   render()
 end
 
-local function choose()
+local function choose(action)
   local item = state.items[state.selected]
   if item then
-    close(item)
+    close(item, action)
   end
 end
 
@@ -310,7 +310,12 @@ function M.open(items, opts, callback)
   map("<Up>", function()
     move(-1)
   end)
-  map("<CR>", choose)
+  map("<CR>", function()
+    choose("review")
+  end)
+  map("<C-e>", function()
+    choose("edit")
+  end)
 
   render()
 end

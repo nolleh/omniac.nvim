@@ -194,9 +194,41 @@ function M.open(scope, config)
 
   local use_telescope = change_telescope.available()
   local picker = use_telescope and change_telescope or change_dialog
+
+  local function edit_file(item)
+    if vim.fn.filereadable(item.path) ~= 1 then
+      vim.notify("File no longer exists: " .. display_path(item.path), vim.log.levels.WARN, {
+        title = "Omniac changes",
+      })
+      return
+    end
+
+    local origin_win = diff.select_review_window()
+    if origin_win and vim.api.nvim_win_is_valid(origin_win) then
+      vim.api.nvim_set_current_win(origin_win)
+    end
+
+    local ok, err = pcall(vim.cmd, "edit " .. vim.fn.fnameescape(item.path))
+    if not ok then
+      vim.notify(tostring(err), vim.log.levels.ERROR, { title = "Omniac changes" })
+      return
+    end
+
+    local before = vim.split(item.oldText, "\n", { plain = true })
+    local after = vim.split(item.newText, "\n", { plain = true })
+    local line = diff.first_diff_line(before, after)
+    local line_count = vim.api.nvim_buf_line_count(0)
+    vim.api.nvim_win_set_cursor(0, { math.max(1, math.min(line, line_count)), 0 })
+    vim.cmd("normal! zz")
+  end
+
   local function open_picker(selected)
-    picker.open(available, { scope = scope, selected = selected }, function(item, index)
+    picker.open(available, { scope = scope, selected = selected }, function(item, index, action)
       if not item then
+        return
+      end
+      if action == "edit" then
+        edit_file(item)
         return
       end
       diff.open_preview(

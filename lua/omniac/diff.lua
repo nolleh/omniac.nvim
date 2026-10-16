@@ -271,7 +271,7 @@ local function replace_split_buffer(win, buf, origin_buf)
   end
 end
 
-local function first_diff_line(before_lines, after_lines)
+function M.first_diff_line(before_lines, after_lines)
   local limit = math.max(#before_lines, #after_lines)
   for index = 1, limit do
     if before_lines[index] ~= after_lines[index] then
@@ -403,7 +403,7 @@ function M.open(before_lines, after_lines, opts)
       stop_insert()
     end
   end)
-  local cursor_line = first_diff_line(before_lines or {}, after_lines or {})
+  local cursor_line = M.first_diff_line(before_lines or {}, after_lines or {})
   set_window_cursor(after_win, cursor_line)
   set_window_cursor(before_win, cursor_line)
 

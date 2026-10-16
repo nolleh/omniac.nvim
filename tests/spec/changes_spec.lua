@@ -293,10 +293,54 @@ describe("omniac.nvim changes", function()
       end
     end
     assert_true(footer_rendered:match("%[Enter%] review") ~= nil, "change actions should render in the footer")
+    assert_true(footer_rendered:match("%[Ctrl%-e%] edit file") ~= nil, "file edit action should render in the footer")
 
     feed("j")
     feed("<CR>")
     assert_equal(result.path, "/tmp/project/lua/omniac/ui.lua", "enter should select the highlighted change")
+  end)
+
+  it("change dialog reports the edit-file action", function()
+    package.loaded["omniac.change_dialog"] = nil
+    local dialog = require("omniac.change_dialog")
+    local action
+
+    dialog.open(
+      { { path = "/tmp/project/README.md", operation = "modify" } },
+      { scope = "turn" },
+      function(_, _, selected_action)
+        action = selected_action
+      end
+    )
+
+    feed("<C-e>")
+    assert_equal(action, "edit", "control-e should select the edit-file action")
+  end)
+
+  it("opens a changed file at its first changed line", function()
+    package.loaded["omniac.changes"] = nil
+    local changes = require("omniac.changes")
+    local path = "/private/tmp/omniac-change-edit-" .. tostring(vim.loop.hrtime()) .. ".txt"
+    vim.fn.writefile({ "keep", "new", "tail" }, path)
+
+    changes.reset("edit_session")
+    changes.start_turn({ sessionId = "edit_session", turnId = 1 })
+    changes.record({
+      sessionId = "edit_session",
+      turnId = 1,
+      path = path,
+      oldText = "keep\nold\ntail\n",
+      newText = "keep\nnew\ntail\n",
+    })
+    changes.finish_turn({ sessionId = "edit_session", turnId = 1 })
+
+    assert_equal(changes.open("turn", { ui = {} }), true, "turn changes should open")
+    feed("<C-e>")
+
+    assert_equal(vim.api.nvim_buf_get_name(0), path, "control-e should open the changed file")
+    assert_equal(vim.api.nvim_win_get_cursor(0)[1], 2, "changed file should open at the first changed line")
+    pcall(vim.api.nvim_buf_delete, 0, { force = true })
+    pcall(vim.fn.delete, path)
   end)
 
   it("change dialog stays in normal mode and cannot be edited", function()

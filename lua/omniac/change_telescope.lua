@@ -47,18 +47,27 @@ function M.open(items, opts, callback)
           vim.bo[self.state.bufnr].filetype = "diff"
         end,
       }),
-      attach_mappings = function(prompt_bufnr)
-        actions.select_default:replace(function()
+      attach_mappings = function(prompt_bufnr, map)
+        local function choose(action)
           local selected = action_state.get_selected_entry()
           actions.close(prompt_bufnr)
           if selected and callback then
             for index, item in ipairs(items) do
               if item == selected.value then
-                callback(item, index)
+                callback(item, index, action)
                 break
               end
             end
           end
+        end
+        actions.select_default:replace(function()
+          choose("review")
+        end)
+        map("i", "<C-e>", function()
+          choose("edit")
+        end)
+        map("n", "<C-e>", function()
+          choose("edit")
         end)
         return true
       end,
