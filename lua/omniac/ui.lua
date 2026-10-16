@@ -265,6 +265,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking3", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking4", { fg = "#f5c2e7", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacShortcut", { fg = "#11111b", bg = "#f9e2af", bold = true })
   vim.api.nvim_set_hl(0, "OmniacInput", { bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputText", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputPrompt", { fg = "#89b4fa", bg = "#313244", bold = true })
@@ -1505,6 +1506,20 @@ render_activity = function()
   if text ~= "" then
     for index = 1, #lines do
       add_hl(state.activity_buf, index, 0, -1, groups[state.activity_frame])
+    end
+
+    if state.failure_action or state.change_summary then
+      for index, line in ipairs(lines) do
+        local from = 1
+        while true do
+          local shortcut_start, shortcut_end = line:find("%[[%a]%]", from)
+          if not shortcut_start then
+            break
+          end
+          add_hl(state.activity_buf, index, shortcut_start - 1, shortcut_end, "OmniacShortcut")
+          from = shortcut_end + 1
+        end
+      end
     end
   end
 

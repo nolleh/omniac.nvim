@@ -4,6 +4,17 @@ local assert_true = helpers.assert_true
 local feed = helpers.feed
 local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 
+local function highlight_ranges(buf, group)
+  local ranges = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    local details = mark[4]
+    if details.hl_group == group then
+      table.insert(ranges, { line = mark[2], from = mark[3], to = details.end_col })
+    end
+  end
+  return ranges
+end
+
 describe("omniac.nvim activity", function()
   after_each(helpers.cleanup_after_test)
 
@@ -19,6 +30,8 @@ describe("omniac.nvim activity", function()
     end)
     local activity = table.concat(vim.api.nvim_buf_get_lines(ui_state.activity_buf, 0, -1, false), "\n")
     assert_true(activity:find("[r] Resend", 1, true) ~= nil, "failure actions should appear in activity")
+    local shortcut_ranges = highlight_ranges(ui_state.activity_buf, "OmniacShortcut")
+    assert_equal(#shortcut_ranges, 3, "failure shortcuts should be highlighted")
     vim.api.nvim_set_current_win(ui_state.chat_win)
     feed("r")
     assert_equal(actions[1], "resend", "shortcut should choose resend")
@@ -90,7 +103,15 @@ describe("omniac.nvim activity", function()
     end)
     local ui_state = ui.open(config, function(_) end)
 
-    ui.set_activity("Changed 2 files this turn", config, { change_summary = true })
+    ui.set_activity("Changed 2 files this turn\n[t] turn · [s] session", config, { change_summary = true })
+    local activity_line = vim.api.nvim_buf_get_lines(ui_state.activity_buf, 1, 2, false)[1]
+    local shortcut_ranges = highlight_ranges(ui_state.activity_buf, "OmniacShortcut")
+    assert_equal(#shortcut_ranges, 2, "change shortcuts should be highlighted")
+    assert_equal(
+      activity_line:sub(shortcut_ranges[1].from + 1, shortcut_ranges[1].to),
+      "[t]",
+      "the shortcut highlight should cover only its key token"
+    )
     vim.api.nvim_set_current_win(ui_state.chat_win)
     feed("t")
     vim.api.nvim_set_current_win(ui_state.status_win)
