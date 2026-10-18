@@ -1,6 +1,8 @@
 local M = {}
 local clipboard = require("omniac.clipboard")
 local activity_view = require("omniac.ui.activity")
+local chat_render = require("omniac.ui.chat.render")
+local chat_scheduler = require("omniac.ui.chat.scheduler")
 local highlights = require("omniac.ui.highlights")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
@@ -99,7 +101,6 @@ local state = {
 local INPUT_MIN_DISPLAY_LINES = 3
 local INPUT_MAX_DISPLAY_LINES = 10
 local ACTIVITY_MAX_DISPLAY_LINES = 3
-local CHAT_STREAM_RENDER_DELAY_MS = 24
 local MASCOT_GAZE_DELAY_MS = 180
 local MASCOT_BLINK_FRAME_MS = 100
 local MASCOT_WORK_FRAME_MS = 650
@@ -238,14 +239,6 @@ local function add_mark(marks, line, from, to, group)
   table.insert(marks, { line = line, from = from, to = to, group = group })
 end
 
-local function materialize_message_text(message)
-  if message.pending_chunks and #message.pending_chunks > 0 then
-    message.text = (message.text or "") .. table.concat(message.pending_chunks)
-    message.pending_chunks = {}
-  end
-  return message.text or ""
-end
-
 local render_chat
 
 local function add_boxed_line(lines, marks, text, size, group)
@@ -304,40 +297,7 @@ local function render_chat_markdown()
 end
 
 local function request_chat_render(config, opts)
-  opts = opts or {}
-  config = config or state.config
-  if opts.immediate then
-    state.chat_render_generation = state.chat_render_generation + 1
-    state.chat_render_pending = false
-    state.chat_render_config = nil
-    state.chat_render_opts = nil
-    render_chat(config, opts)
-    return
-  end
-
-  state.chat_render_config = config
-  local pending = state.chat_render_opts or {}
-  pending.follow = pending.follow == true or opts.follow == true
-  pending.skip_markdown = pending.skip_markdown ~= false and opts.skip_markdown == true
-  state.chat_render_opts = pending
-  if state.chat_render_pending then
-    return
-  end
-
-  state.chat_render_pending = true
-  state.chat_render_generation = state.chat_render_generation + 1
-  local generation = state.chat_render_generation
-  vim.defer_fn(function()
-    if generation ~= state.chat_render_generation then
-      return
-    end
-    local pending_config = state.chat_render_config or state.config
-    local pending_opts = state.chat_render_opts or {}
-    state.chat_render_pending = false
-    state.chat_render_config = nil
-    state.chat_render_opts = nil
-    render_chat(pending_config, pending_opts)
-  end, CHAT_STREAM_RENDER_DELAY_MS)
+  chat_scheduler.request(state, config, opts, render_chat)
 end
 
 local function clear_render_markdown_marks()
@@ -352,29 +312,7 @@ local function clear_render_markdown_marks()
   end
 end
 
-local wrapped = text.wrapped
 local split_lines = text.split_lines
-
-local function unwrap_markdown_fences(text)
-  local result = {}
-  local in_markdown_fence = false
-
-  for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
-    local lang = line:match("^%s*```%s*([%w_-]+)%s*$")
-    if in_markdown_fence and line:match("^%s*```%s*$") then
-      in_markdown_fence = false
-    elseif not in_markdown_fence and lang and (lang == "markdown" or lang == "md") then
-      in_markdown_fence = true
-    else
-      table.insert(result, line)
-    end
-  end
-
-  if #result > 0 and result[#result] == "" then
-    table.remove(result)
-  end
-  return table.concat(result, "\n")
-end
 
 local function transport_activity_text(text)
   local value = tostring(text or ""):gsub("\r", "")
@@ -473,83 +411,6 @@ local function clear_completed_tool_activity()
     state.tool_activity = nil
     render_activity()
   end
-end
-
-local function nonempty_tail(lines)
-  for index = #lines, 1, -1 do
-    if tostring(lines[index] or ""):match("%S") then
-      return lines[index]
-    end
-  end
-  return nil
-end
-
-local function collapsed_tool_lines(lines)
-  if #lines <= 4 then
-    return vim.deepcopy(lines)
-  end
-
-  return {
-    lines[1],
-    lines[2],
-    "…",
-    lines[#lines - 1],
-    lines[#lines],
-  }
-end
-
-local function tool_result_text(message)
-  local command = message.command or message.title or message.kind or "tool"
-  local lines = split_lines(message.output or "")
-  local visible = message.expanded and lines or collapsed_tool_lines(lines)
-  local hidden = math.max(0, #lines - 4)
-  local title = message.status == "failed" and "Failed" or "Ran"
-  local suffix = message.exitCode ~= nil and (" (exit " .. tostring(message.exitCode) .. ")") or ""
-  local result = { title .. " " .. command .. suffix }
-
-  if #lines == 1 then
-    local tail = nonempty_tail(lines)
-    if tail and tail ~= "" then
-      result[1] = result[1] .. ": " .. tail
-    end
-  elseif #visible > 0 then
-    table.insert(result, "```text")
-    for _, line in ipairs(visible) do
-      table.insert(result, line)
-    end
-    table.insert(result, "```")
-  end
-
-  if #lines > 4 then
-    table.insert(
-      result,
-      message.expanded and ("-" .. tostring(hidden) .. " lines (Ctrl-T to collapse)")
-        or ("+" .. tostring(hidden) .. " lines (Ctrl-T to expand)")
-    )
-  end
-
-  return table.concat(result, "\n")
-end
-
-local function is_markdown_structural_line(line)
-  local value = tostring(line or "")
-  return value == ""
-    or value:match("^%s*|")
-    or value:match("^%s*```")
-    or value:match("^%s*~~~")
-    or value:match("^%s*%-%-%-+%s*$")
-end
-
-local function chat_message_lines(line, width)
-  if is_markdown_structural_line(line) then
-    return { line }
-  end
-
-  local result = {}
-  for _, wrapped_line in ipairs(wrapped(line, math.max(1, width - 4))) do
-    table.insert(result, "  " .. fit(wrapped_line, math.max(1, width - 4)) .. "  ")
-  end
-  return result
 end
 
 local function is_opaque_tool_name(value)
@@ -781,99 +642,13 @@ render_chat = function(config, opts)
   end
 
   local win_width = valid_win(state.chat_win) and vim.api.nvim_win_get_width(state.chat_win) or target_width()
-  local text_width = math.max(28, win_width - 6)
-  local lines = {}
-  local marks = {}
-  local permission_marks = {}
-
-  local function add_message_separator()
-    add_line(
-      lines,
-      marks,
-      "  " .. fit(string.rep("─", math.max(0, win_width - 4)), win_width - 4) .. "  ",
-      "OmniacMuted"
-    )
-  end
-
-  if not state.card_pinned and #state.messages == 0 then
-    header(lines, marks, win_width)
-    add_line(lines, marks, "", nil)
-  elseif not state.card_pinned then
-    state.mascot_first_line = nil
-    state.mascot_last_line = nil
-  end
-
-  if #state.messages == 0 then
-    add_line(lines, marks, box_line("╭", "─", "╮", win_width), "OmniacBorder")
-    add_boxed_line(
-      lines,
-      marks,
-      "Agent: " .. agent_name(state.config) .. "  •  Status: " .. state.status,
-      win_width,
-      "OmniacAccent"
-    )
-    add_boxed_line(lines, marks, "cwd: " .. vim.fn.fnamemodify(vim.loop.cwd() or "", ":~"), win_width, "OmniacMuted")
-    add_line(lines, marks, box_line("╰", "─", "╯", win_width), "OmniacBorder")
-  else
-    for _, message in ipairs(state.messages) do
-      local text = materialize_message_text(message)
-      local message_start = #lines + 1
-      local group = message.role == "You" and "OmniacUserBubble" or nil
-      if message.role == "Error" then
-        group = "OmniacError"
-      end
-
-      if message.role == "You" then
-        for _, line in ipairs(wrapped(text, text_width)) do
-          add_line(lines, marks, "  " .. fit(line, win_width - 4) .. "  ", group)
-        end
-        add_message_separator()
-      else
-        local message_text = message.type == "tool_result" and tool_result_text(message) or text
-        if message.type ~= "tool_result" then
-          message_text = unwrap_markdown_fences(message_text)
-        end
-        for _, line in ipairs(split_lines(message_text)) do
-          for _, display_line in ipairs(chat_message_lines(line, win_width)) do
-            add_line(lines, marks, display_line, group)
-          end
-        end
-        if message.stop_footer and message.stop_footer ~= "" then
-          add_line(lines, marks, "  " .. fit(message.stop_footer, win_width - 4) .. "  ", "OmniacMuted")
-        end
-        local complete = message.complete or (message.complete == nil and message.role == "Omniac" and not message.type)
-        if complete then
-          add_message_separator()
-        end
-      end
-      if message.role == "Permission" then
-        local decision = text:match("\n(Decision: [^\n]+)")
-        local label = "● Pending"
-        local group = "OmniacPermissionPending"
-        if message.permission_status == "rejected" then
-          label = "✕ Rejected"
-          group = "OmniacPermissionRejected"
-        elseif message.permission_status == "adjusted" then
-          label = "◆ Adjusted"
-          group = "OmniacPermissionApproved"
-        elseif message.permission_status == "approved" then
-          label = "✓ Approved"
-          group = "OmniacPermissionApproved"
-        end
-        if decision then
-          for row = message_start, #lines do
-            if lines[row]:find(decision, 1, true) then
-              add_mark(marks, row, 0, -1, group)
-              break
-            end
-          end
-        end
-        table.insert(permission_marks, { line = message_start, label = label, group = group })
-        add_mark(marks, message_start, 0, -1, "OmniacAccent")
-      end
-      add_line(lines, marks, "", nil)
-    end
-  end
+  local content = chat_render.build({
+    state = state,
+    width = win_width,
+    header = header,
+    agent_name = agent_name,
+  })
+  local lines = content.lines
 
   vim.bo[state.chat_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.chat_buf, ns, 0, -1)
@@ -887,10 +662,10 @@ render_chat = function(config, opts)
     start_chat_treesitter()
   end
 
-  for _, mark in ipairs(marks) do
+  for _, mark in ipairs(content.marks) do
     add_hl(state.chat_buf, mark.line, mark.from, mark.to, mark.group)
   end
-  for _, mark in ipairs(permission_marks) do
+  for _, mark in ipairs(content.permission_marks) do
     vim.api.nvim_buf_set_extmark(state.chat_buf, ns, mark.line - 1, 0, {
       virt_text = { { mark.label, mark.group }, { "  ", "Normal" } },
       virt_text_pos = "right_align",
@@ -2643,10 +2418,7 @@ function M.close()
   state.mascot_reaction_id = state.mascot_reaction_id + 1
   vim.api.nvim_clear_autocmds({ group = mascot_augroup })
   vim.on_key(nil, mascot_key_ns)
-  state.chat_render_generation = state.chat_render_generation + 1
-  state.chat_render_pending = false
-  state.chat_render_config = nil
-  state.chat_render_opts = nil
+  chat_scheduler.cancel(state)
   vim.api.nvim_clear_autocmds({
     group = augroup,
     event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout" },
