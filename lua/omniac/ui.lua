@@ -1,5 +1,9 @@
 local M = {}
 local clipboard = require("omniac.clipboard")
+local activity_view = require("omniac.ui.activity")
+local highlights = require("omniac.ui.highlights")
+local status_view = require("omniac.ui.status")
+local text = require("omniac.ui.text")
 
 local ns = vim.api.nvim_create_namespace("omniac.ui")
 local augroup = vim.api.nvim_create_augroup("omniac.ui", { clear = false })
@@ -210,84 +214,12 @@ local function agent_name(config)
   return tostring(cmd ~= "" and cmd or "agent")
 end
 
-local function center(text, size)
-  local display_width = vim.fn.strdisplaywidth(text)
-  local pad = math.max(0, math.floor((size - display_width) / 2))
-  return string.rep(" ", pad) .. text
-end
-
-local function fit(text, size)
-  local value = tostring(text or "")
-  local current = vim.fn.strdisplaywidth(value)
-  if current > size then
-    local out = ""
-    for char in value:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-      if vim.fn.strdisplaywidth(out .. char) > size - 1 then
-        return out .. "…"
-      end
-      out = out .. char
-    end
-    return out
-  end
-  return value .. string.rep(" ", size - current)
-end
-
-local function chars(text)
-  return tostring(text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*")
-end
-
-local function box_line(left, fill, right, size)
-  return left .. string.rep(fill, math.max(0, size - 2)) .. right
-end
-
-local function boxed_text(text, size)
-  return "│" .. fit(center(text, size - 2), size - 2) .. "│"
-end
-
-local function setup_highlights()
-  vim.api.nvim_set_hl(0, "OmniacTitle", { fg = "#f38ba8", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacBorder", { fg = "#f38ba8" })
-  vim.api.nvim_set_hl(0, "OmniacMuted", { fg = "#7f849c" })
-  vim.api.nvim_set_hl(0, "OmniacAccent", { fg = "#f9e2af", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacGraphic", { fg = "#e7825a", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacGraphicShade", { fg = "#94e2d5", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacGraphicCoralOverMint", { fg = "#e7825a", bg = "#94e2d5" })
-  vim.api.nvim_set_hl(0, "OmniacGraphicMintOverCoral", { fg = "#94e2d5", bg = "#e7825a" })
-  vim.api.nvim_set_hl(0, "OmniacWordmark", { fg = "#f9e2af", bold = true, italic = true })
-  vim.api.nvim_set_hl(0, "OmniacUser", { fg = "#89b4fa", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacUserBubble", { fg = "#cdd6f4", bg = "#313244" })
-  vim.api.nvim_set_hl(0, "OmniacAssistant", { fg = "#cba6f7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacAssistantText", { fg = "#cdd6f4" })
-  vim.api.nvim_set_hl(0, "OmniacCode", { fg = "#a6e3a1" })
-  vim.api.nvim_set_hl(0, "OmniacError", { fg = "#f38ba8", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacPermissionPending", { fg = "#f9e2af", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacPermissionApproved", { fg = "#a6e3a1", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacPermissionRejected", { fg = "#f38ba8", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacWorking1", { fg = "#585b70", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacWorking3", { fg = "#cba6f7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacWorking4", { fg = "#f5c2e7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacShortcut", { fg = "#11111b", bg = "#a6e3a1", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacInput", { bg = "#313244" })
-  vim.api.nvim_set_hl(0, "OmniacInputText", { fg = "#cdd6f4", bg = "#313244" })
-  vim.api.nvim_set_hl(0, "OmniacInputPrompt", { fg = "#89b4fa", bg = "#313244", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacAttachment", { fg = "#89b4fa", bg = "#313244", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusMode", { fg = "#11111b", bg = "#f38ba8", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatus", { fg = "#cdd6f4", bg = "#313244" })
-  vim.api.nvim_set_hl(0, "OmniacStatusCapsule", { fg = "#11111b", bg = "#94e2d5", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusCapsuleEdge", { fg = "#94e2d5", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusModeEdge", { fg = "#f38ba8", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAlt", { fg = "#cdd6f4", bg = "#45475a", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusCapsuleAltEdge", { fg = "#45475a", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusPlan", { fg = "#11111b", bg = "#cba6f7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusPlanEdge", { fg = "#cba6f7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusUsage", { fg = "#11111b", bg = "#89b4fa", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacStatusUsageEdge", { fg = "#89b4fa", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacCommandName", { fg = "#89b4fa", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacCommandClientName", { fg = "#a6e3a1", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacCommandText", { fg = "#cdd6f4" })
-  vim.api.nvim_set_hl(0, "OmniacCommandMuted", { fg = "#7f849c" })
-end
+local center = text.center
+local fit = text.fit
+local chars = text.chars
+local box_line = text.box_line
+local boxed_text = text.boxed_text
+local setup_highlights = highlights.setup
 
 local function add_hl(buf, line, start_col, end_col, group)
   if valid_buf(buf) then
@@ -420,42 +352,8 @@ local function clear_render_markdown_marks()
   end
 end
 
-local function wrapped(text, max_width)
-  local result = {}
-  for raw in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
-    if raw == "" then
-      table.insert(result, "")
-    else
-      local current = ""
-      for char in chars(raw) do
-        if vim.fn.strdisplaywidth(current .. char) > max_width and current ~= "" then
-          table.insert(result, current)
-          current = char
-        else
-          current = current .. char
-        end
-      end
-      if current ~= "" then
-        table.insert(result, current)
-      end
-    end
-  end
-  if result[#result] == "" then
-    table.remove(result)
-  end
-  return result
-end
-
-local function split_lines(text)
-  local result = {}
-  for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
-    table.insert(result, line)
-  end
-  if #result > 0 and result[#result] == "" then
-    table.remove(result)
-  end
-  return result
-end
+local wrapped = text.wrapped
+local split_lines = text.split_lines
 
 local function unwrap_markdown_fences(text)
   local result = {}
@@ -1379,152 +1277,29 @@ schedule_mascot_gaze = function(args)
 end
 
 local function render_status()
-  if not valid_buf(state.status_buf) then
-    return
-  end
-
-  local win_width = valid_win(state.status_win) and vim.api.nvim_win_get_width(state.status_win) or target_width()
-  local config = state.session_config or {}
-  local model = state.session_model and (state.session_model.currentModelName or state.session_model.currentModelId)
-  local effort = config.reasoning_effort
-  local collaboration = config.collaboration_mode
-  local mode_id = config.mode or (state.session_mode and state.session_mode.currentModeId)
-  local mode = state.session_mode and state.session_mode.currentModeId == mode_id and state.session_mode.currentModeName
-    or mode_id
-  if mode_id == "plan" then
-    mode = nil
-  end
-  if model and effort and effort ~= "" then
-    model = model .. " · " .. effort:sub(1, 1):upper() .. effort:sub(2)
-  end
-  local usage
-  if state.session_usage then
-    local percent = math.floor((state.session_usage.used / state.session_usage.size) * 100 + 0.5)
-    usage = string.format("ctx %d%%", math.max(0, math.min(100, percent)))
-  end
-  local capsules = {}
-  local function append_capsule(label, fill, edge)
-    if label and label ~= "" then
-      table.insert(capsules, { label = label, fill = fill, edge = edge })
-    end
-  end
-  if state.status == "error" then
-    append_capsule("Error", "OmniacStatusMode", "OmniacStatusModeEdge")
-  end
-  append_capsule(mode, "OmniacStatusMode", "OmniacStatusModeEdge")
-  if collaboration == "plan" or mode_id == "plan" then
-    append_capsule("Plan", "OmniacStatusPlan", "OmniacStatusPlanEdge")
-  end
-  append_capsule(model, "OmniacStatusCapsuleAlt", "OmniacStatusCapsuleAltEdge")
-  append_capsule(usage, "OmniacStatusUsage", "OmniacStatusUsageEdge")
-
-  local parts = {}
-  for _, capsule in ipairs(capsules) do
-    table.insert(parts, " " .. capsule.label .. " ")
-  end
-  local line = table.concat(parts, " ")
-
-  vim.bo[state.status_buf].modifiable = true
-  vim.api.nvim_buf_clear_namespace(state.status_buf, ns, 0, -1)
-  vim.api.nvim_buf_set_lines(state.status_buf, 0, -1, false, { fit(line, win_width) })
-  vim.bo[state.status_buf].modifiable = false
-  vim.bo[state.status_buf].modified = false
-
-  local col = 0
-  local function add_capsule(text, fill_group, edge_group)
-    add_hl(state.status_buf, 1, col, col + #"", edge_group)
-    col = col + #""
-    add_hl(state.status_buf, 1, col, col + #text, fill_group)
-    col = col + #text
-    add_hl(state.status_buf, 1, col, col + #"", edge_group)
-    col = col + #""
-  end
-
-  for index, capsule in ipairs(capsules) do
-    if index > 1 then
-      col = col + #" "
-    end
-    add_capsule(" " .. capsule.label .. " ", capsule.fill, capsule.edge)
-  end
+  status_view.render({
+    state = state,
+    namespace = ns,
+    valid_buf = valid_buf,
+    valid_win = valid_win,
+    width = target_width,
+    fit = fit,
+    add_hl = add_hl,
+  })
 end
 
 render_activity = function()
-  if not valid_buf(state.activity_buf) then
-    return
-  end
-
-  local win_width = valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win) or target_width()
-  local frames = {
-    "Working",
-    "Working.",
-    "Working..",
-    "Working...",
-  }
-  local groups = {
-    "OmniacWorking1",
-    "OmniacWorking2",
-    "OmniacWorking3",
-    "OmniacWorking4",
-  }
-  local text = ""
-  if state.failure_action then
-    text = "Prompt failed. Agent may have processed it.\n[r] Resend  [e] Restore input  [d] Dismiss"
-  elseif state.transient_activity then
-    text = state.transient_activity
-  elseif state.status == "working" and state.tool_activity then
-    text = state.tool_activity
-  elseif state.status == "working" and state.thought_activity then
-    text = state.thought_activity
-  elseif state.status == "working" then
-    text = frames[state.activity_frame]
-  elseif state.status == "connecting" then
-    text = "Connecting..."
-  end
-  local lines = { "" }
-  if text ~= "" then
-    local inner_width = math.max(1, win_width - 4)
-    local source_lines = split_lines(tostring(text):gsub("\r\n", "\n"):gsub("\r", "\n"))
-    local truncated = #source_lines > ACTIVITY_MAX_DISPLAY_LINES
-    lines = {}
-    for index = 1, math.min(#source_lines, ACTIVITY_MAX_DISPLAY_LINES) do
-      local source = source_lines[index]
-      if truncated and index == ACTIVITY_MAX_DISPLAY_LINES then
-        source = source .. "…"
-      end
-      table.insert(lines, "  " .. fit(source, inner_width) .. "  ")
-    end
-  end
-
-  local activity_height = math.max(1, #lines)
-  local height_changed = state.activity_height ~= activity_height
-  state.activity_height = activity_height
-
-  vim.bo[state.activity_buf].modifiable = true
-  vim.api.nvim_buf_clear_namespace(state.activity_buf, ns, 0, -1)
-  vim.api.nvim_buf_set_lines(state.activity_buf, 0, -1, false, lines)
-  vim.bo[state.activity_buf].modifiable = false
-  vim.bo[state.activity_buf].modified = false
-
-  if text ~= "" then
-    for index = 1, #lines do
-      add_hl(state.activity_buf, index, 0, -1, groups[state.activity_frame])
-    end
-
-    if state.failure_action or state.change_summary then
-      for index, line in ipairs(lines) do
-        local from = 1
-        while true do
-          local shortcut_start, shortcut_end = line:find("%[[%a]%]", from)
-          if not shortcut_start then
-            break
-          end
-          add_hl(state.activity_buf, index, shortcut_start - 1, shortcut_end, "OmniacShortcut")
-          from = shortcut_end + 1
-        end
-      end
-    end
-  end
-
+  local height_changed = activity_view.render({
+    state = state,
+    namespace = ns,
+    max_lines = ACTIVITY_MAX_DISPLAY_LINES,
+    valid_buf = valid_buf,
+    valid_win = valid_win,
+    width = target_width,
+    fit = fit,
+    split_lines = split_lines,
+    add_hl = add_hl,
+  })
   if height_changed and resize_aux_windows then
     resize_aux_windows()
   end
