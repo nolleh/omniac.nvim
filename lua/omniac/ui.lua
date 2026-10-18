@@ -267,7 +267,7 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacWorking2", { fg = "#7f849c", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking3", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacWorking4", { fg = "#f5c2e7", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacShortcut", { fg = "#11111b", bg = "#f9e2af", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacShortcut", { fg = "#11111b", bg = "#a6e3a1", bold = true })
   vim.api.nvim_set_hl(0, "OmniacInput", { bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputText", { fg = "#cdd6f4", bg = "#313244" })
   vim.api.nvim_set_hl(0, "OmniacInputPrompt", { fg = "#89b4fa", bg = "#313244", bold = true })
@@ -283,7 +283,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "OmniacStatusPlanEdge", { fg = "#cba6f7", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusUsage", { fg = "#11111b", bg = "#89b4fa", bold = true })
   vim.api.nvim_set_hl(0, "OmniacStatusUsageEdge", { fg = "#89b4fa", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacCommandName", { fg = "#94e2d5", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacCommandName", { fg = "#89b4fa", bold = true })
+  vim.api.nvim_set_hl(0, "OmniacCommandClientName", { fg = "#a6e3a1", bold = true })
   vim.api.nvim_set_hl(0, "OmniacCommandText", { fg = "#cdd6f4" })
   vim.api.nvim_set_hl(0, "OmniacCommandMuted", { fg = "#7f849c" })
 end
@@ -1898,14 +1899,6 @@ local function local_commands()
       description = "Choose the model for the active session",
     },
     {
-      name = "model",
-      description = "Choose the model for the active session",
-    },
-    {
-      name = "model",
-      description = "Choose the model for the active session",
-    },
-    {
       name = "resume",
       description = "Open the ACP session selector",
     },
@@ -2672,6 +2665,7 @@ update_command_window = function()
     table.insert(marks, {
       line = index,
       name_to = math.min(#item.name + 1, #line),
+      source = item.source,
     })
   end
   vim.bo[state.command_buf].modifiable = true
@@ -2679,7 +2673,8 @@ update_command_window = function()
   vim.api.nvim_buf_clear_namespace(state.command_buf, ns, 0, -1)
   for _, mark in ipairs(marks) do
     add_hl(state.command_buf, mark.line, 0, 1, "OmniacCommandMuted")
-    add_hl(state.command_buf, mark.line, 1, mark.name_to + 1, "OmniacCommandName")
+    local name_group = mark.source == "omniac" and "OmniacCommandClientName" or "OmniacCommandName"
+    add_hl(state.command_buf, mark.line, 1, mark.name_to + 1, name_group)
     add_hl(state.command_buf, mark.line, mark.name_to + 1, -1, "OmniacCommandText")
   end
   vim.bo[state.command_buf].modifiable = false

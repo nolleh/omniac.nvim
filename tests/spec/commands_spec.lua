@@ -52,6 +52,33 @@ describe("omniac.nvim commands", function()
     assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
     assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
 
+    local command_lines = vim.api.nvim_buf_get_lines(command_buf, 0, -1, false)
+    local namespace = vim.api.nvim_get_namespaces()["omniac.ui"]
+    local highlights = vim.api.nvim_buf_get_extmarks(command_buf, namespace, 0, -1, { details = true })
+    local groups_by_line = {}
+    for _, mark in ipairs(highlights) do
+      groups_by_line[mark[2] + 1] = groups_by_line[mark[2] + 1] or {}
+      groups_by_line[mark[2] + 1][mark[4].hl_group] = true
+    end
+    local found_local_highlight = false
+    for index, line in ipairs(command_lines) do
+      if line:match("^/exit") then
+        assert_true(groups_by_line[index].OmniacCommandClientName, "local commands should use the client color")
+        found_local_highlight = true
+      end
+    end
+    assert_true(found_local_highlight, "local command highlight should be present")
+
+    feed("ap<Esc>")
+    local agent_marks = vim.api.nvim_buf_get_extmarks(command_buf, namespace, 0, -1, { details = true })
+    local found_agent_highlight = false
+    for _, mark in ipairs(agent_marks) do
+      if mark[4].hl_group == "OmniacCommandName" then
+        found_agent_highlight = true
+      end
+    end
+    assert_true(found_agent_highlight, "agent commands should use the agent color")
+
     feed("a<BS>hello<Esc>")
     vim.cmd("redraw")
 
