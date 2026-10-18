@@ -2075,6 +2075,26 @@ local function complete_current_suggestion()
   return true
 end
 
+local function schedule_current_suggestion_completion()
+  local text = input_text()
+  local completed = completed_suggestion_text(text)
+  if completed == text then
+    return false
+  end
+
+  vim.schedule(function()
+    if not valid_buf(state.input_buf) or not valid_win(state.input_win) then
+      return
+    end
+    render_input(completed, {
+      line = 1,
+      col = #completed,
+    })
+    vim.cmd("startinsert!")
+  end)
+  return true
+end
+
 local function cancel_active_turn()
   if state.status ~= "working" or state.cancel_requested then
     return false
@@ -3022,7 +3042,7 @@ function M.open(config, submit, queue_submit)
 
   if state.queue_submit then
     vim.keymap.set("i", "<Tab>", function()
-      if complete_current_suggestion() then
+      if schedule_current_suggestion_completion() then
         return "<Ignore>"
       end
 
