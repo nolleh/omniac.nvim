@@ -6,6 +6,7 @@ local chat_render = require("omniac.ui.chat.render")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local highlights = require("omniac.ui.highlights")
 local input_completion = require("omniac.ui.input.completion")
+local input_history = require("omniac.ui.input.history")
 local layout = require("omniac.ui.layout")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
@@ -1284,84 +1285,19 @@ end
 local render_input
 local logical_cursor_from_display
 clear_input_history_navigation = function()
-  state.input_history_index = nil
-  state.input_history_draft = nil
-  state.input_history_navigating = false
-  state.input_history_render_pending = false
-  state.input_history_pending_text = nil
-  state.input_history_pending_cursor = nil
-  state.input_history_render_generation = state.input_history_render_generation + 1
+  input_history.clear(state)
 end
 
 local function remember_input_history(text)
-  if type(text) ~= "string" or text:match("^%s*$") then
-    return
-  end
-
-  table.insert(state.input_history, text)
-end
-
-local function schedule_input_history_render(text, cursor_col)
-  state.input_history_pending_text = text or ""
-  state.input_history_pending_cursor = cursor_col or #(state.input_history_pending_text or "")
-  if state.input_history_render_pending then
-    return
-  end
-
-  state.input_history_render_pending = true
-  state.input_history_navigating = true
-  local generation = state.input_history_render_generation
-  vim.schedule(function()
-    if generation ~= state.input_history_render_generation then
-      return
-    end
-    state.input_history_render_pending = false
-    if not valid_buf(state.input_buf) then
-      state.input_history_navigating = false
-      return
-    end
-
-    local text = state.input_history_pending_text or ""
-    local cursor_col = math.max(0, tonumber(state.input_history_pending_cursor) or #text)
-    render_input(text, {
-      line = 1,
-      col = cursor_col,
-    })
-    state.input_history_navigating = false
-  end)
+  input_history.remember(state, text)
 end
 
 local function navigate_input_history(direction)
-  local history = state.input_history or {}
-  if #history == 0 then
-    return false
-  end
-
-  local current_text = raw_input_text()
-  if not state.input_history_index then
-    if direction > 0 or current_text:match("^%s*$") == nil then
-      return false
-    end
-    state.input_history_draft = current_text
-    state.input_history_index = #history
-  else
-    state.input_history_index = state.input_history_index + direction
-    if state.input_history_index < 1 then
-      state.input_history_index = 1
-    end
-    if state.input_history_index > #history then
-      local draft = state.input_history_draft or ""
-      clear_input_history_navigation()
-      schedule_input_history_render(draft, #draft)
-      vim.cmd("startinsert!")
-      return true
-    end
-  end
-
-  local text = history[state.input_history_index] or ""
-  schedule_input_history_render(text, #text)
-  vim.cmd("startinsert!")
-  return true
+  return input_history.navigate(state, direction, {
+    read = raw_input_text,
+    render = render_input,
+    valid_buf = valid_buf,
+  })
 end
 
 local function input_text()
