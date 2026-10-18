@@ -1,9 +1,11 @@
 local M = {}
 local clipboard = require("omniac.clipboard")
 local activity_view = require("omniac.ui.activity")
+local buffers = require("omniac.ui.buffers")
 local chat_render = require("omniac.ui.chat.render")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local highlights = require("omniac.ui.highlights")
+local layout = require("omniac.ui.layout")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
 
@@ -174,37 +176,12 @@ local function sync_failure_shortcuts()
   end
 end
 
-local function floating_win(win)
-  if not valid_win(win) then
-    return false
-  end
-
-  local ok, win_config = pcall(vim.api.nvim_win_get_config, win)
-  return ok and win_config.relative ~= ""
-end
-
-local function omniac_split_win(win)
-  return win == state.card_win
-    or win == state.chat_win
-    or win == state.activity_win
-    or win == state.input_win
-    or win == state.status_win
-end
-
-local function width(config)
-  local value = ((config or {}).ui or {}).chat_width or 58
-  return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
-end
-
 local function target_width()
-  local value = state.user_width or width(state.config)
-  return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
+  return layout.target_width(state)
 end
 
 local function capture_user_width()
-  if valid_win(state.chat_win) then
-    state.user_width = vim.api.nvim_win_get_width(state.chat_win)
-  end
+  layout.capture_width(state, valid_win)
 end
 
 local function agent_name(config)
@@ -1762,12 +1739,7 @@ end
 local update_command_window
 
 local function input_bottom_position()
-  if not valid_win(state.input_win) then
-    return 0, 0
-  end
-  local pos = vim.api.nvim_win_get_position(state.input_win)
-  local row = pos[1] + vim.api.nvim_win_get_height(state.input_win)
-  return row, pos[2]
+  return layout.input_bottom_position(state, valid_win)
 end
 
 local function input_content_width(win_width, prefix)
@@ -1783,45 +1755,6 @@ local function bottom_stack_height()
   local input_height = input_display_height(raw_input_lines(), target_width())
 
   return (state.activity_height or 1) + input_height + status_height
-end
-
-local function external_bottom_height(target_win)
-  if not valid_win(target_win) then
-    return 0
-  end
-
-  local target_pos = vim.api.nvim_win_get_position(target_win)
-  local target_left = target_pos[2]
-  local target_right = target_left + vim.api.nvim_win_get_width(target_win)
-  local windows = {}
-  local editor_bottom = 0
-
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if valid_win(win) and not floating_win(win) then
-      local pos = vim.api.nvim_win_get_position(win)
-      local bottom = pos[1] + vim.api.nvim_win_get_height(win)
-      editor_bottom = math.max(editor_bottom, bottom)
-      table.insert(
-        windows,
-        { win = win, top = pos[1], left = pos[2], right = pos[2] + vim.api.nvim_win_get_width(win), bottom = bottom }
-      )
-    end
-  end
-
-  local top
-  for _, window in ipairs(windows) do
-    if
-      window.win ~= target_win
-      and not vim.w[window.win].omniac_ui
-      and window.bottom >= editor_bottom - 1
-      and window.left < target_right
-      and window.right > target_left
-    then
-      top = top and math.min(top, window.top) or window.top
-    end
-  end
-
-  return top and math.max(0, editor_bottom - top) or 0
 end
 
 local function wrap_input_lines(lines, cursor, win_width)
@@ -2123,34 +2056,8 @@ local function delete_input_backwards()
   return ""
 end
 
-local function configure_window(win)
-  vim.w[win].omniac_ui = true
-  vim.wo[win].number = false
-  vim.wo[win].relativenumber = false
-  vim.wo[win].signcolumn = "no"
-  vim.wo[win].foldcolumn = "0"
-  vim.wo[win].wrap = true
-  vim.wo[win].winfixwidth = true
-  vim.wo[win].winfixheight = true
-  vim.wo[win].list = false
-end
-
 reset_leftcol = function(win)
-  if not valid_win(win) then
-    return
-  end
-
-  pcall(vim.api.nvim_win_call, win, function()
-    vim.fn.winrestview({ leftcol = 0 })
-  end)
-end
-
-local function open_split_with_buffer(command, buf)
-  vim.cmd(command .. " sbuffer " .. buf)
-  local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(win, buf)
-  vim.bo[buf].buflisted = false
-  return win
+  layout.reset_leftcol(win, valid_win)
 end
 
 update_command_window = function()
@@ -2184,7 +2091,7 @@ update_command_window = function()
       border = "none",
       focusable = false,
     })
-    configure_window(state.command_win)
+    layout.configure_window(state.command_win)
     vim.wo[state.command_win].wrap = false
     vim.wo[state.command_win].statusline = "%#OmniacStatus#%="
   end
@@ -2232,39 +2139,15 @@ update_command_window = function()
 end
 
 resize_aux_windows = function()
-  local target = target_width()
-  if state.card_pinned and valid_win(state.card_win) then
-    pcall(vim.api.nvim_win_set_width, state.card_win, target)
-  end
-  if valid_win(state.chat_win) then
-    pcall(vim.api.nvim_win_set_width, state.chat_win, target)
-    local available = vim.o.lines - bottom_stack_height() - 3 - external_bottom_height(state.chat_win)
-    if state.card_pinned and valid_win(state.card_win) then
-      available = available - CARD_HEIGHT - (vim.o.laststatus == 3 and 1 or 2)
-    end
-    pcall(vim.api.nvim_win_set_height, state.chat_win, math.max(1, available))
-  end
-  if valid_win(state.status_win) then
-    pcall(vim.api.nvim_win_set_width, state.status_win, target)
-    pcall(vim.api.nvim_win_set_height, state.status_win, 1)
-  end
-  if valid_win(state.input_win) then
-    pcall(vim.api.nvim_win_set_width, state.input_win, target)
-    pcall(vim.api.nvim_win_set_height, state.input_win, input_display_height(raw_input_lines(), target))
-    reset_leftcol(state.input_win)
-  end
-  if valid_win(state.command_win) then
-    pcall(vim.api.nvim_win_set_width, state.command_win, target)
-    pcall(vim.api.nvim_win_set_height, state.command_win, 5)
-  end
-  if valid_win(state.activity_win) then
-    pcall(vim.api.nvim_win_set_width, state.activity_win, target)
-    pcall(vim.api.nvim_win_set_height, state.activity_win, state.activity_height or 1)
-  end
-  if state.card_pinned and valid_win(state.card_win) then
-    pcall(vim.api.nvim_win_set_height, state.card_win, CARD_HEIGHT)
-    pin_card_view()
-  end
+  layout.resize_windows(state, {
+    valid_win = valid_win,
+    card_height = CARD_HEIGHT,
+    bottom_stack_height = bottom_stack_height,
+    input_height = function(target)
+      return input_display_height(raw_input_lines(), target)
+    end,
+    pin_card_view = pin_card_view,
+  })
 end
 
 local function relayout()
@@ -2344,48 +2227,7 @@ local function schedule_close()
 end
 
 local function move_sidebar(direction)
-  local windows = {}
-  if valid_win(state.card_win) then
-    table.insert(windows, state.card_win)
-  end
-  for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
-    if valid_win(win) then
-      table.insert(windows, win)
-    end
-  end
-  if #windows == 0 then
-    return
-  end
-
-  local current = vim.api.nvim_get_current_win()
-  local fixed = {}
-  for _, win in ipairs(windows) do
-    fixed[win] = {
-      height = vim.wo[win].winfixheight,
-      width = vim.wo[win].winfixwidth,
-    }
-    vim.wo[win].winfixheight = false
-    vim.wo[win].winfixwidth = false
-  end
-
-  vim.api.nvim_win_call(windows[1], function()
-    vim.cmd("wincmd " .. direction)
-  end)
-  for index = 2, #windows do
-    vim.fn.win_splitmove(windows[index], windows[index - 1], {
-      rightbelow = true,
-      vertical = false,
-    })
-  end
-
-  for _, win in ipairs(windows) do
-    vim.wo[win].winfixheight = fixed[win].height
-    vim.wo[win].winfixwidth = fixed[win].width
-  end
-  resize_aux_windows()
-  if valid_win(current) then
-    vim.api.nvim_set_current_win(current)
-  end
+  layout.move_sidebar(state, direction, valid_win, resize_aux_windows)
 end
 
 function M.close()
@@ -2423,22 +2265,7 @@ function M.close()
     group = augroup,
     event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout" },
   })
-  close_command_window()
-  if valid_win(state.input_win) then
-    pcall(vim.api.nvim_win_close, state.input_win, true)
-  end
-  if valid_win(state.activity_win) then
-    pcall(vim.api.nvim_win_close, state.activity_win, true)
-  end
-  if valid_win(state.status_win) then
-    pcall(vim.api.nvim_win_close, state.status_win, true)
-  end
-  if valid_win(state.card_win) then
-    pcall(vim.api.nvim_win_close, state.card_win, true)
-  end
-  if valid_win(state.chat_win) then
-    pcall(vim.api.nvim_win_close, state.chat_win, true)
-  end
+  layout.close_windows(state, valid_win)
 end
 
 function M.open(config, submit, queue_submit)
@@ -2461,101 +2288,13 @@ function M.open(config, submit, queue_submit)
   end
 
   state.card_pinned = ((state.config or {}).ui or {}).welcome_card ~= "welcome_only" and vim.o.lines >= 32
-
-  if not valid_buf(state.chat_buf) then
-    state.chat_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[state.chat_buf].buftype = "nofile"
-    vim.bo[state.chat_buf].bufhidden = "hide"
-    vim.bo[state.chat_buf].swapfile = false
-    vim.bo[state.chat_buf].buflisted = false
-    vim.bo[state.chat_buf].filetype = "markdown"
-    vim.api.nvim_buf_set_name(state.chat_buf, "omniac")
-  end
-
-  if state.card_pinned and not valid_buf(state.card_buf) then
-    state.card_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[state.card_buf].buftype = "nofile"
-    vim.bo[state.card_buf].bufhidden = "hide"
-    vim.bo[state.card_buf].swapfile = false
-    vim.bo[state.card_buf].buflisted = false
-    vim.bo[state.card_buf].filetype = "omniac-card"
-    vim.api.nvim_buf_set_name(state.card_buf, "omniac://card")
-  end
-
-  if not valid_buf(state.input_buf) then
-    state.input_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[state.input_buf].buftype = "nofile"
-    vim.bo[state.input_buf].bufhidden = "hide"
-    vim.bo[state.input_buf].swapfile = false
-    vim.bo[state.input_buf].buflisted = false
-    vim.bo[state.input_buf].filetype = "omniac-input"
-    vim.api.nvim_buf_set_name(state.input_buf, "omniac://input")
-  end
-
-  if not valid_buf(state.activity_buf) then
-    state.activity_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[state.activity_buf].buftype = "nofile"
-    vim.bo[state.activity_buf].bufhidden = "hide"
-    vim.bo[state.activity_buf].swapfile = false
-    vim.bo[state.activity_buf].buflisted = false
-    vim.bo[state.activity_buf].filetype = "omniac-activity"
-    vim.api.nvim_buf_set_name(state.activity_buf, "omniac://activity")
-  end
+  buffers.ensure(state, valid_buf)
 
   if not valid_buf(state.command_buf) then
     ensure_command_buffer()
   end
 
-  if not valid_buf(state.status_buf) then
-    state.status_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[state.status_buf].buftype = "nofile"
-    vim.bo[state.status_buf].bufhidden = "hide"
-    vim.bo[state.status_buf].swapfile = false
-    vim.bo[state.status_buf].buflisted = false
-    vim.bo[state.status_buf].filetype = "omniac-status"
-    vim.api.nvim_buf_set_name(state.status_buf, "omniac://status")
-  end
-
-  state.chat_win = open_split_with_buffer("botright vertical", state.chat_buf)
-  configure_window(state.chat_win)
-  if state.card_pinned then
-    vim.wo[state.chat_win].winfixheight = false
-  end
-  pcall(vim.api.nvim_win_set_width, state.chat_win, target_width())
-  vim.wo[state.chat_win].winfixwidth = true
-  vim.wo[state.chat_win].statusline = "%!v:lua.require'omniac.ui'.statusline()"
-
-  state.activity_win = open_split_with_buffer("belowright", state.activity_buf)
-  configure_window(state.activity_win)
-  vim.wo[state.activity_win].winfixwidth = true
-  vim.wo[state.activity_win].winfixheight = true
-  pcall(vim.api.nvim_win_set_height, state.activity_win, state.activity_height or 1)
-  vim.wo[state.activity_win].statusline = "%#OmniacStatus#%="
-
-  state.input_win = open_split_with_buffer("belowright", state.input_buf)
-  configure_window(state.input_win)
-  vim.wo[state.input_win].winfixwidth = true
-  vim.wo[state.input_win].winfixheight = true
-  vim.wo[state.input_win].wrap = true
-  pcall(vim.api.nvim_win_set_height, state.input_win, 3)
-  vim.wo[state.input_win].statusline = "%#OmniacStatus#%="
-
-  state.status_win = open_split_with_buffer("belowright", state.status_buf)
-  configure_window(state.status_win)
-  vim.wo[state.status_win].winfixwidth = true
-  vim.wo[state.status_win].winfixheight = true
-  pcall(vim.api.nvim_win_set_height, state.status_win, 1)
-  vim.wo[state.status_win].statusline = "%#OmniacStatus#%="
-  if state.card_pinned then
-    vim.api.nvim_set_current_win(state.chat_win)
-    state.card_win = open_split_with_buffer("aboveleft", state.card_buf)
-    configure_window(state.card_win)
-    vim.wo[state.card_win].wrap = false
-    vim.wo[state.card_win].winbar = " omniac"
-    vim.wo[state.chat_win].winbar = ""
-    vim.wo[state.card_win].statusline = "%#OmniacStatus#%="
-    pcall(vim.api.nvim_win_set_height, state.card_win, CARD_HEIGHT)
-  end
+  layout.open_windows(state, { card_height = CARD_HEIGHT })
   resize_aux_windows()
   capture_user_width()
 
@@ -2837,11 +2576,11 @@ function M.open(config, submit, queue_submit)
     group = augroup,
     callback = function(args)
       local closed_win = tonumber(args.match)
-      if closed_win and omniac_split_win(closed_win) then
+      if closed_win and layout.is_ui_win(state, closed_win) then
         schedule_close()
         return
       end
-      if closed_win and floating_win(closed_win) then
+      if closed_win and layout.floating_win(closed_win, valid_win) then
         return
       end
       schedule_relayout()
