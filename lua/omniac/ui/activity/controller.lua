@@ -108,10 +108,12 @@ function M.set_status(state, status, config, opts)
   end
 end
 
-function M.set_activity(state, value, opts)
+function M.set_activity(state, value, opts, activity_opts)
   state.activity_generation = state.activity_generation + 1
   state.transient_activity = value and value ~= "" and value or nil
-  state.change_summary = state.transient_activity ~= nil and opts.change_summary == true
+  state.change_summary = state.transient_activity ~= nil
+    and activity_opts ~= nil
+    and activity_opts.change_summary == true
   M.sync_change_shortcuts(state, opts)
   opts.render_activity()
   opts.render_status()
@@ -140,8 +142,7 @@ function M.flash(state, value, config, duration_ms, opts)
   local generation = state.activity_generation
   vim.defer_fn(function()
     if state.activity_generation == generation and opts.valid_buf(state.activity_buf) then
-      opts.change_summary = previous_change_summary
-      M.set_activity(state, previous, opts)
+      M.set_activity(state, previous, opts, { change_summary = previous_change_summary })
     end
   end, duration_ms or 1000)
 end

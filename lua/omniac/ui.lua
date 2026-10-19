@@ -18,6 +18,7 @@ local layout = require("omniac.ui.layout")
 local mascot_controller = require("omniac.ui.mascot.controller")
 local mascot_render = require("omniac.ui.mascot.render")
 local notifications = require("omniac.ui.notifications")
+local runtime_factory = require("omniac.ui.runtime")
 local session = require("omniac.ui.session")
 local state_factory = require("omniac.ui.state")
 local status_view = require("omniac.ui.status")
@@ -79,7 +80,7 @@ local split_lines = text.split_lines
 local render_activity
 local attachment_summary
 local resize_aux_windows
-local chat_controller_opts
+local runtime
 
 local function header(lines, marks, size)
   mascot_render.header(state, lines, marks, size, agent_name)
@@ -105,31 +106,11 @@ local function render_mascot()
 end
 
 render_chat = function(config, opts)
-  chat_view.render(state, config, opts, {
-    valid_buf = valid_buf,
-    valid_win = valid_win,
-    width = target_width,
-    namespace = ns,
-    header = header,
-    agent_name = agent_name,
-    add_hl = add_hl,
-  })
-end
-
-local function mascot_controller_opts()
-  return {
-    valid_win = valid_win,
-    visible = function()
-      return mascot_render.visible(state, valid_buf, valid_win)
-    end,
-    render = render_mascot,
-    augroup = mascot_augroup,
-    key_namespace = mascot_key_ns,
-  }
+  chat_view.render(state, config, opts, runtime.chat_view)
 end
 
 local function restart_mascot_actions()
-  mascot_controller.restart(state, mascot_controller_opts())
+  mascot_controller.restart(state, runtime.mascot)
 end
 
 local function render_status()
@@ -159,19 +140,6 @@ render_activity = function()
   if height_changed and resize_aux_windows then
     resize_aux_windows()
   end
-end
-
-local function activity_controller_opts(opts)
-  opts = opts or {}
-  return {
-    valid_buf = valid_buf,
-    render_chat = render_chat,
-    render_card = render_card,
-    render_activity = render_activity,
-    render_status = render_status,
-    restart_mascot_actions = restart_mascot_actions,
-    change_summary = opts.change_summary == true,
-  }
 end
 
 local clear_input_history_navigation
@@ -265,7 +233,7 @@ local function close_command_window()
 end
 
 function M.clear_conversation(config)
-  chat_controller.clear(state, config, chat_controller_opts())
+  chat_controller.clear(state, config, runtime.chat)
 end
 
 local update_command_window
@@ -306,41 +274,12 @@ logical_cursor_from_display = function(cursor)
   return input_render.logical_cursor(state, cursor, raw_input_lines)
 end
 
-local function input_controller_opts()
-  return {
-    valid_buf = valid_buf,
-    valid_win = valid_win,
-    prompt = INPUT_PROMPT,
-    continuation = INPUT_CONTINUATION,
-    read = raw_input_lines,
-    render = render_input,
-    logical_cursor = logical_cursor_from_display,
-    clear_history = clear_input_history_navigation,
-    render_activity = render_activity,
-  }
-end
-
 focus_input = function()
-  input_controller.focus(state, input_controller_opts())
+  input_controller.focus(state, runtime.input_controller)
 end
 
 local function focus_input_if_active()
-  input_controller.focus_if_active(state, input_controller_opts())
-end
-
-chat_controller_opts = function()
-  return {
-    close_command_window = close_command_window,
-    reset_input = reset_input,
-    set_status = M.set_status,
-    request_render = request_chat_render,
-    render_activity = render_activity,
-    focus_input_if_active = focus_input_if_active,
-    set_activity = M.set_activity,
-    clear_input_history = clear_input_history_navigation,
-    attachment_summary = attachment_summary,
-    add_message = M.add_message,
-  }
+  input_controller.focus_if_active(state, runtime.input_controller)
 end
 
 reset_leftcol = function(win)
@@ -398,6 +337,95 @@ local function relayout()
   end
 end
 
+runtime = runtime_factory.new(state, {
+  valid_buf = valid_buf,
+  valid_win = valid_win,
+  width = target_width,
+  namespace = ns,
+  header = header,
+  agent_name = agent_name,
+  add_hl = add_hl,
+  mascot_visible = function()
+    return mascot_render.visible(state, valid_buf, valid_win)
+  end,
+  render_mascot = render_mascot,
+  mascot_augroup = mascot_augroup,
+  mascot_key_namespace = mascot_key_ns,
+  render_chat = render_chat,
+  render_card = render_card,
+  render_activity = render_activity,
+  render_status = render_status,
+  restart_mascot_actions = restart_mascot_actions,
+  input_prompt = INPUT_PROMPT,
+  input_continuation = INPUT_CONTINUATION,
+  raw_input_lines = raw_input_lines,
+  render_input = render_input,
+  logical_cursor_from_display = logical_cursor_from_display,
+  clear_input_history = clear_input_history_navigation,
+  close_command_window = close_command_window,
+  reset_input = reset_input,
+  set_status = function(...)
+    return M.set_status(...)
+  end,
+  request_chat_render = request_chat_render,
+  focus_input_if_active = focus_input_if_active,
+  set_activity = function(...)
+    return M.set_activity(...)
+  end,
+  attachment_summary = attachment_summary,
+  add_message = function(...)
+    return M.add_message(...)
+  end,
+  focus_input = focus_input,
+  augroup = augroup,
+  raw_input_text = raw_input_text,
+  input_text = input_text,
+  prepared_input = prepared_input,
+  remember_input_history = remember_input_history,
+  navigate_input_history = navigate_input_history,
+  clear_input_attachments = clear_input_attachments,
+  close_ui = function(...)
+    return M.close(...)
+  end,
+  toggle_tool_output = function()
+    return M.toggle_tool_output(state.config)
+  end,
+  move_sidebar = function(direction)
+    layout.move_sidebar(state, direction, valid_win, resize_aux_windows)
+  end,
+  relayout = relayout,
+  clear_conversation = function(...)
+    return M.clear_conversation(...)
+  end,
+  append_response_chunk = function(...)
+    return M.append_response_chunk(...)
+  end,
+  set_tool_activity = function(...)
+    return M.set_tool_activity(...)
+  end,
+  add_tool_result = function(...)
+    return M.add_tool_result(...)
+  end,
+  set_available_commands = function(...)
+    return M.set_available_commands(...)
+  end,
+  set_session_mode = function(...)
+    return M.set_session_mode(...)
+  end,
+  set_session_model = function(...)
+    return M.set_session_model(...)
+  end,
+  set_session_config = function(...)
+    return M.set_session_config(...)
+  end,
+  set_session_usage = function(...)
+    return M.set_session_usage(...)
+  end,
+  complete_response = function(...)
+    return M.complete_response(...)
+  end,
+})
+
 function M.resize(value)
   local target_width = tonumber(value)
   if not target_width then
@@ -431,7 +459,7 @@ function M.close()
   end
   activity_controller.stop_timer(state)
   tools.stop_timer(state)
-  mascot_controller.stop(state, mascot_controller_opts())
+  mascot_controller.stop(state, runtime.mascot)
   chat_scheduler.cancel(state)
   events.clear(augroup)
   layout.close_windows(state, valid_win)
@@ -467,79 +495,46 @@ function M.open(config, submit, queue_submit)
   resize_aux_windows()
   capture_user_width()
 
-  input_bindings.setup(state, {
-    augroup = augroup,
-    valid_buf = valid_buf,
-    valid_win = valid_win,
-    raw_text = raw_input_text,
-    input_text = input_text,
-    prepared_input = prepared_input,
-    remember_history = remember_input_history,
-    navigate_history = navigate_input_history,
-    reset = reset_input,
-    clear_attachments = clear_input_attachments,
-    close_suggestions = close_command_window,
-    focus = focus_input,
-    close_ui = M.close,
-    set_activity = M.set_activity,
-    controller = input_controller_opts(),
-  })
-
-  bindings.setup(state, {
-    valid_win = valid_win,
-    focus_input = focus_input,
-    toggle_tool_output = function()
-      M.toggle_tool_output(state.config)
-    end,
-    move_sidebar = function(direction)
-      layout.move_sidebar(state, direction, valid_win, resize_aux_windows)
-    end,
-  })
-
-  events.setup(state, {
-    augroup = augroup,
-    valid_buf = valid_buf,
-    valid_win = valid_win,
-    relayout = relayout,
-    close = M.close,
-  })
+  input_bindings.setup(state, runtime.input_bindings)
+  bindings.setup(state, runtime.bindings)
+  events.setup(state, runtime.events)
   if resize_aux_windows then
     resize_aux_windows()
   end
   render_chat(state.config)
   render_card()
   render_activity()
-  activity_controller.sync_change_shortcuts(state, activity_controller_opts())
+  activity_controller.sync_change_shortcuts(state, runtime.activity)
   reset_input()
   render_status()
   activity_controller.sync_timer(state, render_activity)
   focus_input()
-  mascot_controller.start(state, mascot_controller_opts())
+  mascot_controller.start(state, runtime.mascot)
   return state
 end
 
 function M.set_status(status, config)
-  activity_controller.set_status(state, status, config, activity_controller_opts())
+  activity_controller.set_status(state, status, config, runtime.activity)
 end
 
 function M.set_activity(text, config, opts)
-  activity_controller.set_activity(state, text, activity_controller_opts(opts))
+  activity_controller.set_activity(state, text, runtime.activity, opts)
 end
 
 function M.show_failure_action(handler)
-  activity_controller.show_failure(state, handler, activity_controller_opts())
+  activity_controller.show_failure(state, handler, runtime.activity)
 end
 
 function M.clear_failure_action()
-  activity_controller.clear_failure(state, activity_controller_opts())
+  activity_controller.clear_failure(state, runtime.activity)
 end
 
 function M.flash_activity(text, config, duration_ms)
-  activity_controller.flash(state, text, config, duration_ms, activity_controller_opts())
+  activity_controller.flash(state, text, config, duration_ms, runtime.activity)
 end
 
 function M.set_change_review_handler(handler)
-  activity_controller.set_change_review_handler(state, handler, activity_controller_opts())
+  activity_controller.set_change_review_handler(state, handler, runtime.activity)
 end
 
 function M.set_plan_toggle_handler(handler)
@@ -571,41 +566,35 @@ function M.set_tool_activity(params, config)
 end
 
 function M.toggle_tool_output(config)
-  return tools.toggle_output(state, config, {
-    render_chat = render_chat,
-    focus_input = focus_input,
-  })
+  return tools.toggle_output(state, config, runtime.tool_output)
 end
 
 function M.add_tool_result(params, config)
-  tools.add_result(state, params, config, {
-    request_chat_render = request_chat_render,
-    focus_input_if_active = focus_input_if_active,
-  })
+  tools.add_result(state, params, config, runtime.tool_result)
 end
 
 function M.add_message(role, text, config, opts)
-  chat_controller.add_message(state, role, text, config, opts, chat_controller_opts())
+  chat_controller.add_message(state, role, text, config, opts, runtime.chat)
 end
 
 function M.add_notice(role, text, config)
-  return chat_controller.add_notice(state, role, text, config, chat_controller_opts())
+  return chat_controller.add_notice(state, role, text, config, runtime.chat)
 end
 
 function M.update_notice(index, text, config, opts)
-  chat_controller.update_notice(state, index, text, config, opts, chat_controller_opts())
+  chat_controller.update_notice(state, index, text, config, opts, runtime.chat)
 end
 
 function M.append_response_chunk(text, config)
-  chat_controller.append_response_chunk(state, text, config, chat_controller_opts())
+  chat_controller.append_response_chunk(state, text, config, runtime.chat)
 end
 
 function M.complete_response(config, opts)
-  chat_controller.complete_response(state, config, opts, chat_controller_opts())
+  chat_controller.complete_response(state, config, opts, runtime.chat)
 end
 
 function M.submit(text, config, attachments)
-  chat_controller.submit(state, text, config, attachments, chat_controller_opts())
+  chat_controller.submit(state, text, config, attachments, runtime.chat)
 end
 
 function M.restore_input(text, attachments)
@@ -621,22 +610,7 @@ function M.restore_input(text, attachments)
 end
 
 function M.handle_notification(message, config)
-  notifications.handle(state, message, config, {
-    clear_conversation = M.clear_conversation,
-    set_status = M.set_status,
-    set_activity = M.set_activity,
-    add_message = M.add_message,
-    append_response_chunk = M.append_response_chunk,
-    set_tool_activity = M.set_tool_activity,
-    render_activity = render_activity,
-    add_tool_result = M.add_tool_result,
-    set_available_commands = M.set_available_commands,
-    set_session_mode = M.set_session_mode,
-    set_session_model = M.set_session_model,
-    set_session_config = M.set_session_config,
-    set_session_usage = M.set_session_usage,
-    complete_response = M.complete_response,
-  })
+  notifications.handle(state, message, config, runtime.notifications)
 end
 
 function M.set_available_commands(commands)
