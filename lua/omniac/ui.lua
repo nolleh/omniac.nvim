@@ -4,6 +4,7 @@ local bindings = require("omniac.ui.bindings")
 local buffers = require("omniac.ui.buffers")
 local chat_render = require("omniac.ui.chat.render")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
+local events = require("omniac.ui.events")
 local highlights = require("omniac.ui.highlights")
 local input_attachments = require("omniac.ui.input.attachments")
 local input_bindings = require("omniac.ui.input.bindings")
@@ -1338,33 +1339,6 @@ function M.resize(value)
   return true
 end
 
-local function schedule_relayout()
-  if state.relayout_pending then
-    return
-  end
-
-  state.relayout_pending = true
-  vim.schedule(function()
-    state.relayout_pending = false
-    relayout()
-  end)
-end
-
-local function schedule_close()
-  if state.close_pending then
-    return
-  end
-
-  state.close_pending = true
-  vim.schedule(function()
-    if not state.close_pending then
-      return
-    end
-    state.close_pending = false
-    M.close()
-  end)
-end
-
 function M.close()
   state.close_pending = false
   local failure_action = state.failure_action
@@ -1396,10 +1370,7 @@ function M.close()
   vim.api.nvim_clear_autocmds({ group = mascot_augroup })
   vim.on_key(nil, mascot_key_ns)
   chat_scheduler.cancel(state)
-  vim.api.nvim_clear_autocmds({
-    group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout" },
-  })
+  events.clear(augroup)
   layout.close_windows(state, valid_win)
 end
 
@@ -1462,59 +1433,12 @@ function M.open(config, submit, queue_submit)
     end,
   })
 
-  vim.api.nvim_clear_autocmds({
-    group = augroup,
-    event = {
-      "VimResized",
-      "WinResized",
-      "WinClosed",
-      "WinEnter",
-      "FocusGained",
-      "BufEnter",
-      "BufWinEnter",
-      "BufDelete",
-      "BufWipeout",
-    },
-  })
-  for _, buf in ipairs({ state.card_buf, state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
-    if valid_buf(buf) then
-      vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
-        group = augroup,
-        buffer = buf,
-        callback = schedule_close,
-      })
-    end
-  end
-  if state.card_pinned then
-    vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
-      group = augroup,
-      buffer = state.chat_buf,
-      callback = function()
-        vim.schedule(function()
-          if state.card_pinned and valid_win(state.chat_win) then
-            vim.wo[state.chat_win].winbar = ""
-          end
-        end)
-      end,
-    })
-  end
-  vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
-    group = augroup,
-    callback = schedule_relayout,
-  })
-  vim.api.nvim_create_autocmd("WinClosed", {
-    group = augroup,
-    callback = function(args)
-      local closed_win = tonumber(args.match)
-      if closed_win and layout.is_ui_win(state, closed_win) then
-        schedule_close()
-        return
-      end
-      if closed_win and layout.floating_win(closed_win, valid_win) then
-        return
-      end
-      schedule_relayout()
-    end,
+  events.setup(state, {
+    augroup = augroup,
+    valid_buf = valid_buf,
+    valid_win = valid_win,
+    relayout = relayout,
+    close = M.close,
   })
   if resize_aux_windows then
     resize_aux_windows()
