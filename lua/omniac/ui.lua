@@ -15,6 +15,7 @@ local input_suggestions = require("omniac.ui.input.suggestions")
 local layout = require("omniac.ui.layout")
 local mascot_controller = require("omniac.ui.mascot.controller")
 local mascot_render = require("omniac.ui.mascot.render")
+local notifications = require("omniac.ui.notifications")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
 
@@ -282,41 +283,6 @@ local function transport_activity_text(text)
     return value
   end
 
-  return nil
-end
-
-local function normalized_stop_reason(params)
-  params = params or {}
-  local reason = params.stopReason or params.stop_reason
-  if not reason and type(params.result) == "table" then
-    reason = params.result.stopReason or params.result.stop_reason
-  end
-  return type(reason) == "string" and reason or nil
-end
-
-local function notification_turn_id(params)
-  params = params or {}
-  local turn_id = params.turnId or params.turn_id
-  return type(turn_id) == "number" and turn_id or nil
-end
-
-local function stop_reason_activity(reason, config)
-  if reason == "cancelled" or reason == "canceled" then
-    return "Turn cancelled."
-  end
-  if reason == "interrupted" then
-    return "Turn interrupted."
-  end
-  if config and config.debug and reason and reason ~= "" and reason ~= "end_turn" then
-    return "Stopped: " .. reason
-  end
-  return nil
-end
-
-local function stop_reason_footer(reason)
-  if reason == "max_tokens" or reason == "length" or reason == "token_limit" then
-    return "Stopped: token limit"
-  end
   return nil
 end
 
@@ -1248,153 +1214,22 @@ function M.restore_input(text, attachments)
 end
 
 function M.handle_notification(message, config)
-  local method = message and message.method
-  local params = message and message.params or {}
-  local turn_id = notification_turn_id(params)
-  local current_turn_id = state.active_turn_id
-
-  if turn_id and current_turn_id and turn_id ~= current_turn_id then
-    if
-      method == "omniac/response"
-      or method == "omniac/response_chunk"
-      or method == "omniac/response_completed"
-      or method == "omniac/thought_activity"
-      or method == "omniac/prompt_cancelled"
-    then
-      return
-    end
-  end
-
-  if method == "omniac/session_started" then
-    if params.clearChat then
-      M.clear_conversation(config)
-    end
-    M.set_status("ready", config)
-    return
-  end
-
-  if method == "omniac/prompt_started" then
-    state.streaming_message_index = nil
-    state.tool_activity = nil
-    state.thought_activity = nil
-    state.cancel_requested = false
-    state.suppress_current_turn = false
-    state.active_turn_id = turn_id
-    M.set_status("working", config)
-    return
-  end
-
-  if method == "omniac/prompt_cancelled" then
-    state.cancel_requested = false
-    state.active_turn_id = turn_id or state.active_turn_id
-    M.set_status("ready", config)
-    M.set_activity("Cancelled current turn.", config)
-    return
-  end
-
-  if method == "omniac/prompt_cancel_failed" then
-    state.cancel_requested = false
-    state.suppress_current_turn = false
-    M.set_activity(params.message or "Cancel failed.", config)
-    return
-  end
-
-  if
-    state.suppress_current_turn
-    and (
-      method == "omniac/response"
-      or method == "omniac/response_chunk"
-      or method == "omniac/tool_activity"
-      or method == "omniac/thought_activity"
-      or method == "omniac/tool_result"
-    )
-  then
-    return
-  end
-
-  if method == "omniac/response" then
-    local reason = normalized_stop_reason(params)
-    M.add_message("Omniac", params.text or "", config, {
-      stop_footer = stop_reason_footer(reason),
-    })
-    state.streaming_message_index = nil
-    M.set_status("ready", config)
-    local activity = stop_reason_activity(reason, config)
-    if activity then
-      M.set_activity(activity, config)
-    end
-    return
-  end
-
-  if method == "omniac/response_chunk" then
-    M.append_response_chunk(params.text or "", config)
-    return
-  end
-
-  if method == "omniac/tool_activity" then
-    M.set_tool_activity(params, config)
-    return
-  end
-
-  if method == "omniac/thought_activity" then
-    if state.status == "working" and type(params.text) == "string" and params.text ~= "" then
-      state.thought_activity = params.text
-      render_activity()
-    end
-    return
-  end
-
-  if method == "omniac/tool_result" then
-    M.add_tool_result(params, config)
-    return
-  end
-
-  if method == "omniac/available_commands_update" then
-    M.set_available_commands(params.availableCommands or params.available_commands or {})
-    return
-  end
-
-  if method == "omniac/session_mode_update" then
-    M.set_session_mode(params)
-    return
-  end
-
-  if method == "omniac/session_model_update" then
-    M.set_session_model(params)
-    return
-  end
-
-  if method == "omniac/session_config_update" then
-    M.set_session_config(params.configOptions or params.config_options)
-    return
-  end
-
-  if method == "omniac/usage_update" then
-    M.set_session_usage(params)
-    return
-  end
-
-  if method == "omniac/response_completed" then
-    local reason = normalized_stop_reason(params)
-    local suppress_stop_ui = state.suppress_current_turn
-    M.complete_response(config, {
-      stop_footer = suppress_stop_ui and nil or stop_reason_footer(reason),
-    })
-    M.set_status("ready", config)
-    if not suppress_stop_ui then
-      local activity = stop_reason_activity(reason, config)
-      if activity then
-        M.set_activity(activity, config)
-      end
-    end
-    state.active_turn_id = turn_id or state.active_turn_id
-    return
-  end
-
-  if method == "omniac/error" then
-    M.add_message("Error", vim.inspect(params), config)
-    M.set_status("error", config)
-  end
+  notifications.handle(state, message, config, {
+    clear_conversation = M.clear_conversation,
+    set_status = M.set_status,
+    set_activity = M.set_activity,
+    add_message = M.add_message,
+    append_response_chunk = M.append_response_chunk,
+    set_tool_activity = M.set_tool_activity,
+    render_activity = render_activity,
+    add_tool_result = M.add_tool_result,
+    set_available_commands = M.set_available_commands,
+    set_session_mode = M.set_session_mode,
+    set_session_model = M.set_session_model,
+    set_session_config = M.set_session_config,
+    set_session_usage = M.set_session_usage,
+    complete_response = M.complete_response,
+  })
 end
 
 function M.set_available_commands(commands)
