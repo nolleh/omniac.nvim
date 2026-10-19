@@ -584,21 +584,6 @@ function M.open_chat(connect_opts)
   end)
 
   ui.open(M.config, function(text, attachments)
-    if M.active_submission then
-      ui.set_activity("Wait for the current prompt before sending another.", M.config)
-      return false
-    end
-    if M.failed_submission then
-      vim.ui.select({ "Keep failed prompt", "Discard failed prompt" }, {
-        prompt = "One failed prompt is saved. Discard it before sending a new one?",
-      }, function(choice)
-        if choice == "Discard failed prompt" then
-          M.failed_submission = nil
-          ui.set_activity("Failed prompt discarded. Send the current input again.", M.config)
-        end
-      end)
-      return false
-    end
     local command, arguments = slash_command(text)
     if command == "exit" and #(attachments or {}) == 0 then
       M.exit()
@@ -609,7 +594,7 @@ function M.open_chat(connect_opts)
         ui.set_activity("Cannot start a new ACP session until the current connection is ready.", M.config)
         return
       end
-      if M.backend.active_turn_id ~= nil then
+      if M.active_submission or M.backend.active_turn_id ~= nil then
         ui.set_activity("Finish or cancel the current turn before starting a new session.", M.config)
         return
       end
@@ -623,6 +608,10 @@ function M.open_chat(connect_opts)
       return
     end
     if command == "resume" and #(attachments or {}) == 0 then
+      if M.active_submission or (M.backend and M.backend.active_turn_id ~= nil) then
+        ui.set_activity("Finish or cancel the current turn before switching sessions.", M.config)
+        return
+      end
       ui.set_activity("Opening session list.", M.config)
       ui.set_status("connecting", M.config)
       local ok, err = pcall(M.select_session)
@@ -721,6 +710,22 @@ function M.open_chat(connect_opts)
         select_mode(arguments)
       end
       return
+    end
+
+    if M.active_submission then
+      ui.set_activity("Wait for the current prompt before sending another.", M.config)
+      return false
+    end
+    if M.failed_submission then
+      vim.ui.select({ "Keep failed prompt", "Discard failed prompt" }, {
+        prompt = "One failed prompt is saved. Discard it before sending a new one?",
+      }, function(choice)
+        if choice == "Discard failed prompt" then
+          M.failed_submission = nil
+          ui.set_activity("Failed prompt discarded. Send the current input again.", M.config)
+        end
+      end)
+      return false
     end
 
     local item = { text = text, attachments = vim.deepcopy(attachments or {}) }

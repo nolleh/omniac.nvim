@@ -423,7 +423,7 @@ describe("omniac.nvim commands", function()
     assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "OmniacFocus should focus the visible input")
   end)
 
-  it("slash mode changes an advertised ACP config option without submitting", function()
+  it("slash mode changes an advertised ACP config option while a prompt is active", function()
     cleanup_omniac_buffers()
     package.loaded["omniac"] = nil
     package.loaded["omniac.ui"] = nil
@@ -449,13 +449,16 @@ describe("omniac.nvim commands", function()
     omniac.ask = function()
       submitted = true
     end
+    omniac.active_submission = { text = "active prompt", attachments = {} }
 
     omniac.open_chat()
     feed("i/mode agent<CR>")
 
     assert_equal(selected, "agent", "/mode should select the advertised ID")
     assert_equal(submitted, false, "/mode should not submit a prompt")
+    assert_true(omniac.active_submission ~= nil, "/mode should not disturb the active prompt")
     assert_equal(omniac.config.agent.mode_id, "read-only", "session changes should not change the configured default")
+    omniac.active_submission = nil
   end)
 
   it("mode selector presents the agent's mode names and descriptions", function()
