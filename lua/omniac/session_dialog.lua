@@ -334,6 +334,9 @@ local function choose(action)
 end
 
 function M.open(sessions, opts, callback)
+  if vim.fn.mode():match("^[iR]") then
+    vim.cmd("stopinsert")
+  end
   setup_highlights()
   opts = opts or {}
   state.callback = callback

@@ -445,4 +445,15 @@ describe("omniac.nvim changes", function()
     feed("q")
     assert_equal(result, nil, "closing the dialog without selection should not choose a session")
   end)
+
+  it("opens the session dialog in normal mode", function()
+    package.loaded["omniac.session_dialog"] = nil
+    local dialog = require("omniac.session_dialog")
+
+    vim.cmd("startinsert")
+    dialog.open({}, { list_supported = true }, function() end)
+
+    assert_true(not vim.fn.mode():match("^[iR]"), "session dialog should leave insert mode when it opens")
+    feed("q")
+  end)
 end)
