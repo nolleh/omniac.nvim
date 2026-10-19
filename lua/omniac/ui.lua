@@ -1,5 +1,6 @@
 local M = {}
 local activity_view = require("omniac.ui.activity")
+local bindings = require("omniac.ui.bindings")
 local buffers = require("omniac.ui.buffers")
 local chat_render = require("omniac.ui.chat.render")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
@@ -1364,10 +1365,6 @@ local function schedule_close()
   end)
 end
 
-local function move_sidebar(direction)
-  layout.move_sidebar(state, direction, valid_win, resize_aux_windows)
-end
-
 function M.close()
   state.close_pending = false
   local failure_action = state.failure_action
@@ -1454,84 +1451,16 @@ function M.open(config, submit, queue_submit)
     controller = input_controller_opts(),
   })
 
-  local function toggle_tool_output()
-    M.toggle_tool_output(state.config)
-  end
-  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
-    vim.keymap.set({ "n", "i" }, "<C-t>", toggle_tool_output, {
-      buffer = buf,
-      nowait = true,
-      desc = "Toggle Omniac tool output",
-    })
-  end
-
-  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
-    vim.keymap.set("n", "i", focus_input, { buffer = buf, nowait = true, desc = "Focus Omniac input" })
-  end
-
-  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf, state.card_buf }) do
-    for key, direction in pairs({ ["<C-k>"] = -1, ["<C-j>"] = 1 }) do
-      vim.keymap.set({ "n", "i" }, key, function()
-        if vim.fn.mode():match("^[iR]") then
-          vim.cmd("stopinsert")
-        end
-        local windows = {}
-        if valid_win(state.card_win) then
-          table.insert(windows, state.card_win)
-        end
-        for _, win in ipairs({ state.chat_win, state.input_win }) do
-          if valid_win(win) then
-            table.insert(windows, win)
-          end
-        end
-        local current = vim.api.nvim_get_current_win()
-        local index = nil
-        for i, win in ipairs(windows) do
-          if win == current then
-            index = i
-            break
-          end
-        end
-        local target_index
-        if index then
-          target_index = index + direction
-        elseif current == state.activity_win then
-          target_index = direction == -1 and #windows - 1 or #windows
-        elseif current == state.status_win and direction == -1 then
-          target_index = #windows
-        end
-        local target = target_index and windows[target_index]
-        if target then
-          vim.api.nvim_set_current_win(target)
-        end
-      end, {
-        buffer = buf,
-        nowait = true,
-        desc = "Move to Omniac area " .. (direction == -1 and "above" or "below"),
-      })
-    end
-    for key, direction in pairs({ ["<C-w>H"] = "H", ["<C-w>L"] = "L" }) do
-      vim.keymap.set("n", key, function()
-        move_sidebar(direction)
-      end, {
-        buffer = buf,
-        nowait = true,
-        desc = "Move Omniac sidebar " .. (direction == "H" and "left" or "right"),
-      })
-    end
-  end
-
-  for _, buf in ipairs({ state.chat_buf, state.input_buf, state.activity_buf }) do
-    vim.keymap.set({ "n", "i" }, "<S-Tab>", function()
-      if state.plan_toggle_handler then
-        state.plan_toggle_handler()
-      end
-    end, {
-      buffer = buf,
-      nowait = true,
-      desc = "Toggle Omniac plan mode",
-    })
-  end
+  bindings.setup(state, {
+    valid_win = valid_win,
+    focus_input = focus_input,
+    toggle_tool_output = function()
+      M.toggle_tool_output(state.config)
+    end,
+    move_sidebar = function(direction)
+      layout.move_sidebar(state, direction, valid_win, resize_aux_windows)
+    end,
+  })
 
   vim.api.nvim_clear_autocmds({
     group = augroup,
