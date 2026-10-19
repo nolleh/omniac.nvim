@@ -5,6 +5,7 @@ local buffers = require("omniac.ui.buffers")
 local chat_render = require("omniac.ui.chat.render")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local highlights = require("omniac.ui.highlights")
+local input_attachments = require("omniac.ui.input.attachments")
 local input_completion = require("omniac.ui.input.completion")
 local input_history = require("omniac.ui.input.history")
 local input_render = require("omniac.ui.input.render")
@@ -1109,80 +1110,15 @@ local function reset_input()
 end
 
 attachment_summary = function(attachments)
-  local count = #(attachments or {})
-  if count == 0 then
-    return nil
-  end
-
-  local parts = {}
-  for index, attachment in ipairs(attachments) do
-    if attachment.type == "reference" then
-      local path = attachment.path
-      if not path or path == "" then
-        path = "[No Name]"
-      else
-        path = vim.fn.fnamemodify(path, ":t")
-      end
-      local label = attachment.pathOnly and "file" or "ref"
-      if attachment.startLine and attachment.endLine then
-        table.insert(parts, string.format("%s: %s:%d-%d", label, path, attachment.startLine, attachment.endLine))
-      else
-        table.insert(parts, string.format("%s: %s", label, path))
-      end
-    else
-      local size = attachment.byteSize and string.format(" %.1fKB", attachment.byteSize / 1024) or ""
-      table.insert(parts, string.format("image %d: %s%s", index, attachment.mimeType or "image", size))
-    end
-  end
-  return table.concat(parts, ", ")
-end
-
-local function attachment_marker(attachment)
-  if attachment._input_marker then
-    return attachment._input_marker
-  end
-
-  state.next_attachment_id = state.next_attachment_id + 1
-  local kind = attachment.type == "image" and "Image" or "Reference"
-  attachment._input_marker = string.format("[%s %d]", kind, state.next_attachment_id)
-  return attachment._input_marker
+  return input_attachments.summary(attachments)
 end
 
 attachment_ranges = function(line)
-  local ranges = {}
-  for _, attachment in ipairs(state.input_attachments) do
-    local marker = attachment._input_marker
-    if marker then
-      local from = 1
-      while true do
-        local start_col, end_col = line:find(marker, from, true)
-        if not start_col then
-          break
-        end
-        table.insert(ranges, {
-          from = start_col - 1,
-          to = end_col,
-          attachment = attachment,
-        })
-        from = end_col + 1
-      end
-    end
-  end
-  table.sort(ranges, function(left, right)
-    return left.from < right.from
-  end)
-  return ranges
+  return input_attachments.ranges(state, line)
 end
 
 local function prune_missing_attachments(lines)
-  local text = table.concat(lines or {}, "\n")
-  local retained = {}
-  for _, attachment in ipairs(state.input_attachments) do
-    if attachment._input_marker and text:find(attachment._input_marker, 1, true) then
-      table.insert(retained, attachment)
-    end
-  end
-  state.input_attachments = retained
+  input_attachments.prune(state, lines)
 end
 
 local function previous_char_start(text, col)
@@ -1232,43 +1168,7 @@ local function input_text()
 end
 
 local function prepared_input()
-  local source = input_text()
-  local occurrences = {}
-
-  for _, attachment in ipairs(state.input_attachments) do
-    local marker = attachment._input_marker
-    local from = marker and source:find(marker, 1, true) or nil
-    if from then
-      table.insert(occurrences, {
-        from = from,
-        to = from + #marker - 1,
-        attachment = attachment,
-      })
-    end
-  end
-
-  table.sort(occurrences, function(left, right)
-    return left.from < right.from
-  end)
-
-  local clean = {}
-  local attachments = {}
-  local cursor = 1
-  local clean_length = 0
-  for _, occurrence in ipairs(occurrences) do
-    local preceding = source:sub(cursor, occurrence.from - 1)
-    table.insert(clean, preceding)
-    clean_length = clean_length + #preceding
-
-    local attachment = vim.deepcopy(occurrence.attachment)
-    attachment._position = clean_length
-    attachment._order = #attachments + 1
-    table.insert(attachments, attachment)
-    cursor = occurrence.to + 1
-  end
-  table.insert(clean, source:sub(cursor))
-
-  return table.concat(clean), attachments
+  return input_attachments.prepare(state, input_text())
 end
 
 local function command_prefix()
@@ -1347,18 +1247,10 @@ local function add_clipboard_image()
     return false, err
   end
 
-  local attachment = vim.deepcopy(image)
-  local marker = attachment_marker(attachment)
-  table.insert(state.input_attachments, attachment)
-
   local lines = raw_input_lines()
   local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
-  local input_cursor = logical_cursor_from_display(cursor)
-  local line_index = math.min(math.max(input_cursor.line, 1), #lines)
-  local line = lines[line_index] or ""
-  local col = math.min(math.max(input_cursor.col, 0), #line)
-  lines[line_index] = line:sub(1, col) .. marker .. line:sub(col + 1)
-  render_input(lines, { line = line_index, col = col + #marker })
+  lines, cursor = input_attachments.insert(state, image, lines, logical_cursor_from_display(cursor))
+  render_input(lines, cursor)
   vim.schedule(function()
     focus_input()
   end)
@@ -1366,7 +1258,7 @@ local function add_clipboard_image()
 end
 
 local function clear_input_attachments()
-  state.input_attachments = {}
+  input_attachments.clear(state)
   render_activity()
 end
 
@@ -1375,18 +1267,10 @@ function M.attach_reference(reference, config)
     return false
   end
 
-  local attachment = vim.deepcopy(reference)
-  local marker = attachment_marker(attachment)
-  table.insert(state.input_attachments, attachment)
-
   local lines = raw_input_lines()
   local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
-  local input_cursor = logical_cursor_from_display(cursor)
-  local line_index = math.min(math.max(input_cursor.line, 1), #lines)
-  local line = lines[line_index] or ""
-  local col = math.min(math.max(input_cursor.col, 0), #line)
-  lines[line_index] = line:sub(1, col) .. marker .. line:sub(col + 1)
-  render_input(lines, { line = line_index, col = col + #marker })
+  lines, cursor = input_attachments.insert(state, reference, lines, logical_cursor_from_display(cursor))
+  render_input(lines, cursor)
   vim.schedule(function()
     focus_input()
   end)
@@ -2483,20 +2367,7 @@ function M.restore_input(text, attachments)
   if raw_input_text() ~= "" or #state.input_attachments > 0 then
     return false
   end
-  local restored = text or ""
-  state.input_attachments = vim.deepcopy(attachments or {})
-  table.sort(state.input_attachments, function(left, right)
-    if (left._position or math.huge) == (right._position or math.huge) then
-      return (left._order or 0) < (right._order or 0)
-    end
-    return (left._position or math.huge) < (right._position or math.huge)
-  end)
-  for index = #state.input_attachments, 1, -1 do
-    local attachment = state.input_attachments[index]
-    local marker = attachment_marker(attachment)
-    local position = math.min(math.max(attachment._position or #restored, 0), #restored)
-    restored = restored:sub(1, position) .. marker .. restored:sub(position + 1)
-  end
+  local restored = input_attachments.restore(state, text, attachments)
   local lines = vim.split(restored, "\n", { plain = true })
   render_input(lines, { line = #lines, col = #(lines[#lines] or "") })
   render_activity()
