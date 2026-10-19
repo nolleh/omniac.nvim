@@ -85,6 +85,10 @@ function M.set_status(state, status, config, opts)
   state.activity_generation = state.activity_generation + 1
   local previous_status = state.status
   state.status = status or "idle"
+  if state.status == "working" and state.failure_action then
+    state.failure_action = nil
+    sync_failure_shortcuts(state, opts)
+  end
   if state.status ~= "working" then
     state.tool_activity = nil
     state.thought_activity = nil

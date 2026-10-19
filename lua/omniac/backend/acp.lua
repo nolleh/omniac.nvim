@@ -641,7 +641,7 @@ function M.new(config)
     return cfg
   end
 
-  function state:_handle_server_request(message)
+  function state:_handle_server_request(message, transport_reply)
     local method = message and message.method
     local params = message and message.params or {}
     local replied = false
@@ -659,7 +659,11 @@ function M.new(config)
         response.result = result
       end
       append_protocol_log(self.config, "response", response)
-      self.transport:respond(response.id, response.result, response.error)
+      if transport_reply then
+        transport_reply(response.result, response.error)
+      else
+        self.transport:respond(response.id, response.result, response.error)
+      end
     end
 
     if self.request_handler then
@@ -1529,7 +1533,7 @@ function M.new(config)
       end)
       :on_request(function(message, reply)
         self:_debug("request", message)
-        self:_handle_server_request(message)
+        self:_handle_server_request(message, reply)
       end)
       :on_exit(function(code, signal)
         self:_debug("exit", {

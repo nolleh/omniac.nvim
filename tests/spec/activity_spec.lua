@@ -38,6 +38,27 @@ describe("omniac.nvim activity", function()
     assert_equal(#actions, 1, "shortcut should run once")
   end)
 
+  it("clears failed prompt actions when a new turn starts working", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 42 } }
+    local ui_state = ui.open(config, function(_) end)
+    local actions = {}
+    ui.show_failure_action(function(action)
+      table.insert(actions, action)
+    end)
+
+    ui.set_status("working", config)
+
+    local activity = table.concat(vim.api.nvim_buf_get_lines(ui_state.activity_buf, 0, -1, false), "\n")
+    assert_true(activity:find("Working", 1, true) ~= nil, "new turn should display working activity")
+    assert_true(activity:find("[r] Resend", 1, true) == nil, "failure actions should be removed")
+    vim.api.nvim_set_current_win(ui_state.chat_win)
+    feed("r")
+    assert_equal(#actions, 0, "removed failure shortcut should not invoke the old handler")
+  end)
+
   it("restores the previous activity after a short notice", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

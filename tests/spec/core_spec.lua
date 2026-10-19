@@ -103,6 +103,45 @@ describe("omniac.nvim core", function()
     client:close()
   end)
 
+  it("pauses prompt timeout while a permission request awaits a response", function()
+    package.loaded["omniac.transport.stdio"] = nil
+    local client = require("omniac.transport.stdio").new({
+      client = { prompt_timeout_ms = 40 },
+    })
+    local prompt_calls = 0
+    local permission_reply
+    client.running = true
+    client.jobid = 1
+    client._send_raw = function() end
+    client:on_request(function(_, reply)
+      permission_reply = reply
+    end)
+
+    local prompt_id = client:request("session/prompt", {}, function()
+      prompt_calls = prompt_calls + 1
+    end)
+    vim.wait(15)
+    client:_dispatch_message({
+      id = "permission-1",
+      method = "session/request_permission",
+      params = {},
+    })
+    assert_true(
+      vim.wait(100, function()
+        return permission_reply ~= nil
+      end),
+      "permission request should reach its handler"
+    )
+    vim.wait(60)
+    assert_equal(prompt_calls, 0, "approval wait time should not consume the prompt timeout")
+
+    permission_reply({ outcome = { outcome = "cancelled" } })
+    client:_dispatch_message({ id = prompt_id, result = {} })
+    vim.wait(50)
+    assert_equal(prompt_calls, 1, "prompt should complete normally after the permission response")
+    client:close()
+  end)
+
   it("fails pending requests when the agent exits", function()
     package.loaded["omniac.transport.stdio"] = nil
     local client = require("omniac.transport.stdio").new({ client = { request_timeout_ms = 1000 } })

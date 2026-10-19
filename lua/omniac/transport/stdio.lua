@@ -157,6 +157,54 @@ function M.new(config)
     return pending
   end
 
+  function state:_start_pending_timer(id, pending)
+    if pending.pause_count > 0 or type(pending.remaining_ms) ~= "number" or pending.remaining_ms <= 0 then
+      return
+    end
+
+    pending.started_at = vim.loop.now()
+    pending.timer = vim.loop.new_timer()
+    pending.timer:start(
+      pending.remaining_ms,
+      0,
+      vim.schedule_wrap(function()
+        if self.pending[id] ~= pending then
+          return
+        end
+        self:_clear_pending(id)
+        self:_emit(pending.callback, {
+          code = -32000,
+          message = string.format("ACP %s timed out after %d ms", pending.method, pending.timeout_ms),
+        })
+      end)
+    )
+  end
+
+  function state:_pause_prompt_timeouts()
+    for _, pending in pairs(self.pending) do
+      if pending.method == "session/prompt" then
+        pending.pause_count = pending.pause_count + 1
+        if pending.pause_count == 1 and pending.timer then
+          pending.remaining_ms = math.max(1, pending.remaining_ms - (vim.loop.now() - pending.started_at))
+          pending.timer:stop()
+          pending.timer:close()
+          pending.timer = nil
+        end
+      end
+    end
+  end
+
+  function state:_resume_prompt_timeouts()
+    for id, pending in pairs(self.pending) do
+      if pending.method == "session/prompt" and pending.pause_count > 0 then
+        pending.pause_count = pending.pause_count - 1
+        if pending.pause_count == 0 then
+          self:_start_pending_timer(id, pending)
+        end
+      end
+    end
+  end
+
   function state:_fail_pending(message)
     for id in pairs(self.pending) do
       local pending = self:_clear_pending(id)
@@ -168,6 +216,10 @@ function M.new(config)
 
   function state:_handle_server_request(message)
     local replied = false
+    local pauses_prompt_timeout = message.method == "session/request_permission"
+    if pauses_prompt_timeout then
+      self:_pause_prompt_timeouts()
+    end
 
     local function reply(result, err)
       if replied then
@@ -183,6 +235,9 @@ function M.new(config)
         response.error = err
       else
         response.result = result
+      end
+      if pauses_prompt_timeout then
+        self:_resume_prompt_timeouts()
       end
       self:_send_raw(response)
     end
@@ -367,24 +422,16 @@ function M.new(config)
       if timeout == nil then
         timeout = method == "session/prompt" and DEFAULT_PROMPT_TIMEOUT_MS or DEFAULT_REQUEST_TIMEOUT_MS
       end
-      local pending = { callback = callback }
+      local pending = {
+        callback = callback,
+        method = method,
+        timeout_ms = timeout,
+        remaining_ms = timeout,
+        pause_count = 0,
+      }
       self.pending[id] = pending
       if type(timeout) == "number" and timeout > 0 then
-        pending.timer = vim.loop.new_timer()
-        pending.timer:start(
-          timeout,
-          0,
-          vim.schedule_wrap(function()
-            if self.pending[id] ~= pending then
-              return
-            end
-            self:_clear_pending(id)
-            self:_emit(callback, {
-              code = -32000,
-              message = string.format("ACP %s timed out after %d ms", method, timeout),
-            })
-          end)
-        )
+        self:_start_pending_timer(id, pending)
       end
     end
 
