@@ -18,6 +18,7 @@ local mascot_render = require("omniac.ui.mascot.render")
 local notifications = require("omniac.ui.notifications")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
+local tools = require("omniac.ui.tools")
 
 local ns = vim.api.nvim_create_namespace("omniac.ui")
 local augroup = vim.api.nvim_create_augroup("omniac.ui", { clear = false })
@@ -289,88 +290,6 @@ end
 local render_activity
 local attachment_summary
 local resize_aux_windows
-
-local function stop_tool_activity_timer()
-  if state.tool_activity_timer then
-    state.tool_activity_timer:stop()
-    state.tool_activity_timer:close()
-    state.tool_activity_timer = nil
-  end
-end
-
-local function is_terminal_tool_activity()
-  return state.tool_activity and (state.tool_activity:match("^Completed ") or state.tool_activity:match("^Failed "))
-end
-
-local function schedule_tool_activity_clear()
-  stop_tool_activity_timer()
-
-  local uv = vim.uv or vim.loop
-  state.tool_activity_timer = uv.new_timer()
-  state.tool_activity_timer:start(
-    500,
-    0,
-    vim.schedule_wrap(function()
-      state.tool_activity_timer = nil
-      if state.status == "working" and is_terminal_tool_activity() then
-        state.tool_activity = nil
-        render_activity()
-      end
-    end)
-  )
-end
-
-local function clear_completed_tool_activity()
-  if state.status == "working" and is_terminal_tool_activity() then
-    stop_tool_activity_timer()
-    state.tool_activity = nil
-    render_activity()
-  end
-end
-
-local function is_opaque_tool_name(value)
-  return type(value) == "string" and value:match("^call_[%w_%-]+$")
-end
-
-local function tool_result_mode(config)
-  local mode = ((config or state.config or {}).ui or {}).tool_results
-  if mode == "all" or mode == "none" or mode == "compact" then
-    return mode
-  end
-  return "compact"
-end
-
-local function tool_result_max_lines(config)
-  local value = tonumber(((config or state.config or {}).ui or {}).tool_result_max_lines)
-  if not value then
-    return 4
-  end
-  return math.max(0, math.floor(value))
-end
-
-local function should_show_tool_result(params, config)
-  if params.status == "failed" then
-    return true
-  end
-
-  local mode = tool_result_mode(config)
-  if mode == "none" then
-    return false
-  end
-  if mode == "all" then
-    return true
-  end
-
-  local command = params.command
-  local title = params.title
-  local display = command or title or params.kind
-  if is_opaque_tool_name(display) or (not command and is_opaque_tool_name(title)) then
-    return false
-  end
-
-  local line_count = #(split_lines(params.output or ""))
-  return line_count <= tool_result_max_lines(config)
-end
 
 local function header(lines, marks, size)
   mascot_render.header(state, lines, marks, size, agent_name)
@@ -798,7 +717,7 @@ function M.close()
     failure_action("dismiss")
   end
   stop_activity_timer()
-  stop_tool_activity_timer()
+  tools.stop_timer(state)
   mascot_controller.stop(state, mascot_controller_opts())
   chat_scheduler.cancel(state)
   events.clear(augroup)
@@ -894,7 +813,7 @@ function M.set_status(status, config)
     state.tool_activity = nil
     state.thought_activity = nil
     state.cancel_requested = false
-    stop_tool_activity_timer()
+    tools.stop_timer(state)
   end
   if state.status == "working" or state.status ~= "connecting" then
     state.transient_activity = nil
@@ -1008,80 +927,27 @@ function M.set_session_usage(usage)
 end
 
 function M.set_tool_activity(params, config)
-  params = params or {}
-  local status = params.status or "running"
-  local kind = params.kind or "tool"
-  local title = params.title or kind
-  local prefix = "Running"
-
-  if status == "completed" then
-    prefix = "Completed"
-  elseif status == "failed" then
-    prefix = "Failed"
-  elseif status == "pending" then
-    prefix = "Pending"
-  elseif status == "in_progress" then
-    prefix = "Running"
-  end
-
-  local exit = params.exitCode ~= nil and (" exit " .. tostring(params.exitCode)) or ""
-  state.tool_activity = string.format("%s %s: %s%s", prefix, kind, title, exit)
-  if status == "completed" or status == "failed" then
-    schedule_tool_activity_clear()
-  else
-    stop_tool_activity_timer()
-  end
-  render_activity()
+  tools.set_activity(state, params, render_activity)
 end
 
 function M.toggle_tool_output(config)
-  for index = #state.messages, 1, -1 do
-    local message = state.messages[index]
-    if message and message.type == "tool_result" and #(split_lines(message.output or "")) > 4 then
-      message.expanded = not message.expanded
-      render_chat(config or state.config)
-      focus_input()
-      return true
-    end
-  end
-  return false
+  return tools.toggle_output(state, config, {
+    render_chat = render_chat,
+    focus_input = focus_input,
+  })
 end
 
 function M.add_tool_result(params, config)
-  params = params or {}
-  local output = params.output
-  if type(output) ~= "string" or output == "" then
-    return
-  end
-  if not should_show_tool_result(params, config) then
-    return
-  end
-
-  if state.streaming_message_index and state.messages[state.streaming_message_index] then
-    state.messages[state.streaming_message_index].complete = true
-    state.streaming_message_index = nil
-  end
-
-  table.insert(state.messages, {
-    type = "tool_result",
-    role = "Tool",
-    kind = params.kind,
-    status = params.status,
-    title = params.title,
-    command = params.command,
-    cwd = params.cwd,
-    output = output,
-    exitCode = params.exitCode,
-    expanded = false,
+  tools.add_result(state, params, config, {
+    request_chat_render = request_chat_render,
+    focus_input_if_active = focus_input_if_active,
   })
-  request_chat_render(config, { immediate = true, follow = true })
-  focus_input_if_active()
 end
 
 function M.add_message(role, text, config, opts)
   opts = opts or {}
   if role == "Omniac" then
-    clear_completed_tool_activity()
+    tools.clear_completed(state, render_activity)
   end
   table.insert(state.messages, {
     role = role,
@@ -1127,7 +993,7 @@ function M.append_response_chunk(text, config)
     return
   end
 
-  clear_completed_tool_activity()
+  tools.clear_completed(state, render_activity)
 
   local activity = transport_activity_text(text)
   if activity then

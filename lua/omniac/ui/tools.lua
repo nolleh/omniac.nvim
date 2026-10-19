@@ -1,0 +1,147 @@
+local M = {}
+local text = require("omniac.ui.text")
+
+local function is_terminal_activity(state)
+  return state.tool_activity and (state.tool_activity:match("^Completed ") or state.tool_activity:match("^Failed "))
+end
+
+local function result_mode(state, config)
+  local mode = ((config or state.config or {}).ui or {}).tool_results
+  if mode == "all" or mode == "none" or mode == "compact" then
+    return mode
+  end
+  return "compact"
+end
+
+local function result_max_lines(state, config)
+  local value = tonumber(((config or state.config or {}).ui or {}).tool_result_max_lines)
+  if not value then
+    return 4
+  end
+  return math.max(0, math.floor(value))
+end
+
+local function is_opaque_name(value)
+  return type(value) == "string" and value:match("^call_[%w_%-]+$")
+end
+
+local function should_show_result(state, params, config)
+  if params.status == "failed" then
+    return true
+  end
+
+  local mode = result_mode(state, config)
+  if mode == "none" then
+    return false
+  end
+  if mode == "all" then
+    return true
+  end
+
+  local command = params.command
+  local title = params.title
+  local display = command or title or params.kind
+  if is_opaque_name(display) or (not command and is_opaque_name(title)) then
+    return false
+  end
+
+  return #(text.split_lines(params.output or "")) <= result_max_lines(state, config)
+end
+
+function M.stop_timer(state)
+  if state.tool_activity_timer then
+    state.tool_activity_timer:stop()
+    state.tool_activity_timer:close()
+    state.tool_activity_timer = nil
+  end
+end
+
+function M.clear_completed(state, render_activity)
+  if state.status == "working" and is_terminal_activity(state) then
+    M.stop_timer(state)
+    state.tool_activity = nil
+    render_activity()
+  end
+end
+
+function M.set_activity(state, params, render_activity)
+  params = params or {}
+  local status = params.status or "running"
+  local kind = params.kind or "tool"
+  local title = params.title or kind
+  local prefix = "Running"
+
+  if status == "completed" then
+    prefix = "Completed"
+  elseif status == "failed" then
+    prefix = "Failed"
+  elseif status == "pending" then
+    prefix = "Pending"
+  elseif status == "in_progress" then
+    prefix = "Running"
+  end
+
+  local exit = params.exitCode ~= nil and (" exit " .. tostring(params.exitCode)) or ""
+  state.tool_activity = string.format("%s %s: %s%s", prefix, kind, title, exit)
+
+  M.stop_timer(state)
+  if status == "completed" or status == "failed" then
+    local uv = vim.uv or vim.loop
+    state.tool_activity_timer = uv.new_timer()
+    state.tool_activity_timer:start(
+      500,
+      0,
+      vim.schedule_wrap(function()
+        state.tool_activity_timer = nil
+        if state.status == "working" and is_terminal_activity(state) then
+          state.tool_activity = nil
+          render_activity()
+        end
+      end)
+    )
+  end
+  render_activity()
+end
+
+function M.toggle_output(state, config, handlers)
+  for index = #state.messages, 1, -1 do
+    local message = state.messages[index]
+    if message and message.type == "tool_result" and #(text.split_lines(message.output or "")) > 4 then
+      message.expanded = not message.expanded
+      handlers.render_chat(config or state.config)
+      handlers.focus_input()
+      return true
+    end
+  end
+  return false
+end
+
+function M.add_result(state, params, config, handlers)
+  params = params or {}
+  local output = params.output
+  if type(output) ~= "string" or output == "" or not should_show_result(state, params, config) then
+    return
+  end
+
+  if state.streaming_message_index and state.messages[state.streaming_message_index] then
+    state.messages[state.streaming_message_index].complete = true
+    state.streaming_message_index = nil
+  end
+
+  table.insert(state.messages, {
+    type = "tool_result",
+    role = "Tool",
+    kind = params.kind,
+    status = params.status,
+    title = params.title,
+    command = params.command,
+    cwd = params.cwd,
+    output = output,
+    exitCode = params.exitCode,
+    expanded = false,
+  })
+  handlers.request_chat_render(config, { immediate = true, follow = true })
+  handlers.focus_input_if_active()
+end
+
+return M
