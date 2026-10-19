@@ -1631,6 +1631,23 @@ function M.new(config)
         self.session_id = session_id_from_result(session_result) or self.session_id
         self:_apply_session_state(session_result)
 
+        local function finish_session_start()
+          self:_emit_notification({
+            method = "omniac/session_started",
+            params = vim.tbl_extend("force", result_table(session_result), {
+              sessionId = self.session_id,
+              method = session_method,
+            }),
+          })
+
+          self:_flush_pending_prompt()
+        end
+
+        if session_method ~= "session/new" then
+          finish_session_start()
+          return
+        end
+
         self:_set_session_mode(function(mode_err)
           if mode_err then
             local pending = self.pending_prompt
@@ -1649,15 +1666,7 @@ function M.new(config)
             return
           end
 
-          self:_emit_notification({
-            method = "omniac/session_started",
-            params = vim.tbl_extend("force", result_table(session_result), {
-              sessionId = self.session_id,
-              method = session_method,
-            }),
-          })
-
-          self:_flush_pending_prompt()
+          finish_session_start()
         end)
       end)
     end)

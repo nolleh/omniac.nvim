@@ -137,7 +137,8 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
 - `/mode` opens the agent's mode selector; `/mode <id>` changes the active session mode directly
   The initial mode is configured with `agent.mode_id`, for example `agent = { mode_id = "workspace-write" }`.
-  A change made with `/mode` applies to the current session; on a new connection Omniac applies `agent.mode_id` again.
+  A change made with `/mode` applies to the current session. Omniac applies `agent.mode_id` when creating a new
+  session, while loaded or resumed sessions keep their saved mode.
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
 - `Ctrl-k` and `Ctrl-j` move between the welcome card, chat, and input in normal or insert mode, skipping the activity and status bars. When the welcome card is hidden, they move between chat and input.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started

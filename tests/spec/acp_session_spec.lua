@@ -125,6 +125,84 @@ describe("omniac.nvim acp session", function()
     transport.new = original_new
   end)
 
+  it("applies the configured initial mode only to new sessions", function()
+    package.loaded["omniac.backend.acp"] = nil
+    local acp = require("omniac.backend.acp")
+    local transport = require("omniac.transport")
+    local original_new = transport.new
+
+    local function start_session(action)
+      local requests = {}
+      transport.new = function()
+        local instance = {}
+        function instance:on_notification()
+          return self
+        end
+        function instance:on_request()
+          return self
+        end
+        function instance:on_exit()
+          return self
+        end
+        function instance:start() end
+        function instance:close() end
+        function instance:request(method, params, callback)
+          table.insert(requests, { method = method, params = params })
+          if method == "initialize" then
+            callback(nil, {
+              protocolVersion = 1,
+              agentCapabilities = {
+                loadSession = true,
+                sessionCapabilities = { resume = {} },
+              },
+            })
+          elseif method == "session/new" or method == "session/load" or method == "session/resume" then
+            callback(nil, {
+              sessionId = "sess_1",
+              modes = {
+                currentModeId = "workspace-write",
+                availableModes = {
+                  { id = "read-only", name = "Read-only" },
+                  { id = "workspace-write", name = "Workspace write" },
+                },
+              },
+            })
+          else
+            callback(nil, {})
+          end
+        end
+        return instance
+      end
+
+      local client = acp.new({
+        agent = {
+          mode_id = "read-only",
+          session = { action = action, id = action == "new" and nil or "sess_1" },
+        },
+      })
+      client:start()
+      return client, requests
+    end
+
+    local new_client, new_requests = start_session("new")
+    assert_equal(new_requests[#new_requests].method, "session/set_mode", "new sessions should apply the initial mode")
+    assert_equal(new_requests[#new_requests].params.modeId, "read-only", "new sessions should use agent.mode_id")
+    assert_equal(new_client:get_session_mode().currentModeId, "read-only", "new session mode should become the default")
+
+    for _, action in ipairs({ "load", "resume" }) do
+      local client, requests = start_session(action)
+      assert_equal(#requests, 2, action .. " should not send an additional mode request")
+      assert_equal(requests[2].method, "session/" .. action, action .. " should preserve the startup action")
+      assert_equal(
+        client:get_session_mode().currentModeId,
+        "workspace-write",
+        action .. " should preserve the saved session mode"
+      )
+    end
+
+    transport.new = original_new
+  end)
+
   it("ACP protocol file logs follow debug option", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")
