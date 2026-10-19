@@ -1,20 +1,16 @@
 local M = {}
 local activity_controller = require("omniac.ui.activity.controller")
 local activity_view = require("omniac.ui.activity")
-local bindings = require("omniac.ui.bindings")
-local buffers = require("omniac.ui.buffers")
 local chat_controller = require("omniac.ui.chat.controller")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local chat_view = require("omniac.ui.chat.view")
-local events = require("omniac.ui.events")
-local highlights = require("omniac.ui.highlights")
 local input_attachments = require("omniac.ui.input.attachments")
-local input_bindings = require("omniac.ui.input.bindings")
 local input_controller = require("omniac.ui.input.controller")
 local input_history = require("omniac.ui.input.history")
 local input_render = require("omniac.ui.input.render")
 local input_suggestions = require("omniac.ui.input.suggestions")
 local layout = require("omniac.ui.layout")
+local lifecycle = require("omniac.ui.lifecycle")
 local mascot_controller = require("omniac.ui.mascot.controller")
 local mascot_render = require("omniac.ui.mascot.render")
 local notifications = require("omniac.ui.notifications")
@@ -61,7 +57,6 @@ local function agent_name(config)
 end
 
 local fit = text.fit
-local setup_highlights = highlights.setup
 
 local function add_hl(buf, line, start_col, end_col, group)
   if valid_buf(buf) then
@@ -313,28 +308,7 @@ resize_aux_windows = function()
 end
 
 local function relayout()
-  if
-    not (
-      valid_win(state.card_win)
-      or valid_win(state.chat_win)
-      or valid_win(state.input_win)
-      or valid_win(state.activity_win)
-      or valid_win(state.status_win)
-    )
-  then
-    return
-  end
-
-  if resize_aux_windows then
-    resize_aux_windows()
-  end
-  render_chat(state.config)
-  render_card()
-  render_activity()
-  render_status()
-  if valid_buf(state.input_buf) then
-    render_input(raw_input_lines(), nil, { skip_command_window = true })
-  end
+  lifecycle.relayout(state, runtime.lifecycle)
 end
 
 runtime = runtime_factory.new(state, {
@@ -424,93 +398,25 @@ runtime = runtime_factory.new(state, {
   complete_response = function(...)
     return M.complete_response(...)
   end,
+  resize_aux_windows = resize_aux_windows,
+  capture_user_width = capture_user_width,
+  ensure_command_buffer = ensure_command_buffer,
+  card_height = CARD_HEIGHT,
+  clear_failure_action = function(...)
+    return M.clear_failure_action(...)
+  end,
 })
 
 function M.resize(value)
-  local target_width = tonumber(value)
-  if not target_width then
-    return false
-  end
-
-  target_width = math.floor(math.min(math.max(target_width, 42), math.max(42, vim.o.columns - 20)))
-  state.user_width = target_width
-  for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
-    if valid_win(win) then
-      pcall(vim.api.nvim_win_set_width, win, target_width)
-    end
-  end
-  if valid_win(state.card_win) then
-    pcall(vim.api.nvim_win_set_width, state.card_win, target_width)
-  end
-  if valid_win(state.command_win) then
-    pcall(vim.api.nvim_win_set_width, state.command_win, target_width)
-    pcall(vim.api.nvim_win_set_config, state.command_win, { width = target_width })
-  end
-  relayout()
-  return true
+  return lifecycle.resize(state, value, runtime.lifecycle)
 end
 
 function M.close()
-  state.close_pending = false
-  local failure_action = state.failure_action
-  M.clear_failure_action()
-  if failure_action then
-    failure_action("dismiss")
-  end
-  activity_controller.stop_timer(state)
-  tools.stop_timer(state)
-  mascot_controller.stop(state, runtime.mascot)
-  chat_scheduler.cancel(state)
-  events.clear(augroup)
-  layout.close_windows(state, valid_win)
+  lifecycle.close(state, runtime.lifecycle)
 end
 
 function M.open(config, submit, queue_submit)
-  setup_highlights()
-  state.config = config or state.config
-  state.submit = submit or state.submit
-  state.queue_submit = queue_submit or state.queue_submit
-
-  if
-    valid_win(state.chat_win)
-    and valid_win(state.activity_win)
-    and valid_win(state.input_win)
-    and valid_win(state.status_win)
-    and (not state.card_pinned or valid_win(state.card_win))
-  then
-    resize_aux_windows()
-    capture_user_width()
-    focus_input()
-    return state
-  end
-
-  state.card_pinned = ((state.config or {}).ui or {}).welcome_card ~= "welcome_only" and vim.o.lines >= 32
-  buffers.ensure(state, valid_buf)
-
-  if not valid_buf(state.command_buf) then
-    ensure_command_buffer()
-  end
-
-  layout.open_windows(state, { card_height = CARD_HEIGHT })
-  resize_aux_windows()
-  capture_user_width()
-
-  input_bindings.setup(state, runtime.input_bindings)
-  bindings.setup(state, runtime.bindings)
-  events.setup(state, runtime.events)
-  if resize_aux_windows then
-    resize_aux_windows()
-  end
-  render_chat(state.config)
-  render_card()
-  render_activity()
-  activity_controller.sync_change_shortcuts(state, runtime.activity)
-  reset_input()
-  render_status()
-  activity_controller.sync_timer(state, render_activity)
-  focus_input()
-  mascot_controller.start(state, runtime.mascot)
-  return state
+  return lifecycle.open(state, config, submit, queue_submit, runtime.lifecycle)
 end
 
 function M.set_status(status, config)
@@ -618,11 +524,7 @@ function M.set_available_commands(commands)
 end
 
 function M.is_open()
-  return valid_win(state.chat_win)
-    and valid_win(state.activity_win)
-    and valid_win(state.input_win)
-    and valid_win(state.status_win)
-    and (not state.card_pinned or valid_win(state.card_win))
+  return lifecycle.is_open(state, valid_win)
 end
 
 function M.statusline()

@@ -115,6 +115,30 @@ function M.new(state, deps)
     complete_response = deps.complete_response,
   }
 
+  runtime.lifecycle = {
+    valid_buf = deps.valid_buf,
+    valid_win = deps.valid_win,
+    resize_aux_windows = deps.resize_aux_windows,
+    capture_user_width = deps.capture_user_width,
+    focus_input = deps.focus_input,
+    ensure_command_buffer = deps.ensure_command_buffer,
+    card_height = deps.card_height,
+    input_bindings = runtime.input_bindings,
+    bindings = runtime.bindings,
+    events = runtime.events,
+    render_chat = deps.render_chat,
+    render_card = deps.render_card,
+    render_activity = deps.render_activity,
+    activity = runtime.activity,
+    reset_input = deps.reset_input,
+    render_status = deps.render_status,
+    mascot = runtime.mascot,
+    clear_failure_action = deps.clear_failure_action,
+    augroup = deps.augroup,
+    render_input = deps.render_input,
+    raw_input_lines = deps.raw_input_lines,
+  }
+
   return runtime
 end
 
