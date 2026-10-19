@@ -16,6 +16,7 @@ local layout = require("omniac.ui.layout")
 local mascot_controller = require("omniac.ui.mascot.controller")
 local mascot_render = require("omniac.ui.mascot.render")
 local notifications = require("omniac.ui.notifications")
+local session = require("omniac.ui.session")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
 local tools = require("omniac.ui.tools")
@@ -883,47 +884,19 @@ function M.set_cancel_handler(handler)
 end
 
 function M.set_session_mode(mode)
-  if type(mode) == "table" then
-    state.session_mode = mode
-  else
-    state.session_mode = nil
-  end
-  render_status()
+  session.set_mode(state, mode, render_status)
 end
 
 function M.set_session_model(model)
-  if type(model) == "table" then
-    state.session_model = model
-  else
-    state.session_model = nil
-  end
-  render_status()
+  session.set_model(state, model, render_status)
 end
 
 function M.set_session_config(options)
-  local config = {}
-  for _, option in ipairs(options or {}) do
-    if type(option) == "table" and type(option.id) == "string" then
-      config[option.id] = option.currentValue or option.current_value
-    end
-  end
-  state.session_config = config
-  render_status()
+  session.set_config(state, options, render_status)
 end
 
 function M.set_session_usage(usage)
-  local used = type(usage) == "table" and tonumber(usage.used) or nil
-  local size = type(usage) == "table" and tonumber(usage.size) or nil
-  if used and size and used >= 0 and size > 0 then
-    state.session_usage = {
-      used = used,
-      size = size,
-      cost = usage.cost,
-    }
-  else
-    state.session_usage = nil
-  end
-  render_status()
+  session.set_usage(state, usage, render_status)
 end
 
 function M.set_tool_activity(params, config)
@@ -1099,10 +1072,7 @@ function M.handle_notification(message, config)
 end
 
 function M.set_available_commands(commands)
-  state.available_commands = type(commands) == "table" and commands or {}
-  if update_command_window then
-    update_command_window()
-  end
+  session.set_available_commands(state, commands, update_command_window)
 end
 
 function M.is_open()
