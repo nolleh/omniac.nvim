@@ -7,6 +7,7 @@ local chat_scheduler = require("omniac.ui.chat.scheduler")
 local highlights = require("omniac.ui.highlights")
 local input_attachments = require("omniac.ui.input.attachments")
 local input_completion = require("omniac.ui.input.completion")
+local input_controller = require("omniac.ui.input.controller")
 local input_history = require("omniac.ui.input.history")
 local input_render = require("omniac.ui.input.render")
 local input_suggestions = require("omniac.ui.input.suggestions")
@@ -197,7 +198,6 @@ end
 
 local center = text.center
 local fit = text.fit
-local chars = text.chars
 local box_line = text.box_line
 local boxed_text = text.boxed_text
 local setup_highlights = highlights.setup
@@ -1118,26 +1118,6 @@ attachment_ranges = function(line)
   return input_attachments.ranges(state, line)
 end
 
-local function prune_missing_attachments(lines)
-  input_attachments.prune(state, lines)
-end
-
-local function previous_char_start(text, col)
-  local last_start = 0
-  local byte_col = 0
-
-  for char in chars(text) do
-    local next_col = byte_col + #char
-    if next_col >= col then
-      return byte_col
-    end
-    last_start = byte_col
-    byte_col = next_col
-  end
-
-  return last_start
-end
-
 local function raw_input_lines()
   return input_render.read(state, valid_buf)
 end
@@ -1337,126 +1317,42 @@ logical_cursor_from_display = function(cursor)
   return input_render.logical_cursor(state, cursor, raw_input_lines)
 end
 
+local function input_controller_opts()
+  return {
+    valid_buf = valid_buf,
+    valid_win = valid_win,
+    prompt = INPUT_PROMPT,
+    continuation = INPUT_CONTINUATION,
+    read = raw_input_lines,
+    render = render_input,
+    logical_cursor = logical_cursor_from_display,
+    clear_history = clear_input_history_navigation,
+    render_activity = render_activity,
+  }
+end
+
 local function clamp_input_cursor()
-  if state.rendering_input or not valid_win(state.input_win) or not valid_buf(state.input_buf) then
-    return
-  end
-
-  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
-  local buffer_line_count = vim.api.nvim_buf_line_count(state.input_buf)
-  local input_line_count = math.max(1, buffer_line_count - 2)
-  local input_line = math.min(math.max(cursor[1] - 1, 1), input_line_count)
-  local prefix = input_line == 1 and INPUT_PROMPT or INPUT_CONTINUATION
-  local row = input_line + 1
-  local col = math.max(cursor[2], #prefix)
-
-  if cursor[1] ~= row or cursor[2] ~= col then
-    pcall(vim.api.nvim_win_set_cursor, state.input_win, { row, col })
-  end
+  input_controller.clamp_cursor(state, input_controller_opts())
 end
 
 focus_input = function()
-  if not valid_win(state.input_win) then
-    return
-  end
-
-  vim.api.nvim_set_current_win(state.input_win)
-  local lines = raw_input_lines()
-  local line = math.max(1, #lines)
-  render_input(lines, {
-    line = line,
-    col = #(lines[line] or ""),
-  })
-  vim.cmd("startinsert!")
+  input_controller.focus(state, input_controller_opts())
 end
 
 local function focus_input_if_active()
-  if valid_win(state.input_win) and vim.api.nvim_get_current_win() == state.input_win then
-    focus_input()
-  end
+  input_controller.focus_if_active(state, input_controller_opts())
 end
 
 local function enforce_input(args)
-  if state.rendering_input or not valid_buf(state.input_buf) then
-    return
-  end
-
-  if args and args.event ~= "InsertLeave" and not state.input_history_navigating then
-    clear_input_history_navigation()
-  end
-  clamp_input_cursor()
-  local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
-  local lines = raw_input_lines()
-  prune_missing_attachments(lines)
-  local input_cursor = logical_cursor_from_display(cursor)
-  render_input(lines, {
-    line = math.min(math.max(input_cursor.line, 1), #lines),
-    col = input_cursor.col,
-  })
+  input_controller.enforce(state, args, input_controller_opts())
 end
 
 local function insert_input_newline()
-  if not valid_win(state.input_win) then
-    return
-  end
-
-  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
-  local lines = raw_input_lines()
-  local input_cursor = logical_cursor_from_display(cursor)
-  local input_line = math.min(math.max(input_cursor.line, 1), #lines)
-  local text = lines[input_line] or ""
-  local col = math.min(math.max(input_cursor.col, 0), #text)
-  lines[input_line] = text:sub(1, col)
-  table.insert(lines, input_line + 1, text:sub(col + 1))
-  render_input(lines, { line = input_line + 1, col = 0 })
-  if lines[input_line + 1] == "" then
-    vim.cmd("startinsert!")
-  else
-    vim.cmd("startinsert")
-  end
+  input_controller.insert_newline(state, input_controller_opts())
 end
 
 local function delete_input_backwards()
-  if not valid_win(state.input_win) then
-    return ""
-  end
-
-  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
-  local lines = raw_input_lines()
-  local input_cursor = logical_cursor_from_display(cursor)
-  local input_line = math.min(math.max(input_cursor.line, 1), #lines)
-  local text = lines[input_line] or ""
-  local col = math.min(math.max(input_cursor.col, 0), #text)
-
-  for _, range in ipairs(attachment_ranges(text)) do
-    if col > range.from and col <= range.to then
-      lines[input_line] = text:sub(1, range.from) .. text:sub(range.to + 1)
-      for index, attachment in ipairs(state.input_attachments) do
-        if attachment == range.attachment then
-          table.remove(state.input_attachments, index)
-          break
-        end
-      end
-      render_input(lines, { line = input_line, col = range.from })
-      render_activity()
-      return ""
-    end
-  end
-
-  if col > 0 then
-    local start_col = previous_char_start(text, col)
-    lines[input_line] = text:sub(1, start_col) .. text:sub(col + 1)
-    render_input(lines, { line = input_line, col = start_col })
-  elseif input_line > 1 then
-    local previous = lines[input_line - 1] or ""
-    lines[input_line - 1] = previous .. text
-    table.remove(lines, input_line)
-    render_input(lines, { line = input_line - 1, col = #previous })
-  else
-    render_input(lines, { line = 1, col = 0 })
-  end
-
-  return ""
+  return input_controller.delete_backwards(state, input_controller_opts())
 end
 
 reset_leftcol = function(win)
