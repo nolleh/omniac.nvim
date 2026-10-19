@@ -3,6 +3,7 @@ local activity_controller = require("omniac.ui.activity.controller")
 local activity_view = require("omniac.ui.activity")
 local bindings = require("omniac.ui.bindings")
 local buffers = require("omniac.ui.buffers")
+local chat_controller = require("omniac.ui.chat.controller")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local chat_view = require("omniac.ui.chat.view")
 local events = require("omniac.ui.events")
@@ -158,31 +159,10 @@ end
 
 local split_lines = text.split_lines
 
-local function transport_activity_text(text)
-  local value = tostring(text or ""):gsub("\r", "")
-  value = value:gsub("^%s+", ""):gsub("%s+$", "")
-  if value == "" then
-    return nil
-  end
-
-  if value:match("^Reconnecting%.%.%.%s*%d+/%d+$") then
-    return value
-  end
-
-  if value:match("^Warning:%s*Falling back from WebSockets to HTTPS transport%.") then
-    return value
-  end
-
-  if value:match("^stream disconnected before completion:") then
-    return value
-  end
-
-  return nil
-end
-
 local render_activity
 local attachment_summary
 local resize_aux_windows
+local chat_controller_opts
 
 local function header(lines, marks, size)
   mascot_render.header(state, lines, marks, size, agent_name)
@@ -368,20 +348,7 @@ local function close_command_window()
 end
 
 function M.clear_conversation(config)
-  state.messages = {}
-  state.streaming_message_index = nil
-  state.tool_activity = nil
-  state.cancel_requested = false
-  state.suppress_current_turn = false
-  state.active_turn_id = nil
-  state.available_commands = {}
-  state.input_attachments = {}
-  state.transient_activity = nil
-  state.change_summary = false
-  close_command_window()
-  reset_input()
-  M.set_status("ready", config or state.config)
-  request_chat_render(config or state.config, { immediate = true, follow = false, reset_view = true })
+  chat_controller.clear(state, config, chat_controller_opts())
 end
 
 local update_command_window
@@ -442,6 +409,21 @@ end
 
 local function focus_input_if_active()
   input_controller.focus_if_active(state, input_controller_opts())
+end
+
+chat_controller_opts = function()
+  return {
+    close_command_window = close_command_window,
+    reset_input = reset_input,
+    set_status = M.set_status,
+    request_render = request_chat_render,
+    render_activity = render_activity,
+    focus_input_if_active = focus_input_if_active,
+    set_activity = M.set_activity,
+    clear_input_history = clear_input_history_navigation,
+    attachment_summary = attachment_summary,
+    add_message = M.add_message,
+  }
 end
 
 reset_leftcol = function(win)
@@ -686,126 +668,27 @@ function M.add_tool_result(params, config)
 end
 
 function M.add_message(role, text, config, opts)
-  opts = opts or {}
-  if role == "Omniac" then
-    tools.clear_completed(state, render_activity)
-  end
-  table.insert(state.messages, {
-    role = role,
-    text = text or "",
-    stop_footer = opts.stop_footer,
-  })
-  if role ~= "Omniac" then
-    state.streaming_message_index = nil
-  end
-  request_chat_render(config, { immediate = true, follow = true })
-  focus_input_if_active()
+  chat_controller.add_message(state, role, text, config, opts, chat_controller_opts())
 end
 
 function M.add_notice(role, text, config)
-  if state.streaming_message_index and state.messages[state.streaming_message_index] then
-    state.messages[state.streaming_message_index].complete = true
-    state.streaming_message_index = nil
-  end
-  table.insert(state.messages, {
-    role = role or "Notice",
-    text = text or "",
-  })
-  local index = #state.messages
-  request_chat_render(config, { immediate = true, follow = true })
-  focus_input_if_active()
-  return index
+  return chat_controller.add_notice(state, role, text, config, chat_controller_opts())
 end
 
 function M.update_notice(index, text, config, opts)
-  if type(index) ~= "number" or not state.messages[index] then
-    return
-  end
-  state.messages[index].text = text or state.messages[index].text or ""
-  if opts and opts.permission_status then
-    state.messages[index].permission_status = opts.permission_status
-  end
-  request_chat_render(config, { immediate = true, follow = true })
-  focus_input_if_active()
+  chat_controller.update_notice(state, index, text, config, opts, chat_controller_opts())
 end
 
 function M.append_response_chunk(text, config)
-  if not text or text == "" then
-    return
-  end
-
-  tools.clear_completed(state, render_activity)
-
-  local activity = transport_activity_text(text)
-  if activity then
-    if state.streaming_message_index and state.messages[state.streaming_message_index] then
-      state.messages[state.streaming_message_index].complete = true
-      state.streaming_message_index = nil
-    end
-    M.set_activity(activity, config)
-    return
-  end
-
-  local index = state.streaming_message_index
-  if not index or not state.messages[index] or state.messages[index].role ~= "Omniac" then
-    table.insert(state.messages, {
-      role = "Omniac",
-      text = "",
-      pending_chunks = {},
-      complete = false,
-    })
-    index = #state.messages
-    state.streaming_message_index = index
-  end
-
-  local message = state.messages[index]
-  message.complete = false
-  message.pending_chunks = message.pending_chunks or {}
-  table.insert(message.pending_chunks, text)
-  request_chat_render(config, { skip_markdown = true, follow = true })
+  chat_controller.append_response_chunk(state, text, config, chat_controller_opts())
 end
 
 function M.complete_response(config, opts)
-  opts = opts or {}
-  local index = state.streaming_message_index
-  if index and state.messages[index] and state.messages[index].role == "Omniac" then
-    state.messages[index].complete = true
-    state.messages[index].stop_footer = opts.stop_footer
-    request_chat_render(config, { immediate = true, follow = true })
-  end
-  state.streaming_message_index = nil
+  chat_controller.complete_response(state, config, opts, chat_controller_opts())
 end
 
 function M.submit(text, config, attachments)
-  state.suppress_current_turn = false
-  clear_input_history_navigation()
-  local display = text or ""
-  local positioned = {}
-  local trailing = {}
-  for _, attachment in ipairs(attachments or {}) do
-    if type(attachment._position) == "number" and attachment._input_marker then
-      table.insert(positioned, attachment)
-    else
-      table.insert(trailing, attachment)
-    end
-  end
-  table.sort(positioned, function(left, right)
-    if left._position == right._position then
-      return (left._order or 0) < (right._order or 0)
-    end
-    return left._position < right._position
-  end)
-  for index = #positioned, 1, -1 do
-    local attachment = positioned[index]
-    local position = math.min(math.max(attachment._position, 0), #display)
-    display = display:sub(1, position) .. attachment._input_marker .. display:sub(position + 1)
-  end
-  local summary = attachment_summary(trailing)
-  if summary then
-    display = display ~= "" and (display .. "\n[" .. summary .. "]") or ("[" .. summary .. "]")
-  end
-  M.add_message("You", display, config)
-  M.set_status("working", config)
+  chat_controller.submit(state, text, config, attachments, chat_controller_opts())
 end
 
 function M.restore_input(text, attachments)
