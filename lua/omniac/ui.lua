@@ -1,12 +1,11 @@
 local M = {}
-local clipboard = require("omniac.clipboard")
 local activity_view = require("omniac.ui.activity")
 local buffers = require("omniac.ui.buffers")
 local chat_render = require("omniac.ui.chat.render")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local highlights = require("omniac.ui.highlights")
 local input_attachments = require("omniac.ui.input.attachments")
-local input_completion = require("omniac.ui.input.completion")
+local input_bindings = require("omniac.ui.input.bindings")
 local input_controller = require("omniac.ui.input.controller")
 local input_history = require("omniac.ui.input.history")
 local input_render = require("omniac.ui.input.render")
@@ -1152,87 +1151,7 @@ local function prepared_input()
   return input_attachments.prepare(state, input_text())
 end
 
-local function command_prefix()
-  return input_completion.command_prefix(raw_input_text())
-end
-
-local function mention_prefix()
-  return input_completion.mention_prefix(raw_input_text())
-end
-
-local function completed_suggestion_text(text)
-  return input_completion.complete(state.available_commands, text)
-end
-
 local focus_input
-
-local function complete_current_suggestion()
-  local text = input_text()
-  local completed = completed_suggestion_text(text)
-  if completed == text then
-    return false
-  end
-
-  render_input(completed, {
-    line = 1,
-    col = #completed,
-  })
-  vim.cmd("startinsert!")
-  return true
-end
-
-local function schedule_current_suggestion_completion()
-  local text = input_text()
-  local completed = completed_suggestion_text(text)
-  if completed == text then
-    return false
-  end
-
-  vim.schedule(function()
-    if not valid_buf(state.input_buf) or not valid_win(state.input_win) then
-      return
-    end
-    render_input(completed, {
-      line = 1,
-      col = #completed,
-    })
-    vim.cmd("startinsert!")
-  end)
-  return true
-end
-
-local function cancel_active_turn()
-  if state.status ~= "working" or state.cancel_requested then
-    return false
-  end
-
-  state.cancel_requested = true
-  state.suppress_current_turn = true
-  vim.schedule(function()
-    M.set_activity("Cancelling current turn.", state.config)
-    if state.cancel_handler then
-      state.cancel_handler()
-    end
-    focus_input()
-  end)
-  return true
-end
-
-local function add_clipboard_image()
-  local image, err = clipboard.read_image()
-  if not image then
-    return false, err
-  end
-
-  local lines = raw_input_lines()
-  local cursor = valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #INPUT_PROMPT }
-  lines, cursor = input_attachments.insert(state, image, lines, logical_cursor_from_display(cursor))
-  render_input(lines, cursor)
-  vim.schedule(function()
-    focus_input()
-  end)
-  return true
-end
 
 local function clear_input_attachments()
   input_attachments.clear(state)
@@ -1331,28 +1250,12 @@ local function input_controller_opts()
   }
 end
 
-local function clamp_input_cursor()
-  input_controller.clamp_cursor(state, input_controller_opts())
-end
-
 focus_input = function()
   input_controller.focus(state, input_controller_opts())
 end
 
 local function focus_input_if_active()
   input_controller.focus_if_active(state, input_controller_opts())
-end
-
-local function enforce_input(args)
-  input_controller.enforce(state, args, input_controller_opts())
-end
-
-local function insert_input_newline()
-  input_controller.insert_newline(state, input_controller_opts())
-end
-
-local function delete_input_backwards()
-  return input_controller.delete_backwards(state, input_controller_opts())
 end
 
 reset_leftcol = function(win)
@@ -1533,146 +1436,22 @@ function M.open(config, submit, queue_submit)
   resize_aux_windows()
   capture_user_width()
 
-  vim.keymap.set({ "n", "i" }, "<CR>", function()
-    local text, attachments = prepared_input()
-    if text == "" and #attachments == 0 then
-      reset_input()
-      close_command_window()
-      focus_input()
-      return
-    end
-    if mention_prefix() ~= nil and #attachments == 0 then
-      complete_current_suggestion()
-      focus_input()
-      return
-    end
-    text = completed_suggestion_text(text)
-    if state.submit and state.submit(text, attachments) == false then
-      return
-    end
-    remember_input_history(text)
-    reset_input()
-    close_command_window()
-    clear_input_attachments()
-  end, { buffer = state.input_buf, nowait = true, desc = "Send Omniac prompt" })
-
-  if state.queue_submit then
-    vim.keymap.set("i", "<Tab>", function()
-      if schedule_current_suggestion_completion() then
-        return "<Ignore>"
-      end
-
-      local trigger = command_prefix()
-      if trigger ~= nil then
-        return "<Tab>"
-      end
-
-      local text, attachments = prepared_input()
-      if (text == "" and #attachments == 0) or not state.queue_submit then
-        return "<Tab>"
-      end
-      text = completed_suggestion_text(text)
-      if state.queue_submit(text, attachments) == false then
-        return "<Tab>"
-      end
-      vim.schedule(function()
-        remember_input_history(text)
-        reset_input()
-        clear_input_attachments()
-        close_command_window()
-      end)
-      return "<Ignore>"
-    end, { buffer = state.input_buf, expr = true, nowait = true, desc = "Queue Omniac prompt during a turn" })
-  end
-
-  vim.keymap.set("i", "<C-v>", function()
-    local ok = add_clipboard_image()
-    if ok then
-      return ""
-    end
-    return "<C-r>+"
-  end, {
-    buffer = state.input_buf,
-    expr = true,
-    nowait = true,
-    desc = "Paste Omniac clipboard image or text",
-  })
-  vim.keymap.set("n", "<C-v>", function()
-    local ok = add_clipboard_image()
-    if not ok then
-      vim.cmd('normal! "+p')
-    end
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Paste Omniac clipboard image or text",
-  })
-
-  vim.keymap.set({ "n", "i" }, "<S-CR>", insert_input_newline, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Insert newline in Omniac prompt",
-  })
-  vim.keymap.set({ "n", "i" }, "<S-Enter>", insert_input_newline, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Insert newline in Omniac prompt",
-  })
-  vim.keymap.set("i", "<BS>", delete_input_backwards, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Delete Omniac input character",
-  })
-  vim.keymap.set({ "n", "i" }, "<C-c>", function()
-    reset_input()
-    clear_input_attachments()
-    close_command_window()
-    focus_input()
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Clear Omniac input",
-  })
-  vim.keymap.set("i", "<Up>", function()
-    return navigate_input_history(-1) and "<Ignore>" or "<Up>"
-  end, {
-    buffer = state.input_buf,
-    expr = true,
-    nowait = true,
-    desc = "Recall previous Omniac prompt",
-  })
-  vim.keymap.set("i", "<Down>", function()
-    return navigate_input_history(1) and "<Ignore>" or "<Down>"
-  end, {
-    buffer = state.input_buf,
-    expr = true,
-    nowait = true,
-    desc = "Recall next Omniac prompt",
-  })
-  vim.keymap.set("n", "<Up>", function()
-    if not navigate_input_history(-1) then
-      vim.cmd("normal! k")
-    end
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Recall previous Omniac prompt",
-  })
-  vim.keymap.set("n", "<Down>", function()
-    if not navigate_input_history(1) then
-      vim.cmd("normal! j")
-    end
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Recall next Omniac prompt",
-  })
-  vim.keymap.set("n", "<Esc>", function()
-    cancel_active_turn()
-  end, {
-    buffer = state.input_buf,
-    nowait = true,
-    desc = "Cancel active Omniac turn",
+  input_bindings.setup(state, {
+    augroup = augroup,
+    valid_buf = valid_buf,
+    valid_win = valid_win,
+    raw_text = raw_input_text,
+    input_text = input_text,
+    prepared_input = prepared_input,
+    remember_history = remember_input_history,
+    navigate_history = navigate_input_history,
+    reset = reset_input,
+    clear_attachments = clear_input_attachments,
+    close_suggestions = close_command_window,
+    focus = focus_input,
+    close_ui = M.close,
+    set_activity = M.set_activity,
+    controller = input_controller_opts(),
   })
 
   local function toggle_tool_output()
@@ -1754,19 +1533,6 @@ function M.open(config, submit, queue_submit)
     })
   end
 
-  vim.keymap.set("n", "q", M.close, { buffer = state.input_buf, nowait = true, desc = "Close Omniac chat" })
-
-  vim.api.nvim_clear_autocmds({ group = augroup, buffer = state.input_buf })
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave" }, {
-    group = augroup,
-    buffer = state.input_buf,
-    callback = enforce_input,
-  })
-  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "InsertEnter", "InsertCharPre" }, {
-    group = augroup,
-    buffer = state.input_buf,
-    callback = clamp_input_cursor,
-  })
   vim.api.nvim_clear_autocmds({
     group = augroup,
     event = {
