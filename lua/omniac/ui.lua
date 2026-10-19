@@ -1,4 +1,5 @@
 local M = {}
+local activity_controller = require("omniac.ui.activity.controller")
 local activity_view = require("omniac.ui.activity")
 local bindings = require("omniac.ui.bindings")
 local buffers = require("omniac.ui.buffers")
@@ -128,54 +129,6 @@ end
 
 local function valid_win(win)
   return win and vim.api.nvim_win_is_valid(win)
-end
-
-local function sync_change_shortcuts()
-  for _, buf in ipairs(state.change_shortcut_buffers) do
-    if valid_buf(buf) then
-      pcall(vim.keymap.del, "n", "t", { buffer = buf })
-      pcall(vim.keymap.del, "n", "s", { buffer = buf })
-    end
-  end
-  state.change_shortcut_buffers = {}
-
-  if not state.change_summary or not state.change_review_handler then
-    return
-  end
-
-  for _, name in ipairs({ "chat_buf", "activity_buf", "status_buf", "card_buf" }) do
-    local buf = state[name]
-    if valid_buf(buf) and (name ~= "card_buf" or state.card_pinned) then
-      for key, scope in pairs({ t = "turn", s = "session" }) do
-        vim.keymap.set("n", key, function()
-          state.change_review_handler(scope)
-        end, {
-          buffer = buf,
-          nowait = true,
-          desc = "Review Omniac " .. scope .. " changes",
-        })
-      end
-      table.insert(state.change_shortcut_buffers, buf)
-    end
-  end
-end
-
-local function sync_failure_shortcuts()
-  for _, name in ipairs({ "chat_buf", "activity_buf", "status_buf", "card_buf", "input_buf" }) do
-    local buf = state[name]
-    if valid_buf(buf) then
-      for key, action in pairs({ r = "resend", e = "restore", d = "dismiss" }) do
-        pcall(vim.keymap.del, "n", key, { buffer = buf })
-        if state.failure_action then
-          vim.keymap.set("n", key, function()
-            local handler = state.failure_action
-            M.clear_failure_action()
-            handler(action)
-          end, { buffer = buf, nowait = true, desc = "Omniac failed prompt: " .. action })
-        end
-      end
-    end
-  end
 end
 
 local function target_width()
@@ -432,36 +385,17 @@ render_activity = function()
   end
 end
 
-local function stop_activity_timer()
-  if state.activity_timer then
-    state.activity_timer:stop()
-    state.activity_timer:close()
-    state.activity_timer = nil
-  end
-end
-
-local function sync_activity_timer()
-  if state.status ~= "working" then
-    stop_activity_timer()
-    state.activity_frame = 1
-    render_activity()
-    return
-  end
-
-  if state.activity_timer then
-    return
-  end
-
-  local uv = vim.uv or vim.loop
-  state.activity_timer = uv.new_timer()
-  state.activity_timer:start(
-    0,
-    180,
-    vim.schedule_wrap(function()
-      state.activity_frame = (state.activity_frame % 4) + 1
-      render_activity()
-    end)
-  )
+local function activity_controller_opts(opts)
+  opts = opts or {}
+  return {
+    valid_buf = valid_buf,
+    render_chat = render_chat,
+    render_card = render_card,
+    render_activity = render_activity,
+    render_status = render_status,
+    restart_mascot_actions = restart_mascot_actions,
+    change_summary = opts.change_summary == true,
+  }
 end
 
 local clear_input_history_navigation
@@ -717,7 +651,7 @@ function M.close()
   if failure_action then
     failure_action("dismiss")
   end
-  stop_activity_timer()
+  activity_controller.stop_timer(state)
   tools.stop_timer(state)
   mascot_controller.stop(state, mascot_controller_opts())
   chat_scheduler.cancel(state)
@@ -797,82 +731,37 @@ function M.open(config, submit, queue_submit)
   render_chat(state.config)
   render_card()
   render_activity()
-  sync_change_shortcuts()
+  activity_controller.sync_change_shortcuts(state, activity_controller_opts())
   reset_input()
   render_status()
-  sync_activity_timer()
+  activity_controller.sync_timer(state, render_activity)
   focus_input()
   mascot_controller.start(state, mascot_controller_opts())
   return state
 end
 
 function M.set_status(status, config)
-  state.activity_generation = state.activity_generation + 1
-  local previous_status = state.status
-  state.status = status or "idle"
-  if state.status ~= "working" then
-    state.tool_activity = nil
-    state.thought_activity = nil
-    state.cancel_requested = false
-    tools.stop_timer(state)
-  end
-  if state.status == "working" or state.status ~= "connecting" then
-    state.transient_activity = nil
-    state.change_summary = false
-  end
-  sync_change_shortcuts()
-  render_chat(config)
-  if state.card_pinned then
-    render_card()
-  end
-  render_activity()
-  render_status()
-  sync_activity_timer()
-  if state.status ~= previous_status then
-    restart_mascot_actions()
-  end
+  activity_controller.set_status(state, status, config, activity_controller_opts())
 end
 
 function M.set_activity(text, config, opts)
-  state.activity_generation = state.activity_generation + 1
-  state.transient_activity = text and text ~= "" and text or nil
-  state.change_summary = state.transient_activity ~= nil and opts ~= nil and opts.change_summary == true
-  sync_change_shortcuts()
-  render_activity()
-  render_status()
-  sync_activity_timer()
+  activity_controller.set_activity(state, text, activity_controller_opts(opts))
 end
 
 function M.show_failure_action(handler)
-  state.failure_action = handler
-  sync_failure_shortcuts()
-  if vim.fn.mode():match("^[iR]") then
-    vim.cmd("stopinsert")
-  end
-  render_activity()
+  activity_controller.show_failure(state, handler, activity_controller_opts())
 end
 
 function M.clear_failure_action()
-  state.failure_action = nil
-  sync_failure_shortcuts()
-  render_activity()
+  activity_controller.clear_failure(state, activity_controller_opts())
 end
 
 function M.flash_activity(text, config, duration_ms)
-  local previous = state.transient_activity
-  local previous_change_summary = state.change_summary
-  M.set_activity(text, config)
-  local generation = state.activity_generation
-  vim.defer_fn(function()
-    if state.activity_generation == generation and valid_buf(state.activity_buf) then
-      M.set_activity(previous, config, { change_summary = previous_change_summary })
-    end
-  end, duration_ms or 1000)
+  activity_controller.flash(state, text, config, duration_ms, activity_controller_opts())
 end
 
 function M.set_change_review_handler(handler)
-  state.change_review_handler = handler
-  sync_change_shortcuts()
+  activity_controller.set_change_review_handler(state, handler, activity_controller_opts())
 end
 
 function M.set_plan_toggle_handler(handler)
