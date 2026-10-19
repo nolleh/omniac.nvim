@@ -226,6 +226,7 @@ describe("omniac.nvim commands", function()
     package.loaded["omniac.selection"] = nil
     for _, name in ipairs({
       "Omniac",
+      "OmniacFocus",
       "OmniacConnect",
       "OmniacDisconnect",
       "OmniacExit",
@@ -323,6 +324,7 @@ describe("omniac.nvim commands", function()
     package.loaded["omniac.ui"] = nil
     for _, name in ipairs({
       "Omniac",
+      "OmniacFocus",
       "OmniacConnect",
       "OmniacDisconnect",
       "OmniacExit",
@@ -363,6 +365,62 @@ describe("omniac.nvim commands", function()
     assert_equal(submitted, false, "exit should not submit a prompt")
     assert_equal(has_window_for_buffer_name("omniac://input"), false, "input window should close")
     assert_equal(has_window_for_buffer_name("omniac"), false, "chat window should close")
+  end)
+
+  it("toggles with Omniac and reopens or focuses with OmniacFocus", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac"] = nil
+    package.loaded["omniac.ui"] = nil
+    for _, name in ipairs({
+      "Omniac",
+      "OmniacFocus",
+      "OmniacConnect",
+      "OmniacDisconnect",
+      "OmniacExit",
+      "OmniacSession",
+      "OmniacSessionNew",
+      "OmniacSessionLoad",
+      "OmniacSessionResume",
+      "OmniacAsk",
+      "OmniacResize",
+      "OmniacDebug",
+      "OmniacAskFiles",
+      "OmniacReference",
+      "OmniacReferenceBuffer",
+      "OmniacTreeAdd",
+      "OmniacChanges",
+      "OmniacDiff",
+      "OmniacDiffAccept",
+      "OmniacDiffDeny",
+    }) do
+      pcall(vim.api.nvim_del_user_command, name)
+    end
+
+    local omniac = require("omniac")
+    omniac.setup({ agent = { cmd = { "custom-acp" } }, ui = { chat_width = 48 } })
+    omniac.backend = {}
+
+    vim.cmd("Omniac")
+    assert_true(has_window_for_buffer_name("omniac://input"), "Omniac should open a hidden UI")
+
+    vim.cmd("Omniac")
+    assert_true(not has_window_for_buffer_name("omniac://input"), "Omniac should hide a visible UI")
+
+    vim.cmd("OmniacFocus")
+    assert_true(has_window_for_buffer_name("omniac://input"), "OmniacFocus should reopen a hidden UI")
+
+    local source_win
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      local name = vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(win))
+      if name ~= "omniac" and not name:match("^omniac://") then
+        source_win = win
+        break
+      end
+    end
+    assert_true(source_win ~= nil, "source window should remain available")
+    vim.api.nvim_set_current_win(source_win)
+    vim.cmd("OmniacFocus")
+    assert_equal(vim.api.nvim_buf_get_name(0), "omniac://input", "OmniacFocus should focus the visible input")
   end)
 
   it("slash mode changes an advertised ACP config option without submitting", function()
@@ -431,6 +489,7 @@ describe("omniac.nvim commands", function()
     package.loaded["omniac.ui"] = nil
     for _, name in ipairs({
       "Omniac",
+      "OmniacFocus",
       "OmniacConnect",
       "OmniacDisconnect",
       "OmniacExit",
@@ -496,6 +555,7 @@ describe("omniac.nvim commands", function()
     package.loaded["omniac.permission_dialog"] = nil
     for _, name in ipairs({
       "Omniac",
+      "OmniacFocus",
       "OmniacConnect",
       "OmniacDisconnect",
       "OmniacExit",

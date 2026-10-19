@@ -76,8 +76,8 @@ submission_failure = function(item, err)
 end
 
 local default_keymaps = {
-  { name = "open", mode = "n", command = "Omniac", desc = "Open Omniac" },
-  { name = "focus", mode = "n", command = "Omniac", desc = "Focus Omniac" },
+  { name = "open", mode = "n", command = "Omniac", desc = "Toggle Omniac" },
+  { name = "focus", mode = "n", command = "OmniacFocus", desc = "Focus Omniac" },
   { name = "session", mode = "n", command = "OmniacSession", desc = "Resume Omniac session" },
   { name = "buffer", mode = "n", command = "OmniacReferenceBuffer", desc = "Add current buffer to Omniac" },
   { name = "reference", mode = "x", command = "OmniacReference", desc = "Send selection to Omniac" },
@@ -463,6 +463,10 @@ function M.setup(opts)
     M.open_file_diff(path, nil, { title = M.config.ui.diff_title })
   end
 
+  local function toggle_chat()
+    M.toggle_chat()
+  end
+
   local function open_chat()
     M.open_chat()
   end
@@ -489,7 +493,8 @@ function M.setup(opts)
     M.review_changes(cmd.args)
   end
 
-  register_command("Omniac", open_chat, {})
+  register_command("Omniac", toggle_chat, {})
+  register_command("OmniacFocus", open_chat, {})
   register_command("OmniacConnect", connect, {})
   register_command("OmniacDisconnect", disconnect, {})
   register_command("OmniacExit", exit, {})
@@ -514,6 +519,14 @@ function M.setup(opts)
   register_command("OmniacDiffDeny", function()
     require("omniac.diff").deny_current_review()
   end, {})
+end
+
+function M.toggle_chat(connect_opts)
+  if ui.is_open() then
+    ui.close()
+    return
+  end
+  M.open_chat(connect_opts)
 end
 
 function M.open_chat(connect_opts)
