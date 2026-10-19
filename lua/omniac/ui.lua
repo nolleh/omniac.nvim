@@ -9,6 +9,7 @@ local input_attachments = require("omniac.ui.input.attachments")
 local input_completion = require("omniac.ui.input.completion")
 local input_history = require("omniac.ui.input.history")
 local input_render = require("omniac.ui.input.render")
+local input_suggestions = require("omniac.ui.input.suggestions")
 local layout = require("omniac.ui.layout")
 local status_view = require("omniac.ui.status")
 local text = require("omniac.ui.text")
@@ -1179,10 +1180,6 @@ local function mention_prefix()
   return input_completion.mention_prefix(raw_input_text())
 end
 
-local function current_suggestions()
-  return input_completion.current(state.available_commands, raw_input_text())
-end
-
 local function completed_suggestion_text(text)
   return input_completion.complete(state.available_commands, text)
 end
@@ -1278,38 +1275,11 @@ function M.attach_reference(reference, config)
 end
 
 local function ensure_command_buffer()
-  if valid_buf(state.command_buf) then
-    return
-  end
-  state.command_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.command_buf].buftype = "nofile"
-  vim.bo[state.command_buf].bufhidden = "wipe"
-  vim.bo[state.command_buf].swapfile = false
-  vim.bo[state.command_buf].buflisted = false
-  vim.bo[state.command_buf].filetype = "omniac-commands"
-  vim.api.nvim_buf_set_name(state.command_buf, "omniac://commands")
-end
-
-local function clear_command_window()
-  if valid_buf(state.command_buf) then
-    vim.bo[state.command_buf].modifiable = true
-    vim.api.nvim_buf_set_lines(state.command_buf, 0, -1, false, { "", "", "", "", "" })
-    vim.api.nvim_buf_clear_namespace(state.command_buf, ns, 0, -1)
-    vim.bo[state.command_buf].modifiable = false
-    vim.bo[state.command_buf].modified = false
-  end
+  input_suggestions.ensure_buffer(state, valid_buf)
 end
 
 local function close_command_window()
-  local had_window = valid_win(state.command_win)
-  if valid_win(state.command_win) then
-    pcall(vim.api.nvim_win_close, state.command_win, true)
-  end
-  state.command_win = nil
-  if had_window and resize_aux_windows then
-    resize_aux_windows()
-    vim.schedule(resize_aux_windows)
-  end
+  input_suggestions.close(state, { valid_win = valid_win, resize = resize_aux_windows })
 end
 
 function M.clear_conversation(config)
@@ -1494,81 +1464,17 @@ reset_leftcol = function(win)
 end
 
 update_command_window = function()
-  if not valid_win(state.input_win) or not valid_buf(state.input_buf) then
-    close_command_window()
-    return
-  end
-
-  local kind, matches, trigger = current_suggestions()
-  if kind == nil then
-    close_command_window()
-    return
-  end
-
-  if #matches == 0 then
-    close_command_window()
-    return
-  end
-
-  ensure_command_buffer()
-
-  if not valid_win(state.command_win) then
-    local row, col = input_bottom_position()
-    state.command_win = vim.api.nvim_open_win(state.command_buf, false, {
-      relative = "editor",
-      width = target_width(),
-      height = 1,
-      row = row,
-      col = col,
-      style = "minimal",
-      border = "none",
-      focusable = false,
-    })
-    layout.configure_window(state.command_win)
-    vim.wo[state.command_win].wrap = false
-    vim.wo[state.command_win].statusline = "%#OmniacStatus#%="
-  end
-
-  local target = target_width()
-  local display_count = math.min(5, #matches)
-  local row, col = input_bottom_position()
-  pcall(vim.api.nvim_win_set_config, state.command_win, {
-    relative = "editor",
-    width = target,
-    height = display_count,
-    row = row,
-    col = col,
+  input_suggestions.update(state, raw_input_text(), {
+    valid_buf = valid_buf,
+    valid_win = valid_win,
+    width = target_width,
+    position = input_bottom_position,
+    configure_window = layout.configure_window,
+    namespace = ns,
+    fit = fit,
+    add_hl = add_hl,
+    resize = resize_aux_windows,
   })
-  pcall(vim.api.nvim_win_set_width, state.command_win, target)
-  pcall(vim.api.nvim_win_set_height, state.command_win, display_count)
-
-  local lines = {}
-  local marks = {}
-  for index = 1, display_count do
-    local item = matches[index]
-    local item_trigger = kind == "mention" and "@" or (item.trigger or trigger or "/")
-    local hint = item.input and item.input.hint and (" " .. item.input.hint) or ""
-    local description = item.description ~= "" and (" - " .. item.description) or ""
-    local source = item.source == "omniac" and " client" or ""
-    local line = fit(item_trigger .. item.name .. hint .. description .. source, target)
-    table.insert(lines, line)
-    table.insert(marks, {
-      line = index,
-      name_to = math.min(#item.name + 1, #line),
-      source = item.source,
-    })
-  end
-  vim.bo[state.command_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.command_buf, 0, -1, false, lines)
-  vim.api.nvim_buf_clear_namespace(state.command_buf, ns, 0, -1)
-  for _, mark in ipairs(marks) do
-    add_hl(state.command_buf, mark.line, 0, 1, "OmniacCommandMuted")
-    local name_group = mark.source == "omniac" and "OmniacCommandClientName" or "OmniacCommandName"
-    add_hl(state.command_buf, mark.line, 1, mark.name_to + 1, name_group)
-    add_hl(state.command_buf, mark.line, mark.name_to + 1, -1, "OmniacCommandText")
-  end
-  vim.bo[state.command_buf].modifiable = false
-  vim.bo[state.command_buf].modified = false
 end
 
 resize_aux_windows = function()
