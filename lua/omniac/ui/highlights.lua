@@ -43,11 +43,30 @@ local definitions = {
   OmniacCommandClientName = { fg = "#a6e3a1", bold = true },
   OmniacCommandText = { fg = "#cdd6f4" },
   OmniacCommandMuted = { fg = "#7f849c" },
+  OmniacSessionBorder = { fg = "#f38ba8" },
+  OmniacSessionTitle = { fg = "#f9e2af", bold = true },
+  OmniacSessionText = { fg = "#cdd6f4" },
+  OmniacSessionMuted = { fg = "#7f849c" },
+  OmniacSessionSelected = { fg = "#11111b", bg = "#94e2d5", bold = true },
+  OmniacSessionKey = { fg = "#89b4fa", bold = true },
+  OmniacChangeBorder = { fg = "#f38ba8" },
+  OmniacChangeTitle = { fg = "#f9e2af", bold = true },
+  OmniacChangeText = { fg = "#cdd6f4" },
+  OmniacChangeMuted = { fg = "#7f849c" },
+  OmniacChangeSelected = { fg = "#11111b", bg = "#94e2d5", bold = true },
+  OmniacChangeKey = { fg = "#89b4fa", bold = true },
+  OmniacPermissionBorder = { fg = "#f38ba8" },
+  OmniacPermissionTitle = { fg = "#f9e2af", bold = true },
+  OmniacPermissionText = { fg = "#cdd6f4" },
+  OmniacPermissionMuted = { fg = "#7f849c" },
+  OmniacPermissionSelected = { fg = "#11111b", bg = "#94e2d5", bold = true },
 }
 
-function M.setup()
+function M.setup(prefix)
   for name, definition in pairs(definitions) do
-    vim.api.nvim_set_hl(0, name, definition)
+    if not prefix or name:sub(1, #prefix) == prefix then
+      vim.api.nvim_set_hl(0, name, definition)
+    end
   end
 end
 

@@ -1,4 +1,6 @@
 local M = {}
+local dialog = require("omniac.ui.dialog")
+local highlights = require("omniac.ui.highlights")
 
 local ns = vim.api.nvim_create_namespace("omniac.session_dialog")
 
@@ -13,43 +15,10 @@ local state = {
   callback = nil,
 }
 
-local function valid_buf(buf)
-  return buf and vim.api.nvim_buf_is_valid(buf)
-end
-
-local function valid_win(win)
-  return win and vim.api.nvim_win_is_valid(win)
-end
-
-local function setup_highlights()
-  vim.api.nvim_set_hl(0, "OmniacSessionBorder", { fg = "#f38ba8" })
-  vim.api.nvim_set_hl(0, "OmniacSessionTitle", { fg = "#f9e2af", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacSessionText", { fg = "#cdd6f4" })
-  vim.api.nvim_set_hl(0, "OmniacSessionMuted", { fg = "#7f849c" })
-  vim.api.nvim_set_hl(0, "OmniacSessionSelected", { fg = "#11111b", bg = "#94e2d5", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacSessionKey", { fg = "#89b4fa", bold = true })
-end
-
-local function normalize_text(text)
-  local value = tostring(text or "")
-  return value:gsub("[\r\n]+", " "):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function fit(text, size)
-  local value = normalize_text(text)
-  local current = vim.fn.strdisplaywidth(value)
-  if current > size then
-    local out = ""
-    for char in value:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-      if vim.fn.strdisplaywidth(out .. char) > size - 1 then
-        return out .. "…"
-      end
-      out = out .. char
-    end
-    return out
-  end
-  return value .. string.rep(" ", size - current)
-end
+local valid_buf = dialog.valid_buf
+local valid_win = dialog.valid_win
+local normalize_text = dialog.normalize_inline
+local fit = dialog.fit_inline
 
 local function short_path(path)
   if not path or path == "" then
@@ -157,30 +126,17 @@ local function has_selectable_items()
   return false
 end
 
-local function close(result)
-  local callback = state.callback
-  state.callback = nil
-
-  if valid_win(state.footer_win) then
-    pcall(vim.api.nvim_win_close, state.footer_win, true)
-  end
-  if valid_win(state.win) then
-    pcall(vim.api.nvim_win_close, state.win, true)
-  end
-  if valid_buf(state.footer_buf) then
-    pcall(vim.api.nvim_buf_delete, state.footer_buf, { force = true })
-  end
-  if valid_buf(state.buf) then
-    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
-  end
-
-  state.buf = nil
-  state.win = nil
-  state.footer_buf = nil
-  state.footer_win = nil
+local function cleanup()
+  dialog.release(state, { "footer_win", "win" }, { "footer_buf", "buf" })
   state.items = {}
   state.item_lines = {}
   state.selected = 1
+end
+
+local function close(result)
+  local callback = state.callback
+  state.callback = nil
+  cleanup()
 
   if callback then
     callback(result)
@@ -190,27 +146,7 @@ end
 local function close_with_session_id(action)
   local callback = state.callback
   state.callback = nil
-
-  if valid_win(state.footer_win) then
-    pcall(vim.api.nvim_win_close, state.footer_win, true)
-  end
-  if valid_win(state.win) then
-    pcall(vim.api.nvim_win_close, state.win, true)
-  end
-  if valid_buf(state.footer_buf) then
-    pcall(vim.api.nvim_buf_delete, state.footer_buf, { force = true })
-  end
-  if valid_buf(state.buf) then
-    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
-  end
-
-  state.buf = nil
-  state.win = nil
-  state.footer_buf = nil
-  state.footer_win = nil
-  state.items = {}
-  state.item_lines = {}
-  state.selected = 1
+  cleanup()
 
   vim.ui.input({
     prompt = "Session ID: ",
@@ -278,11 +214,7 @@ local function render()
     end
   end
 
-  vim.bo[state.buf].readonly = false
-  vim.bo[state.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
-  vim.bo[state.buf].modifiable = false
-  vim.bo[state.buf].readonly = true
+  dialog.set_lines(state.buf, lines)
   vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
   for _, mark in ipairs(marks) do
     vim.api.nvim_buf_add_highlight(state.buf, ns, mark[4], mark[1], mark[2], mark[3])
@@ -294,11 +226,7 @@ local function render()
 
   if valid_buf(state.footer_buf) then
     local footer_line = "  " .. fit("[Enter] load   [r] resume   [n] new   [i] session id   [q] close", inner_width)
-    vim.bo[state.footer_buf].readonly = false
-    vim.bo[state.footer_buf].modifiable = true
-    vim.api.nvim_buf_set_lines(state.footer_buf, 0, -1, false, { footer_line })
-    vim.bo[state.footer_buf].modifiable = false
-    vim.bo[state.footer_buf].readonly = true
+    dialog.set_lines(state.footer_buf, { footer_line })
     vim.api.nvim_buf_clear_namespace(state.footer_buf, ns, 0, -1)
     vim.api.nvim_buf_add_highlight(state.footer_buf, ns, "OmniacSessionKey", 0, 0, -1)
   end
@@ -334,10 +262,8 @@ local function choose(action)
 end
 
 function M.open(sessions, opts, callback)
-  if vim.fn.mode():match("^[iR]") then
-    vim.cmd("stopinsert")
-  end
-  setup_highlights()
+  dialog.stop_insert()
+  highlights.setup("OmniacSession")
   opts = opts or {}
   state.callback = callback
   state.selected = 1
@@ -362,56 +288,13 @@ function M.open(sessions, opts, callback)
     end
   end
 
-  local width = math.min(math.max(72, math.floor(vim.o.columns * 0.58)), math.max(50, vim.o.columns - 8))
-  local total_height = math.min(math.max(14, math.floor(vim.o.lines * 0.58)), math.max(12, vim.o.lines - 8))
-  local footer_height = 1
-  local height = math.max(8, total_height - footer_height - 2)
-  local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 2))
-  local col = math.max(0, math.floor((vim.o.columns - width) / 2))
-  state.buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.buf].buftype = "nofile"
-  vim.bo[state.buf].bufhidden = "wipe"
-  vim.bo[state.buf].swapfile = false
-  vim.bo[state.buf].filetype = "omniac-session"
-  vim.bo[state.buf].modifiable = false
-  vim.bo[state.buf].readonly = true
-  state.footer_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.footer_buf].buftype = "nofile"
-  vim.bo[state.footer_buf].bufhidden = "wipe"
-  vim.bo[state.footer_buf].swapfile = false
-  vim.bo[state.footer_buf].filetype = "omniac-session-footer"
-  vim.bo[state.footer_buf].modifiable = false
-  vim.bo[state.footer_buf].readonly = true
-
-  state.win = vim.api.nvim_open_win(state.buf, true, {
-    relative = "editor",
-    width = width,
-    height = height,
-    row = row,
-    col = col,
-    style = "minimal",
-    border = "rounded",
+  state.buf = dialog.create_buffer({ filetype = "omniac-session" })
+  state.footer_buf = dialog.create_buffer({ filetype = "omniac-session-footer" })
+  state.win, state.footer_win = dialog.open_list_frame(state.buf, state.footer_buf, {
     title = " SESSION SELECT ",
-    title_pos = "center",
+    border_group = "OmniacSessionBorder",
+    title_group = "OmniacSessionTitle",
   })
-  state.footer_win = vim.api.nvim_open_win(state.footer_buf, false, {
-    relative = "editor",
-    width = width,
-    height = footer_height,
-    row = row + height + 3,
-    col = col,
-    style = "minimal",
-    border = "rounded",
-  })
-
-  vim.wo[state.win].cursorline = false
-  vim.wo[state.win].wrap = false
-  vim.wo[state.win].signcolumn = "no"
-  vim.wo[state.win].winhighlight = "FloatBorder:OmniacSessionBorder,FloatTitle:OmniacSessionTitle"
-  vim.wo[state.footer_win].cursorline = false
-  vim.wo[state.footer_win].wrap = false
-  vim.wo[state.footer_win].signcolumn = "no"
-  vim.wo[state.footer_win].winhighlight = "FloatBorder:OmniacSessionBorder"
 
   local function map(lhs, fn)
     vim.keymap.set("n", lhs, fn, { buffer = state.buf, nowait = true, silent = true })

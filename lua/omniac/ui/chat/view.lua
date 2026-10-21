@@ -1,67 +1,6 @@
 local M = {}
 local chat_render = require("omniac.ui.chat.render")
-
-local MARKDOWN_RENDER_CONFIG = {
-  pipe_table = {
-    border_virtual = true,
-    style = "normal",
-  },
-}
-
-local function start_treesitter(state, valid_buf)
-  if not valid_buf(state.chat_buf) or not (vim.treesitter and vim.treesitter.start) then
-    return
-  end
-
-  pcall(vim.treesitter.start, state.chat_buf, "markdown")
-end
-
-local function clear_markdown_marks(state, valid_buf)
-  if not valid_buf(state.chat_buf) then
-    return
-  end
-
-  for name, id in pairs(vim.api.nvim_get_namespaces()) do
-    if type(name) == "string" and name:match("render.markdown") then
-      pcall(vim.api.nvim_buf_clear_namespace, state.chat_buf, id, 0, -1)
-    end
-  end
-end
-
-local function render_markdown(state, valid_buf)
-  if not valid_buf(state.chat_buf) then
-    return
-  end
-
-  local ok, renderer = pcall(require, "render-markdown")
-  if not ok or type(renderer) ~= "table" then
-    return
-  end
-
-  if renderer.initialized == false and type(renderer.setup) == "function" then
-    pcall(
-      renderer.setup,
-      vim.tbl_deep_extend("force", {
-        file_types = { "markdown" },
-      }, MARKDOWN_RENDER_CONFIG)
-    )
-  end
-
-  if type(renderer.render) == "function" then
-    local ok_state, renderer_state = pcall(require, "render-markdown.state")
-    if ok_state and type(renderer_state) == "table" and type(renderer_state.cache) == "table" then
-      renderer_state.cache[state.chat_buf] = nil
-    end
-    pcall(renderer.render, {
-      buf = state.chat_buf,
-      win = state.chat_win,
-      event = "OmniacRender",
-      config = MARKDOWN_RENDER_CONFIG,
-    })
-  elseif type(renderer.buf_enable) == "function" then
-    pcall(renderer.buf_enable)
-  end
-end
+local markdown = require("omniac.ui.markdown")
 
 local function capture_view(state, opts, valid_win)
   if not valid_win(state.chat_win) then
@@ -118,13 +57,13 @@ function M.render(state, config, opts, handlers)
   vim.bo[state.chat_buf].modifiable = true
   vim.api.nvim_buf_clear_namespace(state.chat_buf, handlers.namespace, 0, -1)
   if not opts.skip_markdown then
-    clear_markdown_marks(state, handlers.valid_buf)
+    markdown.clear(state.chat_buf)
   end
   vim.api.nvim_buf_set_lines(state.chat_buf, 0, -1, false, lines)
   vim.bo[state.chat_buf].modifiable = false
   vim.bo[state.chat_buf].modified = false
   if not opts.skip_markdown then
-    start_treesitter(state, handlers.valid_buf)
+    markdown.start(state.chat_buf)
   end
 
   for _, mark in ipairs(content.marks) do
@@ -138,7 +77,7 @@ function M.render(state, config, opts, handlers)
   end
 
   if not opts.skip_markdown then
-    render_markdown(state, handlers.valid_buf)
+    markdown.render(state.chat_buf, state.chat_win, "OmniacRender")
   end
 
   restore_view(state, opts, lines, previous_view, should_follow, handlers.valid_win)

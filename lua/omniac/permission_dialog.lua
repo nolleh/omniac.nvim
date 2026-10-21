@@ -1,12 +1,9 @@
 local M = {}
+local dialog = require("omniac.ui.dialog")
+local highlights = require("omniac.ui.highlights")
+local markdown = require("omniac.ui.markdown")
 
 local ns = vim.api.nvim_create_namespace("omniac.permission_dialog")
-local PERMISSION_MARKDOWN_RENDER_CONFIG = {
-  pipe_table = {
-    border_virtual = true,
-    style = "normal",
-  },
-}
 
 local state = {
   body_buf = nil,
@@ -22,31 +19,10 @@ local state = {
   title = "Permission",
 }
 
-local function valid_buf(buf)
-  return buf and vim.api.nvim_buf_is_valid(buf)
-end
-
-local function valid_win(win)
-  return win and vim.api.nvim_win_is_valid(win)
-end
-
-local function stop_insert()
-  if vim.fn.mode():match("^[iR]") then
-    pcall(vim.cmd, "stopinsert")
-  end
-end
-
-local function setup_highlights()
-  vim.api.nvim_set_hl(0, "OmniacPermissionBorder", { fg = "#f38ba8" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionTitle", { fg = "#f9e2af", bold = true })
-  vim.api.nvim_set_hl(0, "OmniacPermissionText", { fg = "#cdd6f4" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionMuted", { fg = "#7f849c" })
-  vim.api.nvim_set_hl(0, "OmniacPermissionSelected", { fg = "#11111b", bg = "#94e2d5", bold = true })
-end
-
-local function normalize_text(text)
-  return tostring(text or ""):gsub("[\r\n]+", " "):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-end
+local valid_buf = dialog.valid_buf
+local valid_win = dialog.valid_win
+local stop_insert = dialog.stop_insert
+local normalize_text = dialog.normalize_inline
 
 local function normalize_body(text)
   if type(text) == "table" then
@@ -56,22 +32,6 @@ local function normalize_body(text)
   return tostring(text or "")
 end
 
-local function fit(text, size)
-  local value = normalize_text(text)
-  local current = vim.fn.strdisplaywidth(value)
-  if current > size then
-    local out = ""
-    for char in value:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-      if vim.fn.strdisplaywidth(out .. char) > size - 1 then
-        return out .. "..."
-      end
-      out = out .. char
-    end
-    return out
-  end
-  return value .. string.rep(" ", size - current)
-end
-
 local function option_label(option)
   if type(option) ~= "table" then
     return tostring(option)
@@ -79,31 +39,20 @@ local function option_label(option)
   return option.name or option.label or option.kind or option.optionId or option.id or "Select"
 end
 
-local function close(choice)
-  local callback = state.callback
-  state.callback = nil
-
-  for _, win in ipairs({ state.selector_win, state.body_win }) do
-    if valid_win(win) then
-      pcall(vim.api.nvim_win_close, win, true)
-    end
-  end
-  for _, buf in ipairs({ state.selector_buf, state.body_buf }) do
-    if valid_buf(buf) then
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end
-  end
-
-  state.body_buf = nil
-  state.body_win = nil
-  state.selector_buf = nil
-  state.selector_win = nil
+local function cleanup()
+  dialog.release(state, { "selector_win", "body_win" }, { "selector_buf", "body_buf" })
   state.selected = 1
   state.options = {}
   state.prompt = ""
   state.body = ""
   state.cancel_label = "deny"
   state.title = "Permission"
+end
+
+local function close(choice)
+  local callback = state.callback
+  state.callback = nil
+  cleanup()
 
   if callback then
     callback(choice)
@@ -112,92 +61,16 @@ end
 
 function M.dismiss()
   state.callback = nil
-
-  for _, win in ipairs({ state.selector_win, state.body_win }) do
-    if valid_win(win) then
-      pcall(vim.api.nvim_win_close, win, true)
-    end
-  end
-  for _, buf in ipairs({ state.selector_buf, state.body_buf }) do
-    if valid_buf(buf) then
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end
-  end
-
-  state.body_buf = nil
-  state.body_win = nil
-  state.selector_buf = nil
-  state.selector_win = nil
-  state.selected = 1
-  state.options = {}
-  state.prompt = ""
-  state.body = ""
-  state.cancel_label = "deny"
-  state.title = "Permission"
+  cleanup()
 end
 
 local function cleanup_existing()
   state.callback = nil
-  for _, win in ipairs({ state.selector_win, state.body_win }) do
-    if valid_win(win) then
-      pcall(vim.api.nvim_win_close, win, true)
-    end
-  end
-  for _, buf in ipairs({ state.selector_buf, state.body_buf }) do
-    if valid_buf(buf) then
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end
-  end
+  cleanup()
 
   local existing = vim.fn.bufnr("omniac://permission")
   if existing ~= -1 and vim.api.nvim_buf_is_valid(existing) then
     pcall(vim.api.nvim_buf_delete, existing, { force = true })
-  end
-
-  state.body_buf = nil
-  state.body_win = nil
-  state.selector_buf = nil
-  state.selector_win = nil
-  state.selected = 1
-  state.options = {}
-  state.prompt = ""
-  state.body = ""
-  state.cancel_label = "deny"
-  state.title = "Permission"
-end
-
-local function render_permission_markdown(buf, win)
-  if not valid_buf(buf) then
-    return
-  end
-
-  local ok, renderer = pcall(require, "render-markdown")
-  if not ok or type(renderer) ~= "table" then
-    return
-  end
-
-  if renderer.initialized == false and type(renderer.setup) == "function" then
-    pcall(
-      renderer.setup,
-      vim.tbl_deep_extend("force", {
-        file_types = { "markdown" },
-      }, PERMISSION_MARKDOWN_RENDER_CONFIG)
-    )
-  end
-
-  if type(renderer.render) == "function" then
-    local ok_state, renderer_state = pcall(require, "render-markdown.state")
-    if ok_state and type(renderer_state) == "table" and type(renderer_state.cache) == "table" then
-      renderer_state.cache[buf] = nil
-    end
-    pcall(renderer.render, {
-      buf = buf,
-      win = win,
-      event = "OmniacPermissionRender",
-      config = PERMISSION_MARKDOWN_RENDER_CONFIG,
-    })
-  elseif type(renderer.buf_enable) == "function" then
-    pcall(renderer.buf_enable)
   end
 end
 
@@ -223,11 +96,7 @@ local function render_selector()
   table.insert(lines, "enter select  ·  1-9 select  ·  j/k move  ·  ctrl-d/u details  ·  q " .. state.cancel_label)
   table.insert(marks, { line = #lines, group = "OmniacPermissionMuted" })
 
-  vim.bo[state.selector_buf].readonly = false
-  vim.bo[state.selector_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.selector_buf, 0, -1, false, lines)
-  vim.bo[state.selector_buf].modifiable = false
-  vim.bo[state.selector_buf].readonly = true
+  dialog.set_lines(state.selector_buf, lines)
   vim.api.nvim_buf_clear_namespace(state.selector_buf, ns, 0, -1)
   for _, mark in ipairs(marks) do
     if mark.group then
@@ -264,12 +133,8 @@ local function render_body()
     end
   end
 
-  vim.bo[state.body_buf].readonly = false
-  vim.bo[state.body_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(state.body_buf, 0, -1, false, lines)
-  vim.bo[state.body_buf].modifiable = false
-  vim.bo[state.body_buf].readonly = true
-  render_permission_markdown(state.body_buf, state.body_win)
+  dialog.set_lines(state.body_buf, lines)
+  markdown.render(state.body_buf, state.body_win, "OmniacPermissionRender")
 end
 
 local function move(delta)
@@ -301,7 +166,7 @@ local function reject()
 end
 
 function M.open(options, opts, callback)
-  setup_highlights()
+  highlights.setup("OmniacPermission")
   cleanup_existing()
   opts = opts or {}
   state.options = type(options) == "table" and options or {}
@@ -333,14 +198,7 @@ function M.open(options, opts, callback)
   local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
 
-  state.body_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.body_buf].buftype = "nofile"
-  vim.bo[state.body_buf].bufhidden = "wipe"
-  vim.bo[state.body_buf].swapfile = false
-  vim.bo[state.body_buf].filetype = "markdown"
-  vim.bo[state.body_buf].modifiable = false
-  vim.bo[state.body_buf].readonly = true
-  pcall(vim.api.nvim_buf_set_name, state.body_buf, "omniac://permission")
+  state.body_buf = dialog.create_buffer({ name = "omniac://permission", filetype = "markdown" })
 
   state.body_win = vim.api.nvim_open_win(state.body_buf, false, {
     relative = "editor",
@@ -359,14 +217,10 @@ function M.open(options, opts, callback)
   vim.wo[state.body_win].signcolumn = "no"
   vim.wo[state.body_win].winhighlight = "FloatBorder:OmniacPermissionBorder,FloatTitle:OmniacPermissionTitle"
 
-  state.selector_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[state.selector_buf].buftype = "nofile"
-  vim.bo[state.selector_buf].bufhidden = "wipe"
-  vim.bo[state.selector_buf].swapfile = false
-  vim.bo[state.selector_buf].filetype = "omniac-permission"
-  vim.bo[state.selector_buf].modifiable = false
-  vim.bo[state.selector_buf].readonly = true
-  pcall(vim.api.nvim_buf_set_name, state.selector_buf, "omniac://permission-selector")
+  state.selector_buf = dialog.create_buffer({
+    name = "omniac://permission-selector",
+    filetype = "omniac-permission",
+  })
 
   state.selector_win = vim.api.nvim_open_win(state.selector_buf, true, {
     relative = "editor",
@@ -448,7 +302,7 @@ function M.open(options, opts, callback)
   stop_insert()
   vim.schedule(function()
     if valid_win(state.body_win) then
-      render_permission_markdown(state.body_buf, state.body_win)
+      markdown.render(state.body_buf, state.body_win, "OmniacPermissionRender")
     end
     if valid_win(state.selector_win) then
       render_selector_selection()
