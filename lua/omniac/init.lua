@@ -1,16 +1,13 @@
 local config = require("omniac.config")
-local selection = require("omniac.editor.selection")
-local mentions = require("omniac.editor.mentions")
-local acp_backend = require("omniac.backend.acp")
+local command_keymaps = require("omniac.commands.keymaps")
+local commands = require("omniac.commands")
+local connection = require("omniac.connection")
 local ui = require("omniac.ui")
-local approval = require("omniac.approval")
 local session_dialog = require("omniac.session.dialog")
 local model_dialog = require("omniac.session.model_dialog")
 local mode_dialog = require("omniac.session.mode_dialog")
-local filesystem = require("omniac.editor.filesystem")
-local tree = require("omniac.editor.tree")
 local changes = require("omniac.changes")
-local modified_approval = require("omniac.approval.followup")
+local prompt_builder = require("omniac.prompt.build")
 
 local M = {
   config = config.defaults,
@@ -76,236 +73,6 @@ submission_failure = function(item, err)
   end)
 end
 
-local default_keymaps = {
-  { name = "open", mode = "n", command = "Omniac", desc = "Toggle Omniac" },
-  { name = "focus", mode = "n", command = "OmniacFocus", desc = "Focus Omniac" },
-  { name = "session", mode = "n", command = "OmniacSession", desc = "Resume Omniac session" },
-  { name = "buffer", mode = "n", command = "OmniacReferenceBuffer", desc = "Add current buffer to Omniac" },
-  { name = "reference", mode = "x", command = "OmniacReference", desc = "Send selection to Omniac" },
-  { name = "diff_accept", mode = "n", command = "OmniacDiffAccept", desc = "Accept Omniac diff" },
-  { name = "diff_deny", mode = "n", command = "OmniacDiffDeny", desc = "Deny Omniac diff" },
-}
-
-local installed_keymaps = {}
-local tree_keymap_group
-
-local function clear_installed_keymaps()
-  if tree_keymap_group then
-    pcall(vim.api.nvim_del_augroup_by_id, tree_keymap_group)
-    tree_keymap_group = nil
-  end
-  for _, mapping in ipairs(installed_keymaps) do
-    local current = vim.fn.maparg(mapping.lhs, mapping.mode, false, true)
-    if type(current) == "table" and current.desc == mapping.desc then
-      pcall(vim.keymap.del, mapping.mode, mapping.lhs)
-    end
-  end
-  installed_keymaps = {}
-end
-
-local function setup_keymaps()
-  clear_installed_keymaps()
-
-  local configured = M.config.keymaps
-  if configured == false or type(configured) ~= "table" then
-    return
-  end
-
-  for _, mapping in ipairs(default_keymaps) do
-    local lhs = configured[mapping.name]
-    if type(lhs) == "string" and lhs ~= "" and vim.fn.maparg(lhs, mapping.mode) == "" then
-      local desc = "Omniac: " .. mapping.desc
-      local rhs = mapping.mode == "x" and (":" .. mapping.command .. "<CR>") or ("<cmd>" .. mapping.command .. "<cr>")
-      vim.keymap.set(mapping.mode, lhs, rhs, {
-        desc = desc,
-        silent = true,
-      })
-      table.insert(installed_keymaps, {
-        lhs = lhs,
-        mode = mapping.mode,
-        desc = desc,
-      })
-    end
-  end
-
-  local tree_lhs = configured.tree_add
-  if type(tree_lhs) == "string" and tree_lhs ~= "" and vim.fn.maparg(tree_lhs, "n") == "" then
-    tree_keymap_group = vim.api.nvim_create_augroup("OmniacTreeKeymaps", { clear = true })
-    local function map_tree_buffer(bufnr)
-      vim.api.nvim_buf_call(bufnr, function()
-        if vim.fn.maparg(tree_lhs, "n", false, true).buffer ~= 1 then
-          vim.keymap.set("n", tree_lhs, "<cmd>OmniacTreeAdd<cr>", {
-            buffer = bufnr,
-            desc = "Omniac: Add selected tree path",
-            silent = true,
-          })
-        end
-      end)
-    end
-    vim.api.nvim_create_autocmd("FileType", {
-      group = tree_keymap_group,
-      pattern = { "NvimTree", "neo-tree", "oil", "minifiles" },
-      callback = function(event)
-        map_tree_buffer(event.buf)
-      end,
-    })
-    local supported_tree_filetypes = { "NvimTree", "neo-tree", "oil", "minifiles" }
-    for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_is_loaded(bufnr) and vim.tbl_contains(supported_tree_filetypes, vim.bo[bufnr].filetype) then
-        map_tree_buffer(bufnr)
-      end
-    end
-  end
-end
-
-local function build_prompt(extra)
-  local prompt = {}
-
-  if extra and extra ~= "" then
-    table.insert(prompt, extra)
-  end
-
-  local bufname = vim.api.nvim_buf_get_name(0)
-  if bufname ~= "" and bufname ~= "omniac" and not bufname:match("^omniac://") then
-    table.insert(prompt, "Current file: " .. bufname)
-  end
-
-  return table.concat(prompt, "\n\n")
-end
-
-local function reference_label(reference)
-  local path = reference.path
-  if not path or path == "" then
-    path = "[No Name]"
-  else
-    path = vim.fn.fnamemodify(path, ":.")
-  end
-  if reference.startLine and reference.endLine then
-    return string.format("%s:%d-%d", path, reference.startLine, reference.endLine)
-  end
-  return path
-end
-
-local function append_attachment_items(items, attachment)
-  if type(attachment) ~= "table" then
-    return
-  end
-
-  if attachment.type == "image" then
-    table.insert(items, {
-      type = "image",
-      mimeType = attachment.mimeType,
-      data = attachment.data,
-    })
-  elseif attachment.type == "reference" then
-    if attachment.pathOnly then
-      local filename = vim.fn.fnamemodify(attachment.path, ":t")
-      local instruction
-      local description = "Source file reference."
-      if attachment.startLine and attachment.endLine then
-        instruction = string.format(
-          "Please inspect lines %d-%d in %s.",
-          attachment.startLine,
-          attachment.endLine,
-          reference_label(attachment)
-        )
-        description = string.format("Source file reference, lines %d-%d.", attachment.startLine, attachment.endLine)
-      else
-        instruction = string.format("Please inspect the referenced file: %s.", reference_label(attachment))
-      end
-      table.insert(items, {
-        type = "text",
-        text = instruction,
-      })
-      table.insert(items, {
-        type = "resource_link",
-        uri = attachment.uri,
-        name = filename ~= "" and filename or "[No Name]",
-        title = reference_label(attachment),
-        mimeType = "text/plain",
-        description = description,
-      })
-    else
-      table.insert(items, {
-        type = "text",
-        text = string.format(
-          "Please inspect this selected buffer content from %s (unsaved buffer contents are included below).",
-          reference_label(attachment)
-        ),
-      })
-      local supports_embedded_context = M.backend
-        and M.backend.supports_prompt_capability
-        and M.backend:supports_prompt_capability("embeddedContext")
-      if supports_embedded_context then
-        table.insert(items, {
-          type = "resource",
-          resource = {
-            uri = attachment.uri,
-            mimeType = "text/plain",
-            text = attachment.text,
-          },
-        })
-      else
-        table.insert(items, {
-          type = "text",
-          text = string.format("Referenced code from %s:\n%s", reference_label(attachment), attachment.text or ""),
-        })
-      end
-    end
-  end
-end
-
-local function build_prompt_items(text, attachments)
-  local items = {}
-  local positioned = {}
-  local trailing = {}
-  for index, attachment in ipairs(attachments or {}) do
-    if type(attachment) == "table" and type(attachment._position) == "number" then
-      attachment._order = attachment._order or index
-      table.insert(positioned, attachment)
-    else
-      table.insert(trailing, attachment)
-    end
-  end
-  table.sort(positioned, function(left, right)
-    if left._position == right._position then
-      return (left._order or 0) < (right._order or 0)
-    end
-    return left._position < right._position
-  end)
-
-  local cursor = 1
-  for _, attachment in ipairs(positioned) do
-    local position = math.min(math.max(attachment._position, 0), #text)
-    local segment = text:sub(cursor, position)
-    if segment ~= "" then
-      table.insert(items, { type = "text", text = segment })
-    end
-    append_attachment_items(items, attachment)
-    cursor = position + 1
-  end
-  local remainder = text:sub(cursor)
-  if remainder ~= "" then
-    table.insert(items, { type = "text", text = remainder })
-  end
-  for _, attachment in ipairs(trailing) do
-    append_attachment_items(items, attachment)
-  end
-
-  if #items == 0 then
-    table.insert(items, {
-      type = "text",
-      text = text,
-    })
-  end
-
-  return items
-end
-
-local function register_command(name, fn, opts)
-  vim.api.nvim_create_user_command(name, fn, opts or {})
-end
-
 local function slash_command(text)
   local command, arguments = tostring(text or ""):match("^%s*/([%w_-]+)%s*(.-)%s*$")
   if not command or arguments:find("\n", 1, true) then
@@ -347,179 +114,8 @@ end
 
 function M.setup(opts)
   M.config = config.merge(opts)
-  setup_keymaps()
-
-  local function connect()
-    M.connect()
-  end
-
-  local function disconnect()
-    M.disconnect()
-  end
-
-  local function exit()
-    M.exit()
-  end
-
-  local function ask(cmd)
-    M.ask(cmd.args)
-  end
-
-  local function debug()
-    if not M.config.debug then
-      vim.notify("debug is disabled", vim.log.levels.WARN, { title = "omniac debug" })
-      return
-    end
-
-    if M.backend and M.backend.get_debug_log then
-      vim.notify(vim.inspect(M.backend:get_debug_log()), vim.log.levels.INFO, { title = "omniac debug" })
-    else
-      vim.notify("no active transport", vim.log.levels.WARN, { title = "omniac debug" })
-    end
-  end
-
-  local function ask_files(cmd)
-    local paths = {}
-    for path in string.gmatch(cmd.args, "[^,%s]+") do
-      table.insert(paths, path)
-    end
-    M.ask_with_files("", paths)
-  end
-
-  local function attach_reference(reference_item)
-    M.open_chat()
-    ui.attach_reference(reference_item, M.config)
-  end
-
-  local function reference(cmd)
-    if not cmd.range or cmd.range == 0 then
-      vim.notify("OmniacReference requires a visual selection", vim.log.levels.WARN, { title = "omniac" })
-      return
-    end
-
-    local reference_item, err = selection.reference_from_range(vim.api.nvim_get_current_buf(), cmd.line1, cmd.line2)
-    if not reference_item then
-      vim.notify(tostring(err or "Unable to capture selection"), vim.log.levels.WARN, { title = "omniac" })
-      return
-    end
-
-    attach_reference(reference_item)
-  end
-
-  local function reference_buffer()
-    local bufnr = vim.api.nvim_get_current_buf()
-    local bufname = vim.api.nvim_buf_get_name(bufnr)
-    if bufname == "omniac" or bufname:match("^omniac://") then
-      vim.notify("OmniacReferenceBuffer requires a source buffer", vim.log.levels.WARN, { title = "omniac" })
-      return
-    end
-
-    local reference_item, err = selection.reference_from_range(bufnr, 1, vim.api.nvim_buf_line_count(bufnr))
-    if not reference_item then
-      vim.notify(tostring(err or "Unable to capture buffer"), vim.log.levels.WARN, { title = "omniac" })
-      return
-    end
-
-    local has_disk_file = reference_item.path ~= "" and vim.fn.filereadable(reference_item.path) == 1
-    local include_modified_buffer = M.config.references and M.config.references.include_modified_buffer == true
-
-    if not has_disk_file and not include_modified_buffer then
-      return
-    end
-
-    reference_item.pathOnly = has_disk_file and not (reference_item.modified and include_modified_buffer)
-    attach_reference(reference_item)
-  end
-
-  local function tree_add()
-    local paths, err = tree.get_selected_paths()
-    if not paths or #paths == 0 then
-      vim.notify(tostring(err or "No file selected in tree"), vim.log.levels.WARN, { title = "omniac" })
-      return
-    end
-
-    local references = {}
-    for _, path in ipairs(paths) do
-      local uri = vim.uri_from_fname(path)
-      table.insert(references, {
-        type = "reference",
-        path = path,
-        uri = uri,
-        filetype = "",
-        pathOnly = true,
-      })
-    end
-    M.open_chat()
-    for _, reference_item in ipairs(references) do
-      ui.attach_reference(reference_item, M.config)
-    end
-  end
-
-  local function diff(cmd)
-    local path = vim.fn.expand(cmd.args)
-    if path == "" then
-      error("OmniacDiff requires a file path")
-    end
-
-    M.open_file_diff(path, nil, { title = M.config.ui.diff_title })
-  end
-
-  local function toggle_chat()
-    M.toggle_chat()
-  end
-
-  local function open_chat()
-    M.open_chat()
-  end
-
-  local function choose_session()
-    if M.backend then
-      M.select_session()
-    elseif ui.is_open() then
-      M.connect({
-        session = { action = "select" },
-      })
-    else
-      M.open_chat({
-        session = { action = "select" },
-      })
-    end
-  end
-
-  local function resize(cmd)
-    M.resize(cmd.args)
-  end
-
-  local function review_changes(cmd)
-    M.review_changes(cmd.args)
-  end
-
-  register_command("Omniac", toggle_chat, {})
-  register_command("OmniacFocus", open_chat, {})
-  register_command("OmniacConnect", connect, {})
-  register_command("OmniacDisconnect", disconnect, {})
-  register_command("OmniacExit", exit, {})
-  register_command("OmniacSession", choose_session, {})
-  register_command("OmniacAsk", ask, { nargs = "?" })
-  register_command("OmniacResize", resize, { nargs = 1 })
-  register_command("OmniacDebug", debug, {})
-  register_command("OmniacAskFiles", ask_files, { nargs = "?" })
-  register_command("OmniacReference", reference, { range = true })
-  register_command("OmniacReferenceBuffer", reference_buffer, {})
-  register_command("OmniacTreeAdd", tree_add, {})
-  register_command("OmniacChanges", review_changes, {
-    nargs = "?",
-    complete = function()
-      return { "turn", "session" }
-    end,
-  })
-  register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
-  register_command("OmniacDiffAccept", function()
-    require("omniac.changes.review").accept_current_review()
-  end, {})
-  register_command("OmniacDiffDeny", function()
-    require("omniac.changes.review").deny_current_review()
-  end, {})
+  command_keymaps.setup(M.config)
+  commands.setup(M)
 end
 
 function M.toggle_chat(connect_opts)
@@ -835,7 +431,7 @@ function M.resize(width)
 end
 
 function M.ask(extra, attachments, item)
-  local prompt = item and item.prompt or build_prompt(extra)
+  local prompt = item and item.prompt or prompt_builder.text(extra)
   if item then
     item.prompt = prompt
   end
@@ -844,7 +440,7 @@ function M.ask(extra, attachments, item)
     local params = item and item.params or nil
     if not params and attachments and #attachments > 0 then
       params = {
-        prompt = build_prompt_items(prompt, attachments),
+        prompt = prompt_builder.items(prompt, attachments, M.backend:supports_prompt_capability("embeddedContext")),
       }
     end
     if item then
@@ -908,12 +504,7 @@ function M.retry_failed_submission()
 end
 
 function M.ask_with_files(extra, paths)
-  local prompt = build_prompt(extra)
-  local file_mentions = mentions.collect(paths)
-
-  if #file_mentions > 0 then
-    prompt = prompt .. "\n\nFiles:\n" .. table.concat(file_mentions, "\n")
-  end
+  local prompt = prompt_builder.with_files(extra, paths)
 
   vim.notify(prompt, vim.log.levels.INFO, { title = "omniac prompt" })
   return prompt
@@ -930,173 +521,11 @@ function M.open_file_diff(path, proposed_lines, opts)
 end
 
 function M.connect(opts)
-  opts = opts or {}
-  ui.set_session_usage(nil)
-  local cfg = M.config
-  if opts.session then
-    cfg = vim.deepcopy(M.config)
-    cfg.agent = cfg.agent or {}
-    cfg.agent.session = vim.tbl_extend("force", cfg.agent.session or {}, opts.session)
-  end
-  cfg.session_selector = function(sessions, selector_opts, callback)
-    session_dialog.open(sessions, selector_opts, callback)
-  end
-
-  local client = acp_backend.new(cfg)
-  local function new_modified_approval()
-    return modified_approval.new(client, cfg, function()
-      return M.backend == client
-    end)
-  end
-  local followup = new_modified_approval()
-  local permission_approval = approval.new()
-  M.modified_approval = followup
-  M.permission_approval = permission_approval
-  client
-    :on_request(function(message, reply)
-      local method = message and message.method
-      local params = message and message.params or {}
-
-      local function logged_reply(result, err)
-        return reply(result, err)
-      end
-
-      if method == "session/request_permission" then
-        permission_approval:review_acp_permission(params, logged_reply, cfg, function(item)
-          return followup:queue(item)
-        end, function(request, payload)
-          return followup:matches_followup(request, payload)
-        end)
-        return
-      end
-
-      if method == "fs/read_text_file" or method == "fs/write_text_file" then
-        local before
-        if method == "fs/write_text_file" then
-          local current = filesystem.read_text_file({ path = params.path })
-          before = current and current.content or ""
-        end
-        local result, err = filesystem.handle_request(method, params)
-        if method == "fs/write_text_file" and not err then
-          changes.record({
-            sessionId = params.sessionId or client.session_id,
-            turnId = client.active_turn_id,
-            path = params.path,
-            oldText = before,
-            newText = params.content,
-            source = "filesystem",
-          })
-        end
-        logged_reply(result, err)
-        return
-      end
-
-      logged_reply({})
-    end)
-    :on_notification(function(message)
-      if M.backend ~= client then
-        return
-      end
-      local method = message and message.method
-      local params = message and message.params or {}
-
-      if method == "omniac/session_started" then
-        changes.reset(params.sessionId)
-        followup:close()
-        followup = new_modified_approval()
-        M.modified_approval = followup
-        permission_approval:close()
-        permission_approval = approval.new()
-        M.permission_approval = permission_approval
-      elseif method == "omniac/prompt_started" then
-        changes.start_turn(params)
-      end
-
-      ui.handle_notification(message, cfg)
-
-      if method == "omniac/permission_diff" then
-        permission_approval:attach_acp_permission_diff(params)
-        return
-      end
-
-      if method == "omniac/file_update" then
-        changes.record(params)
-        return
-      end
-
-      if method == "omniac/prompt_failed" then
-        followup:finish_turn(params)
-        return
-      end
-
-      if method == "omniac/response" or method == "omniac/response_completed" then
-        local count = changes.finish_turn(params)
-        local review_mode = cfg.ui and cfg.ui.change_review or "summary"
-        if count > 0 and review_mode == "open" then
-          vim.schedule(function()
-            changes.open("turn", cfg)
-          end)
-        elseif count > 0 and review_mode == "summary" then
-          ui.set_activity(
-            string.format("Changed %d file%s this turn\n[t] turn · [s] session", count, count == 1 and "" or "s"),
-            cfg,
-            { change_summary = true }
-          )
-        end
-        followup:finish_turn(params)
-        return
-      end
-
-      if method == "omniac/edit_failed" then
-        return
-      end
-
-      if method == "omniac/error" then
-        vim.notify(
-          tostring(params.message or params.error or "omniac error"),
-          vim.log.levels.ERROR,
-          { title = "omniac error" }
-        )
-      end
-    end)
-    :on_exit(function(code, signal)
-      if client.closing or M.backend ~= client then
-        return
-      end
-
-      if M.active_submission and M.active_submission.client == client then
-        submission_failure(M.active_submission, "ACP agent exited before the prompt completed")
-      end
-      ui.set_status("closed", cfg)
-      vim.notify(
-        string.format("agent exited (code=%s, signal=%s)", tostring(code), tostring(signal)),
-        vim.log.levels.WARN,
-        { title = "omniac exit" }
-      )
-      M.backend = nil
-      followup:close()
-      permission_approval:close()
-      M.modified_approval = nil
-      M.permission_approval = nil
-    end)
-
-  M.backend = client:start()
-  return M.backend
+  return connection.connect(M, opts, submission_failure)
 end
 
 function M.disconnect()
-  if M.permission_approval then
-    M.permission_approval:close()
-    M.permission_approval = nil
-  end
-  if M.modified_approval then
-    M.modified_approval:close()
-    M.modified_approval = nil
-  end
-  if M.backend then
-    M.backend:close()
-    M.backend = nil
-  end
+  connection.disconnect(M)
 end
 
 function M.exit()

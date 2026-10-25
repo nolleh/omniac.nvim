@@ -1,6 +1,9 @@
 local transport = require("omniac.transport")
-local filesystem = require("omniac.editor.filesystem")
+local content = require("omniac.acp.content")
+local logging = require("omniac.acp.logging")
 local normalize = require("omniac.acp.normalize")
+local session_state = require("omniac.acp.session_state")
+local updates = require("omniac.acp.updates")
 
 local M = {}
 
@@ -10,77 +13,6 @@ local function deepcopy(value)
   end
 
   return value
-end
-
-local function extract_text(value, seen)
-  if type(value) == "string" then
-    return value
-  end
-
-  if type(value) ~= "table" then
-    return nil
-  end
-
-  seen = seen or {}
-  if seen[value] then
-    return nil
-  end
-  seen[value] = true
-
-  local preferred_keys = {
-    "text",
-    "delta",
-    "message",
-    "content",
-    "value",
-  }
-
-  for _, key in ipairs(preferred_keys) do
-    local found = extract_text(value[key], seen)
-    if found and found ~= "" then
-      return found
-    end
-  end
-
-  for _, item in ipairs(normalize.content_items(value)) do
-    local found = extract_text(item, seen)
-    if found and found ~= "" then
-      return found
-    end
-  end
-
-  for _, item in pairs(value) do
-    if type(item) == "table" or type(item) == "string" then
-      local found = extract_text(item, seen)
-      if found and found ~= "" then
-        return found
-      end
-    end
-  end
-
-  return nil
-end
-
-local function extract_response_result_text(result)
-  if type(result) ~= "table" then
-    return nil
-  end
-
-  for _, key in ipairs({ "text", "delta", "message", "content", "value" }) do
-    local found = extract_text(result[key])
-    if found and found ~= "" then
-      return found
-    end
-  end
-
-  for _, item in ipairs(normalize.content_items(result)) do
-    local found = extract_text(item)
-    if found and found ~= "" then
-      return found
-    end
-  end
-
-  return nil
 end
 
 local function first_option_id(request)
@@ -104,398 +36,12 @@ local function json_null()
   return nil
 end
 
-local function log_path(config)
-  config = config or {}
-  if not config.debug then
-    return nil
-  end
-
-  config.logs = config.logs or {}
-  local log_config = config.logs
-  if log_config._path then
-    return log_config._path
-  end
-
-  local dir = log_config.dir or "logs"
-  if not dir:match("^/") then
-    dir = (vim.loop.cwd() or ".") .. "/" .. dir
-  end
-  pcall(vim.fn.mkdir, dir, "p")
-  log_config._path = string.format("%s/acp-%s.jsonl", dir, os.date("%Y%m%d-%H%M%S"))
-  return log_config._path
-end
-
-local protocol_log_queues = {}
-local protocol_log_scheduled = {}
-
-local function flush_protocol_log(path)
-  local lines = protocol_log_queues[path]
-  protocol_log_queues[path] = nil
-  protocol_log_scheduled[path] = nil
-  if lines and #lines > 0 then
-    pcall(vim.fn.writefile, lines, path, "a")
-  end
-end
-
-local function flush_pending_protocol_log(config)
-  local path = config and config.logs and config.logs._path
-  if path and protocol_log_queues[path] then
-    flush_protocol_log(path)
-  end
-end
-
-local function append_protocol_log(config, event, payload)
-  local path = log_path(config)
-  if not path then
-    return
-  end
-
-  local entry = {
-    time = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-    event = event,
-    payload = payload,
-  }
-  local ok, encoded = pcall(vim.json.encode, entry)
-  if ok then
-    protocol_log_queues[path] = protocol_log_queues[path] or {}
-    table.insert(protocol_log_queues[path], encoded)
-    if not protocol_log_scheduled[path] then
-      protocol_log_scheduled[path] = true
-      vim.schedule(function()
-        flush_protocol_log(path)
-      end)
-    end
-  end
-end
-
-local function debug_payload_summary(event, payload)
-  if type(payload) ~= "table" then
-    return payload
-  end
-
-  if event == "notification" or event == "request" or event == "response" then
-    local params = type(payload.params) == "table" and payload.params or {}
-    local update = type(params.update) == "table" and params.update or params
-    return {
-      id = payload.id,
-      method = payload.method,
-      sessionUpdate = normalize.update_type(update),
-      toolCallId = update.toolCallId,
-      hasResult = payload.result ~= nil,
-      hasError = payload.error ~= nil,
-    }
-  end
-
-  return payload
-end
-
-local function sorted_keys(value)
-  if type(value) ~= "table" then
-    return {}
-  end
-
-  local keys = {}
-  for key, _ in pairs(value) do
-    table.insert(keys, tostring(key))
-  end
-  table.sort(keys)
-  return keys
-end
-
 local function result_table(result)
   if type(result) == "table" then
     return result
   end
 
   return {}
-end
-
-local function mode_state_from_config_options(config_options)
-  if type(config_options) ~= "table" then
-    return nil
-  end
-
-  for _, option in ipairs(config_options) do
-    if
-      type(option) == "table"
-      and (option.category == "mode" or option.id == "mode")
-      and option.type == "select"
-      and type(option.options) == "table"
-    then
-      local modes = {}
-      for _, value in ipairs(option.options) do
-        local id = type(value) == "table" and (value.value or value.id) or nil
-        if type(value) == "table" and type(id) == "string" and id ~= "" then
-          table.insert(modes, {
-            id = id,
-            name = value.name or id,
-            description = value.description,
-          })
-        end
-      end
-
-      return {
-        source = "config",
-        configId = option.id,
-        currentModeId = normalize.current_value(option),
-        availableModes = modes,
-      }
-    end
-  end
-
-  return nil
-end
-
-local function model_state_from_config_options(config_options)
-  if type(config_options) ~= "table" then
-    return nil
-  end
-
-  for _, option in ipairs(config_options) do
-    if
-      type(option) == "table"
-      and (option.category == "model" or option.id == "model")
-      and option.type == "select"
-      and type(option.options) == "table"
-    then
-      local models = {}
-      for _, value in ipairs(option.options) do
-        local id = type(value) == "table" and (value.value or value.id) or value
-        if type(id) == "string" and id ~= "" then
-          table.insert(models, {
-            id = id,
-            name = type(value) == "table" and (value.name or id) or id,
-            description = type(value) == "table" and value.description or nil,
-          })
-        end
-      end
-
-      return {
-        configId = option.id,
-        currentModelId = normalize.current_value(option),
-        availableModels = models,
-      }
-    end
-  end
-
-  return nil
-end
-
-local function mode_state_from_modes(modes)
-  if type(modes) ~= "table" then
-    return nil
-  end
-
-  local available = normalize.available_modes(modes)
-
-  local result = {}
-  for _, mode in ipairs(available) do
-    if type(mode) == "table" and type(mode.id) == "string" and mode.id ~= "" then
-      table.insert(result, {
-        id = mode.id,
-        name = mode.name or mode.id,
-        description = mode.description,
-      })
-    end
-  end
-  return {
-    source = "modes",
-    currentModeId = normalize.current_mode_id(modes),
-    availableModes = result,
-  }
-end
-
-local function mode_name(mode_state)
-  if type(mode_state) ~= "table" then
-    return nil
-  end
-
-  local current = mode_state.currentModeId
-  for _, mode in ipairs(mode_state.availableModes or {}) do
-    if mode.id == current then
-      return mode.name or mode.id
-    end
-  end
-  return current
-end
-
-local function model_name(model_state)
-  if type(model_state) ~= "table" then
-    return nil
-  end
-
-  local current = model_state.currentModelId
-  for _, model in ipairs(model_state.availableModels or {}) do
-    if model.id == current then
-      return model.name or model.id
-    end
-  end
-  return current
-end
-
-local function value_brief(value)
-  if type(value) == "string" then
-    local text = value:gsub("%s+", " ")
-    if #text > 80 then
-      return string.format("<string len=%d %q...>", #value, text:sub(1, 80))
-    end
-    return string.format("%q", text)
-  end
-
-  if type(value) == "table" then
-    return "{" .. table.concat(sorted_keys(value), ",") .. "}"
-  end
-
-  return tostring(value)
-end
-
-local function update_summary(update)
-  if type(update) ~= "table" then
-    return value_brief(update)
-  end
-
-  local parts = {
-    "type=" .. tostring(normalize.update_type(update)),
-    "kind=" .. tostring(update.kind),
-    "status=" .. tostring(update.status),
-    "title=" .. value_brief(update.title),
-    "toolCallId=" .. tostring(update.toolCallId),
-    "keys=" .. table.concat(sorted_keys(update), ","),
-  }
-
-  local content = update.content
-  if type(content) == "table" then
-    for index, item in ipairs(content) do
-      local item_parts = {
-        string.format("content[%d].keys=%s", index, table.concat(sorted_keys(item), ",")),
-      }
-
-      if type(item._meta) == "table" then
-        table.insert(item_parts, "meta.keys=" .. table.concat(sorted_keys(item._meta), ","))
-        table.insert(item_parts, "meta.kind=" .. tostring(item._meta.kind))
-      end
-
-      for _, key in ipairs({
-        "path",
-        "filePath",
-        "file_path",
-        "uri",
-        "oldText",
-        "newText",
-        "old_text",
-        "new_text",
-      }) do
-        if item[key] ~= nil then
-          table.insert(item_parts, key .. "=" .. value_brief(item[key]))
-        end
-      end
-
-      table.insert(parts, table.concat(item_parts, " "))
-    end
-  end
-
-  for _, key in ipairs({
-    "locations",
-    "rawInput",
-    "rawOutput",
-    "_meta",
-  }) do
-    if update[key] ~= nil then
-      table.insert(parts, key .. "=" .. value_brief(update[key]))
-    end
-  end
-
-  return table.concat(parts, " | ")
-end
-
-local function tool_activity(update)
-  if type(update) ~= "table" then
-    return nil
-  end
-
-  local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
-  local normalized_output = normalize.raw_output(update)
-  local raw_output = type(normalized_output) == "table" and normalized_output or {}
-  local meta = type(update._meta) == "table" and update._meta or {}
-  local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
-  local title = update.title or raw_input.command or update.kind or update.toolCallId
-
-  return {
-    toolCallId = update.toolCallId,
-    kind = update.kind,
-    status = update.status,
-    title = title,
-    exitCode = raw_output.exit_code or raw_output.exitCode or terminal_exit.exit_code or terminal_exit.exitCode,
-  }
-end
-
-local function raw_output_text(raw_output)
-  if type(raw_output) == "string" then
-    return raw_output
-  end
-  if type(raw_output) ~= "table" then
-    return nil
-  end
-
-  for _, key in ipairs({ "output", "stdout", "stderr", "text", "message", "content" }) do
-    local value = raw_output[key]
-    if type(value) == "string" and value ~= "" then
-      return value
-    end
-  end
-
-  return extract_text(raw_output)
-end
-
-local function tool_result(update)
-  if type(update) ~= "table" then
-    return nil
-  end
-
-  local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
-  local raw_output = normalize.raw_output(update)
-  local output = raw_output_text(raw_output) or extract_text(update.content)
-  if type(output) ~= "string" or output == "" then
-    return nil
-  end
-
-  local raw_output_table = type(raw_output) == "table" and raw_output or {}
-  local meta = type(update._meta) == "table" and update._meta or {}
-  local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
-
-  return {
-    toolCallId = update.toolCallId,
-    kind = update.kind,
-    status = update.status,
-    title = update.title or raw_input.command or update.kind or update.toolCallId,
-    command = raw_input.command or raw_input.cmd or update.title,
-    cwd = raw_input.cwd,
-    output = output,
-    exitCode = raw_output_table.exit_code
-      or raw_output_table.exitCode
-      or terminal_exit.exit_code
-      or terminal_exit.exitCode,
-  }
-end
-
-local function update_content_items(update)
-  if type(update) ~= "table" or type(update.content) ~= "table" then
-    return {}
-  end
-
-  return update.content
-end
-
-local function is_file_update_item(item)
-  local meta_kind = type(item) == "table" and type(item._meta) == "table" and item._meta.kind or nil
-  return type(item) == "table"
-    and (item.type == "diff" or meta_kind == "update" or meta_kind == "add")
-    and type(item.path) == "string"
-    and type(item.newText) == "string"
-end
-
-local function update_old_text(item)
-  return type(item.oldText) == "string" and item.oldText or ""
 end
 
 function M.new(config)
@@ -556,16 +102,7 @@ function M.new(config)
   end
 
   function state:_debug(event, payload)
-    append_protocol_log(self.config, event, payload)
-    local entry = {
-      event = event,
-      payload = debug_payload_summary(event, payload),
-      time = vim.loop.now(),
-    }
-    table.insert(self.debug_log, entry)
-    if #self.debug_log > 200 then
-      table.remove(self.debug_log, 1)
-    end
+    logging.record(self, event, payload)
   end
 
   function state:get_debug_log()
@@ -603,7 +140,7 @@ function M.new(config)
       else
         response.result = result
       end
-      append_protocol_log(self.config, "response", response)
+      logging.append(self.config, "response", response)
       if transport_reply then
         transport_reply(response.result, response.error)
       else
@@ -634,222 +171,7 @@ function M.new(config)
 
     if method == "session/update" then
       local update = params.update or params
-      local update_type = normalize.update_type(update)
-
-      if update_type == "tool_call" or update_type == "tool_call_update" then
-        self:_emit_notification({
-          method = "omniac/tool_activity",
-          params = tool_activity(update),
-        })
-      end
-
-      if update_type == "available_commands_update" then
-        self:_emit_notification({
-          method = "omniac/available_commands_update",
-          params = {
-            sessionId = self.session_id,
-            availableCommands = normalize.available_commands(update),
-          },
-        })
-        return
-      end
-
-      if update_type == "config_option_update" then
-        self:_apply_session_state({
-          configOptions = normalize.config_options(update),
-        })
-        return
-      end
-
-      if update_type == "usage_update" then
-        self:_emit_notification({
-          method = "omniac/usage_update",
-          params = {
-            sessionId = self.session_id,
-            used = update.used,
-            size = update.size,
-            cost = update.cost,
-          },
-        })
-        return
-      end
-
-      if update_type == "current_mode_update" then
-        if self.session_mode then
-          self.session_mode.currentModeId = normalize.mode_id(update) or self.session_mode.currentModeId
-        else
-          self.session_mode = {
-            source = "modes",
-            currentModeId = normalize.mode_id(update),
-            availableModes = {},
-          }
-        end
-        self:_emit_session_mode_update()
-        return
-      end
-
-      local edit_call = update and update.toolCallId and self.edit_tool_calls[update.toolCallId] or nil
-      if update and update.kind == "edit" and update.toolCallId and type(edit_call) ~= "table" then
-        edit_call = {
-          turn_id = self.active_turn_id,
-          files = {},
-          order = {},
-          title = update.title,
-        }
-        self.edit_tool_calls[update.toolCallId] = edit_call
-      end
-
-      local is_edit_update = type(edit_call) == "table"
-
-      if
-        (update_type == "tool_call" or update_type == "tool_call_update")
-        and not is_edit_update
-        and (update.status == "completed" or update.status == "failed")
-      then
-        local result = tool_result(update)
-        if result then
-          self:_emit_notification({
-            method = "omniac/tool_result",
-            params = result,
-          })
-        end
-      end
-
-      if (update_type == "tool_call" or update_type == "tool_call_update") and is_edit_update then
-        edit_call.title = update.title or edit_call.title
-        for _, item in ipairs(update_content_items(update)) do
-          if is_file_update_item(item) then
-            local file = edit_call.files[item.path]
-            if not file then
-              local completed_without_snapshot = update.status == "completed"
-              file = {
-                path = item.path,
-                oldText = completed_without_snapshot and update_old_text(item) or filesystem.read_disk_content(
-                  item.path
-                ) or update_old_text(item),
-                newText = item.newText,
-                operation = type(item._meta) == "table" and item._meta.kind or nil,
-                captured_before = not completed_without_snapshot,
-              }
-              edit_call.files[item.path] = file
-              table.insert(edit_call.order, item.path)
-            else
-              file.newText = item.newText
-              file.operation = (type(item._meta) == "table" and item._meta.kind) or file.operation
-            end
-
-            if update.status ~= "completed" and update.status ~= "failed" then
-              self:_emit_notification({
-                method = "omniac/permission_diff",
-                params = {
-                  sessionId = self.session_id,
-                  turnId = edit_call.turn_id,
-                  path = item.path,
-                  oldText = update_old_text(item),
-                  newText = item.newText,
-                  toolCallId = update.toolCallId,
-                  title = update.title,
-                  status = update.status,
-                },
-              })
-            end
-          end
-        end
-
-        if update.status == "completed" then
-          for _, path in ipairs(edit_call.order) do
-            local file = edit_call.files[path]
-            local new_text = file.newText
-            if file.captured_before then
-              new_text = filesystem.read_disk_content(path)
-              if new_text == nil and file.operation == "delete" then
-                new_text = ""
-              end
-              new_text = new_text or file.newText
-            end
-            self:_emit_notification({
-              method = "omniac/file_update",
-              params = {
-                sessionId = self.session_id,
-                turnId = edit_call.turn_id,
-                path = path,
-                oldText = file.oldText,
-                newText = new_text,
-                operation = file.operation,
-                toolCallId = update.toolCallId,
-                title = edit_call.title,
-                status = update.status,
-                error = update.error or update.rawOutput,
-              },
-            })
-          end
-        elseif update.status == "failed" then
-          self:_emit_notification({
-            method = "omniac/edit_failed",
-            params = {
-              toolCallId = update.toolCallId,
-              title = update.title,
-              error = update.error or update.rawOutput,
-            },
-          })
-        end
-        if update.status == "completed" or update.status == "failed" then
-          self.edit_tool_calls[update.toolCallId] = nil
-        end
-        return
-      end
-
-      if update_type == "agent_thought_chunk" then
-        local text = extract_text(update.content or update.delta or update)
-        local title = type(text) == "string" and text:match("^%s*%*%*(.-)%*%*%s*$") or nil
-        if title and title ~= "" and self.active_turn_id ~= nil then
-          self:_emit_notification({
-            method = "omniac/thought_activity",
-            params = {
-              text = title,
-              sessionId = self.session_id,
-              turnId = self.active_turn_id,
-            },
-          })
-        end
-        return
-      end
-
-      if update_type == "agent_message_chunk" then
-        local text = extract_text(update.content or update.delta or update)
-        if text and text ~= "" then
-          if self.active_turn_id ~= nil then
-            table.insert(self.response_chunks, text)
-            self.response_streamed = true
-          end
-          self:_emit_notification({
-            method = "omniac/response_chunk",
-            params = {
-              text = text,
-              sessionId = self.session_id,
-              turnId = self.active_turn_id,
-            },
-          })
-        end
-        return
-      end
-
-      if update_type == "agent_message_final" then
-        local text = extract_text(update.content or update.delta or update)
-        if text and text ~= "" then
-          if self.active_turn_id ~= nil then
-            table.insert(self.response_chunks, text)
-            self.response_streamed = true
-          end
-          self:_emit_notification({
-            method = "omniac/response_chunk",
-            params = {
-              text = text,
-              sessionId = self.session_id,
-              turnId = self.active_turn_id,
-            },
-          })
-        end
+      if updates.handle(self, update) then
         return
       end
     end
@@ -1116,7 +438,7 @@ function M.new(config)
         source = self.session_mode.source,
         configId = self.session_mode.configId,
         currentModeId = self.session_mode.currentModeId,
-        currentModeName = mode_name(self.session_mode),
+        currentModeName = session_state.mode_name(self.session_mode),
         availableModes = self.session_mode.availableModes or {},
       },
     })
@@ -1133,7 +455,7 @@ function M.new(config)
         sessionId = self.session_id,
         configId = self.session_model.configId,
         currentModelId = self.session_model.currentModelId,
-        currentModelName = model_name(self.session_model),
+        currentModelName = session_state.model_name(self.session_model),
         availableModels = self.session_model.availableModels or {},
       },
     })
@@ -1154,18 +476,18 @@ function M.new(config)
       })
     end
 
-    local model_state = model_state_from_config_options(config_options)
+    local model_state = session_state.model_from_config(config_options)
     if model_state then
       self.session_model = model_state
       self:_emit_session_model_update()
     end
 
-    local mode_state = mode_state_from_config_options(config_options)
+    local mode_state = session_state.mode_from_config(config_options)
     if mode_state then
       self.session_mode = mode_state
       self:_emit_session_mode_update()
     else
-      mode_state = mode_state_from_modes(result.modes or session.modes)
+      mode_state = session_state.mode_from_modes(result.modes or session.modes)
       if mode_state then
         self.session_mode = mode_state
         self:_emit_session_mode_update()
@@ -1395,7 +717,7 @@ function M.new(config)
     self.response_chunks = {}
 
     if (not text or text == "") and result then
-      text = extract_response_result_text(result)
+      text = content.response_text(result)
     end
 
     if text and text ~= "" then
@@ -1462,9 +784,9 @@ function M.new(config)
           return
         end
         if direction == "send" and message.method then
-          append_protocol_log(self.config, message.id ~= nil and "client_request" or "client_notification", message)
+          logging.append(self.config, message.id ~= nil and "client_request" or "client_notification", message)
         elseif direction == "recv" and message.id ~= nil and (message.result ~= nil or message.error ~= nil) then
-          append_protocol_log(self.config, "agent_response", message)
+          logging.append(self.config, "agent_response", message)
         end
       end)
     end
@@ -1485,7 +807,7 @@ function M.new(config)
           code = code,
           signal = signal,
         })
-        flush_pending_protocol_log(self.config)
+        logging.flush(self.config)
         self.running = false
         self.transport = nil
         self.session_id = nil
@@ -1713,7 +1035,7 @@ function M.new(config)
     if self.transport then
       self.transport:close()
     end
-    flush_pending_protocol_log(self.config)
+    logging.flush(self.config)
     self.running = false
     self.transport = nil
     self.session_id = nil
