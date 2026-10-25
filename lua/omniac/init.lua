@@ -18,6 +18,7 @@ local M = {
   failed_submission = nil,
   active_submission = nil,
   queued_submissions = {},
+  permission_approval = nil,
 }
 
 local submission_failure
@@ -948,7 +949,9 @@ function M.connect(opts)
     end)
   end
   local followup = new_modified_approval()
+  local permission_approval = approval.new()
   M.modified_approval = followup
+  M.permission_approval = permission_approval
   client
     :on_request(function(message, reply)
       local method = message and message.method
@@ -959,7 +962,7 @@ function M.connect(opts)
       end
 
       if method == "session/request_permission" then
-        approval.review_acp_permission(params, logged_reply, cfg, function(item)
+        permission_approval:review_acp_permission(params, logged_reply, cfg, function(item)
           return followup:queue(item)
         end, function(request, payload)
           return followup:matches_followup(request, payload)
@@ -1002,6 +1005,9 @@ function M.connect(opts)
         followup:close()
         followup = new_modified_approval()
         M.modified_approval = followup
+        permission_approval:close()
+        permission_approval = approval.new()
+        M.permission_approval = permission_approval
       elseif method == "omniac/prompt_started" then
         changes.start_turn(params)
       end
@@ -1009,7 +1015,7 @@ function M.connect(opts)
       ui.handle_notification(message, cfg)
 
       if method == "omniac/permission_diff" then
-        approval.attach_acp_permission_diff(params)
+        permission_approval:attach_acp_permission_diff(params)
         return
       end
 
@@ -1069,7 +1075,9 @@ function M.connect(opts)
       )
       M.backend = nil
       followup:close()
+      permission_approval:close()
       M.modified_approval = nil
+      M.permission_approval = nil
     end)
 
   M.backend = client:start()
@@ -1077,6 +1085,10 @@ function M.connect(opts)
 end
 
 function M.disconnect()
+  if M.permission_approval then
+    M.permission_approval:close()
+    M.permission_approval = nil
+  end
   if M.modified_approval then
     M.modified_approval:close()
     M.modified_approval = nil

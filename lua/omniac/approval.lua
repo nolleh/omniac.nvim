@@ -1,10 +1,9 @@
+local state_factory = require("omniac.approval.state")
 local diff = require("omniac.diff")
 local filesystem = require("omniac.filesystem")
 local permission_dialog = require("omniac.permission_dialog")
 
 local M = {}
-local pending_acp_permissions = {}
-local pending_acp_diffs = {}
 local EDIT_DIFF_WAIT_MS = 1000
 
 local function diff_separate_tab(config)
@@ -325,7 +324,7 @@ local function selected_permission_response(option)
   }
 end
 
-local function select_permission_option(params, reply, config, notice_index, notice_text)
+local function select_permission_option(params, reply, config, notice_index, notice_text, approval_state)
   local options = params and params.options or {}
 
   if type(options) ~= "table" or #options == 0 then
@@ -335,10 +334,16 @@ local function select_permission_option(params, reply, config, notice_index, not
   end
 
   vim.schedule(function()
+    if approval_state and not approval_state:is_active() then
+      return
+    end
     permission_dialog.open(options, {
       prompt = permission_summary(params),
       body = permission_body(params),
     }, function(choice)
+      if approval_state and not approval_state:is_active() then
+        return
+      end
       update_permission_text(
         notice_index,
         notice_text,
@@ -433,8 +438,7 @@ end
 
 local function finish_permission_diff(pending, accepted)
   pending.replied = true
-  pending_acp_permissions[pending.tool_call_id] = nil
-  pending_acp_diffs[pending.tool_call_id] = nil
+  pending.approval_state:clear(pending.tool_call_id)
   if not accepted then
     update_permission_text(pending.notice_index, pending.notice_text, "Decision: Rejected", pending.config, "rejected")
     pending.reply(permission_response(pending.params, false))
@@ -482,13 +486,7 @@ local function open_permission_diff(pending)
   local followup_payload = #pending.payloads == 1 and payload or pending.payloads
   if allow_id and pending.matches_followup and pending.matches_followup(pending.params, followup_payload) then
     pending.replied = true
-    pending_acp_permissions[pending.tool_call_id] = nil
-    pending_acp_diffs[pending.tool_call_id] = nil
-    if pending.diff_timer then
-      pending.diff_timer:stop()
-      pending.diff_timer:close()
-      pending.diff_timer = nil
-    end
+    pending.approval_state:clear(pending.tool_call_id)
     update_permission_text(
       pending.notice_index,
       pending.notice_text,
@@ -574,7 +572,7 @@ local function schedule_edit_permission_fallback(pending)
     0,
     vim.schedule_wrap(function()
       close_pending_timer(pending)
-      if pending.replied or pending.opened or pending_acp_permissions[pending.tool_call_id] ~= pending then
+      if pending.replied or pending.opened or not pending.approval_state:contains(pending) then
         return
       end
 
@@ -591,30 +589,30 @@ local function schedule_edit_permission_fallback(pending)
         end
         pending.replied = true
         pending.selector_open = false
-        pending_acp_permissions[pending.tool_call_id] = nil
-        pending_acp_diffs[pending.tool_call_id] = nil
+        pending.approval_state:clear(pending.tool_call_id)
         pending.reply(result)
-      end, pending.config, pending.notice_index, pending.notice_text)
+      end, pending.config, pending.notice_index, pending.notice_text, pending.approval_state)
     end)
   )
 end
 
-function M.review_acp_permission(params, reply, config, on_adjusted, matches_followup)
+local function review_acp_permission(approval_state, params, reply, config, on_adjusted, matches_followup)
   local tool_call = params and params.toolCall
   local notice_index, notice_text = show_permission_text(params, config)
   if type(tool_call) ~= "table" then
-    select_permission_option(params, reply, config, notice_index, notice_text)
+    select_permission_option(params, reply, config, notice_index, notice_text, approval_state)
     return
   end
 
   if tool_call.kind ~= "edit" then
-    select_permission_option(params, reply, config, notice_index, notice_text)
+    select_permission_option(params, reply, config, notice_index, notice_text, approval_state)
     return
   end
 
   local tool_call_id = tool_call.toolCallId or tostring(vim.loop.now())
   local pending = {
     tool_call_id = tool_call_id,
+    approval_state = approval_state,
     params = params,
     reply = reply,
     config = config,
@@ -626,19 +624,22 @@ function M.review_acp_permission(params, reply, config, on_adjusted, matches_fol
     opened = false,
     replied = false,
   }
-  pending_acp_permissions[pending.tool_call_id] = pending
+  if not approval_state:track(pending) then
+    return false
+  end
 
   append_diff_payloads(pending, diff_payloads(tool_call))
-  append_diff_payloads(pending, pending_acp_diffs[pending.tool_call_id] or {})
+  append_diff_payloads(pending, approval_state:cached_diffs(pending.tool_call_id))
   show_pending_paths(pending)
   if #pending.payloads > 0 then
     open_permission_diff(pending)
   else
     schedule_edit_permission_fallback(pending)
   end
+  return true
 end
 
-function M.attach_acp_permission_diff(params)
+local function attach_acp_permission_diff(approval_state, params)
   local tool_call_id = params and params.toolCallId
   local payloads = diff_payloads(params)
   if #payloads == 0 then
@@ -646,13 +647,10 @@ function M.attach_acp_permission_diff(params)
   end
 
   if tool_call_id then
-    pending_acp_diffs[tool_call_id] = pending_acp_diffs[tool_call_id] or {}
-    for _, payload in ipairs(payloads) do
-      table.insert(pending_acp_diffs[tool_call_id], payload)
-    end
+    approval_state:cache_diffs(tool_call_id, payloads)
   end
 
-  local pending = tool_call_id and pending_acp_permissions[tool_call_id]
+  local pending = tool_call_id and approval_state:pending(tool_call_id)
   if not pending then
     return false
   end
@@ -663,6 +661,39 @@ function M.attach_acp_permission_diff(params)
     return true
   end
   return open_permission_diff(pending)
+end
+
+function M.new()
+  local approval_state = state_factory.new()
+  local state = {}
+
+  function state:review_acp_permission(params, reply, config, on_adjusted, matches_followup)
+    if not approval_state:is_active() then
+      return false
+    end
+    return review_acp_permission(approval_state, params, reply, config, on_adjusted, matches_followup)
+  end
+
+  function state:attach_acp_permission_diff(params)
+    return attach_acp_permission_diff(approval_state, params)
+  end
+
+  function state:close()
+    approval_state:close()
+    permission_dialog.dismiss()
+  end
+
+  return state
+end
+
+local default_approval = M.new()
+
+function M.review_acp_permission(params, reply, config, on_adjusted, matches_followup)
+  return default_approval:review_acp_permission(params, reply, config, on_adjusted, matches_followup)
+end
+
+function M.attach_acp_permission_diff(params)
+  return default_approval:attach_acp_permission_diff(params)
 end
 
 function M.review_file_update(params, config)

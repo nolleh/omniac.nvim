@@ -342,6 +342,35 @@ describe("omniac.nvim approval", function()
     assert_equal(replied.outcome.optionId, "allow_once", "edit fallback should reply with selected option")
   end)
 
+  it("closing approval state cancels its pending permission", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.approval"] = nil
+    package.loaded["omniac.permission_dialog"] = nil
+    local approval = require("omniac.approval").new()
+    local replied
+
+    approval:review_acp_permission({
+      sessionId = "closing_session",
+      toolCall = {
+        kind = "edit",
+        toolCallId = "closing_permission",
+        content = vim.NIL,
+      },
+      options = {
+        { optionId = "allow_once", name = "Allow Once" },
+        { optionId = "reject_once", name = "Reject" },
+      },
+    }, function(result)
+      replied = result
+    end, {})
+
+    approval:close()
+    vim.wait(1100)
+
+    assert_equal(replied, nil, "closed approval state should not reply from a stale timer")
+    assert_equal(vim.fn.bufnr("omniac://permission"), -1, "closed approval state should not open a stale selector")
+  end)
+
   it("late edit permission diff replaces fallback selector", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
