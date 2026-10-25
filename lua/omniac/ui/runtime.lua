@@ -30,7 +30,7 @@ function M.new(state, deps)
     restart_mascot_actions = deps.restart_mascot_actions,
   }
 
-  runtime.input_controller = {
+  runtime.input_editing = {
     valid_buf = deps.valid_buf,
     valid_win = deps.valid_win,
     prompt = deps.input_prompt,
@@ -80,7 +80,7 @@ function M.new(state, deps)
     focus = deps.focus_input,
     close_ui = deps.close_ui,
     set_activity = deps.set_activity,
-    controller = runtime.input_controller,
+    editing = runtime.input_editing,
   }
 
   runtime.bindings = {

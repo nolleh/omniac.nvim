@@ -1,18 +1,18 @@
 local function new()
   local M = {}
-  local activity_controller = require("omniac.ui.activity.controller")
+  local activity_actions = require("omniac.ui.activity.actions")
   local activity_view = require("omniac.ui.activity")
-  local chat_controller = require("omniac.ui.chat.controller")
+  local chat_messages = require("omniac.ui.chat.messages")
   local chat_scheduler = require("omniac.ui.chat.scheduler")
   local chat_view = require("omniac.ui.chat.view")
   local input_attachments = require("omniac.ui.input.attachments")
-  local input_controller = require("omniac.ui.input.controller")
+  local input_editing = require("omniac.ui.input.editing")
   local input_history = require("omniac.ui.input.history")
   local input_render = require("omniac.ui.input.render")
   local input_suggestions = require("omniac.ui.input.suggestions")
   local layout = require("omniac.ui.layout")
   local lifecycle = require("omniac.ui.lifecycle")
-  local mascot_controller = require("omniac.ui.mascot.controller")
+  local mascot_motion = require("omniac.ui.mascot.motion")
   local mascot_render = require("omniac.ui.mascot.render")
   local notifications = require("omniac.ui.notifications")
   local runtime_factory = require("omniac.ui.runtime")
@@ -106,7 +106,7 @@ local function new()
   end
 
   local function restart_mascot_actions()
-    mascot_controller.restart(state, runtime.mascot)
+    mascot_motion.restart(state, runtime.mascot)
   end
 
   local function render_status()
@@ -233,7 +233,7 @@ local function new()
   end
 
   function M.clear_conversation(config)
-    chat_controller.clear(state, config, runtime.chat)
+    chat_messages.clear(state, config, runtime.chat)
   end
 
   local update_command_window
@@ -275,11 +275,11 @@ local function new()
   end
 
   focus_input = function()
-    input_controller.focus(state, runtime.input_controller)
+    input_editing.focus(state, runtime.input_editing)
   end
 
   local function focus_input_if_active()
-    input_controller.focus_if_active(state, runtime.input_controller)
+    input_editing.focus_if_active(state, runtime.input_editing)
   end
 
   reset_leftcol = function(win)
@@ -425,27 +425,27 @@ local function new()
   end
 
   function M.set_status(status, config)
-    activity_controller.set_status(state, status, config, runtime.activity)
+    activity_actions.set_status(state, status, config, runtime.activity)
   end
 
   function M.set_activity(text, config, opts)
-    activity_controller.set_activity(state, text, runtime.activity, opts)
+    activity_actions.set_activity(state, text, runtime.activity, opts)
   end
 
   function M.show_failure_action(handler)
-    activity_controller.show_failure(state, handler, runtime.activity)
+    activity_actions.show_failure(state, handler, runtime.activity)
   end
 
   function M.clear_failure_action()
-    activity_controller.clear_failure(state, runtime.activity)
+    activity_actions.clear_failure(state, runtime.activity)
   end
 
   function M.flash_activity(text, config, duration_ms)
-    activity_controller.flash(state, text, config, duration_ms, runtime.activity)
+    activity_actions.flash(state, text, config, duration_ms, runtime.activity)
   end
 
   function M.set_change_review_handler(handler)
-    activity_controller.set_change_review_handler(state, handler, runtime.activity)
+    activity_actions.set_change_review_handler(state, handler, runtime.activity)
   end
 
   function M.set_plan_toggle_handler(handler)
@@ -485,27 +485,27 @@ local function new()
   end
 
   function M.add_message(role, text, config, opts)
-    chat_controller.add_message(state, role, text, config, opts, runtime.chat)
+    chat_messages.add_message(state, role, text, config, opts, runtime.chat)
   end
 
   function M.add_notice(role, text, config)
-    return chat_controller.add_notice(state, role, text, config, runtime.chat)
+    return chat_messages.add_notice(state, role, text, config, runtime.chat)
   end
 
   function M.update_notice(index, text, config, opts)
-    chat_controller.update_notice(state, index, text, config, opts, runtime.chat)
+    chat_messages.update_notice(state, index, text, config, opts, runtime.chat)
   end
 
   function M.append_response_chunk(text, config)
-    chat_controller.append_response_chunk(state, text, config, runtime.chat)
+    chat_messages.append_response_chunk(state, text, config, runtime.chat)
   end
 
   function M.complete_response(config, opts)
-    chat_controller.complete_response(state, config, opts, runtime.chat)
+    chat_messages.complete_response(state, config, opts, runtime.chat)
   end
 
   function M.submit(text, config, attachments)
-    chat_controller.submit(state, text, config, attachments, runtime.chat)
+    chat_messages.submit(state, text, config, attachments, runtime.chat)
   end
 
   function M.restore_input(text, attachments)

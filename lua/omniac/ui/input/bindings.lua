@@ -1,6 +1,6 @@
 local attachments = require("omniac.ui.input.attachments")
 local completion = require("omniac.ui.input.completion")
-local controller = require("omniac.ui.input.controller")
+local editing = require("omniac.ui.input.editing")
 
 local M = {}
 
@@ -15,7 +15,7 @@ local function complete_current(state, opts, scheduled)
     if not opts.valid_buf(state.input_buf) or not opts.valid_win(state.input_win) then
       return
     end
-    opts.controller.render(completed, { line = 1, col = #completed })
+    opts.editing.render(completed, { line = 1, col = #completed })
     vim.cmd("startinsert!")
   end
   if scheduled then
@@ -32,11 +32,11 @@ local function add_clipboard_image(state, opts)
     return false, err
   end
 
-  local lines = opts.controller.read()
+  local lines = opts.editing.read()
   local cursor = opts.valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win)
-    or { 2, #opts.controller.prompt }
-  lines, cursor = attachments.insert(state, image, lines, opts.controller.logical_cursor(cursor))
-  opts.controller.render(lines, cursor)
+    or { 2, #opts.editing.prompt }
+  lines, cursor = attachments.insert(state, image, lines, opts.editing.logical_cursor(cursor))
+  opts.editing.render(lines, cursor)
   vim.schedule(opts.focus)
   return true
 end
@@ -121,11 +121,11 @@ function M.setup(state, opts)
 
   for _, key in ipairs({ "<S-CR>", "<S-Enter>" }) do
     vim.keymap.set({ "n", "i" }, key, function()
-      controller.insert_newline(state, opts.controller)
+      editing.insert_newline(state, opts.editing)
     end, { buffer = buf, nowait = true, desc = "Insert newline in Omniac prompt" })
   end
   vim.keymap.set("i", "<BS>", function()
-    return controller.delete_backwards(state, opts.controller)
+    return editing.delete_backwards(state, opts.editing)
   end, { buffer = buf, nowait = true, desc = "Delete Omniac input character" })
   vim.keymap.set({ "n", "i" }, "<C-c>", function()
     opts.reset()
@@ -158,14 +158,14 @@ function M.setup(state, opts)
     group = opts.augroup,
     buffer = buf,
     callback = function(args)
-      controller.enforce(state, args, opts.controller)
+      editing.enforce(state, args, opts.editing)
     end,
   })
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "InsertEnter", "InsertCharPre" }, {
     group = opts.augroup,
     buffer = buf,
     callback = function()
-      controller.clamp_cursor(state, opts.controller)
+      editing.clamp_cursor(state, opts.editing)
     end,
   })
 end

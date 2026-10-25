@@ -1,5 +1,5 @@
 local M = {}
-local activity_controller = require("omniac.ui.activity.controller")
+local activity_actions = require("omniac.ui.activity.actions")
 local bindings = require("omniac.ui.bindings")
 local buffers = require("omniac.ui.buffers")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
@@ -7,7 +7,7 @@ local events = require("omniac.ui.events")
 local highlights = require("omniac.ui.highlights")
 local input_bindings = require("omniac.ui.input.bindings")
 local layout = require("omniac.ui.layout")
-local mascot_controller = require("omniac.ui.mascot.controller")
+local mascot_motion = require("omniac.ui.mascot.motion")
 local tools = require("omniac.ui.tools")
 
 function M.relayout(state, handlers)
@@ -64,9 +64,9 @@ function M.close(state, handlers)
   if failure_action then
     failure_action("dismiss")
   end
-  activity_controller.stop_timer(state)
+  activity_actions.stop_timer(state)
   tools.stop_timer(state)
-  mascot_controller.stop(state, handlers.mascot)
+  mascot_motion.stop(state, handlers.mascot)
   chat_scheduler.cancel(state)
   events.clear(handlers.augroup)
   layout.close_windows(state, handlers.valid_win)
@@ -103,12 +103,12 @@ function M.open(state, config, submit, queue_submit, handlers)
   handlers.render_chat(state.config)
   handlers.render_card()
   handlers.render_activity()
-  activity_controller.sync_change_shortcuts(state, handlers.activity)
+  activity_actions.sync_change_shortcuts(state, handlers.activity)
   handlers.reset_input()
   handlers.render_status()
-  activity_controller.sync_timer(state, handlers.render_activity)
+  activity_actions.sync_timer(state, handlers.render_activity)
   handlers.focus_input()
-  mascot_controller.start(state, handlers.mascot)
+  mascot_motion.start(state, handlers.mascot)
   return state
 end
 
