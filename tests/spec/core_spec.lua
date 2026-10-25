@@ -180,8 +180,8 @@ describe("omniac.nvim core", function()
   end)
 
   it("selection references preserve source range and unsaved text", function()
-    package.loaded["omniac.selection"] = nil
-    local selection = require("omniac.selection")
+    package.loaded["omniac.editor.selection"] = nil
+    local selection = require("omniac.editor.selection")
     local buf = vim.api.nvim_create_buf(false, false)
     local path = "/private/tmp/omniac-reference-" .. tostring(vim.loop.hrtime()) .. ".lua"
 

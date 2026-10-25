@@ -2,7 +2,7 @@ local M = {}
 local normalize = require("omniac.acp.normalize")
 
 local function applied_count(batch)
-  local filesystem = require("omniac.filesystem")
+  local filesystem = require("omniac.editor.filesystem")
   local count = 0
   for _, item in ipairs(batch) do
     local file = filesystem.read_text_file({ path = item.path })
@@ -137,7 +137,7 @@ function M.new(client, config, is_current)
       return false
     end
     local remaining = vim.deepcopy(active.items)
-    local filesystem = require("omniac.filesystem")
+    local filesystem = require("omniac.editor.filesystem")
     for _, entry in ipairs(payloads) do
       if type(entry.oldText) ~= "string" then
         return false

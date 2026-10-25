@@ -1,4 +1,4 @@
-local permission_dialog = require("omniac.permission_dialog")
+local choice_dialog = require("omniac.ui.choice_dialog")
 
 local M = {}
 
@@ -32,7 +32,7 @@ function M.open(model_state, callback)
     })
   end
 
-  permission_dialog.open(options, {
+  choice_dialog.open(options, {
     title = "Model",
     prompt = "Select a model",
     body = "Current model: " .. tostring(current or "unknown"),

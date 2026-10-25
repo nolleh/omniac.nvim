@@ -1,4 +1,4 @@
-local permission_dialog = require("omniac.permission_dialog")
+local choice_dialog = require("omniac.ui.choice_dialog")
 
 local M = {}
 
@@ -24,7 +24,7 @@ function M.open(mode_state, callback)
     })
   end
 
-  permission_dialog.open(options, {
+  choice_dialog.open(options, {
     title = "Mode",
     prompt = "Select a mode",
     body = "Current mode: " .. tostring(current or "unknown"),

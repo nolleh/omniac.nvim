@@ -27,7 +27,7 @@ local function complete_current(state, opts, scheduled)
 end
 
 local function add_clipboard_image(state, opts)
-  local image, err = require("omniac.clipboard").read_image()
+  local image, err = require("omniac.editor.clipboard").read_image()
   if not image then
     return false, err
   end

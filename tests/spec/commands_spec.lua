@@ -223,7 +223,7 @@ describe("omniac.nvim commands", function()
     cleanup_omniac_buffers()
     package.loaded["omniac"] = nil
     package.loaded["omniac.ui"] = nil
-    package.loaded["omniac.selection"] = nil
+    package.loaded["omniac.editor.selection"] = nil
     for _, name in ipairs({
       "Omniac",
       "OmniacFocus",
@@ -462,12 +462,12 @@ describe("omniac.nvim commands", function()
   end)
 
   it("mode selector presents the agent's mode names and descriptions", function()
-    package.loaded["omniac.mode_dialog"] = nil
-    local dialog = require("omniac.mode_dialog")
-    local permission_dialog = require("omniac.permission_dialog")
-    local original_open = permission_dialog.open
+    package.loaded["omniac.session.mode_dialog"] = nil
+    local dialog = require("omniac.session.mode_dialog")
+    local choice_dialog = require("omniac.ui.choice_dialog")
+    local original_open = choice_dialog.open
     local shown_options, shown_config
-    permission_dialog.open = function(options, config)
+    choice_dialog.open = function(options, config)
       shown_options, shown_config = options, config
     end
 
@@ -478,7 +478,7 @@ describe("omniac.nvim commands", function()
         { id = "agent", name = "Auto review", description = "Review requests automatically" },
       },
     }, function() end)
-    permission_dialog.open = original_open
+    choice_dialog.open = original_open
 
     assert_equal(opened, true, "advertised modes should open the selector")
     assert_equal(shown_options[2].name, "Auto review  (current)", "selector should use the advertised name")
@@ -554,8 +554,8 @@ describe("omniac.nvim commands", function()
     cleanup_omniac_buffers()
     package.loaded["omniac"] = nil
     package.loaded["omniac.ui"] = nil
-    package.loaded["omniac.model_dialog"] = nil
-    package.loaded["omniac.permission_dialog"] = nil
+    package.loaded["omniac.session.model_dialog"] = nil
+    package.loaded["omniac.ui.choice_dialog"] = nil
     for _, name in ipairs({
       "Omniac",
       "OmniacFocus",

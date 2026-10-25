@@ -7,8 +7,8 @@ describe("omniac.nvim changes", function()
   after_each(helpers.cleanup_after_test)
 
   it("diff review accepts with :w", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
     local result
 
     diff.open_review("/tmp/omniac-test.txt", { "old" }, { "new" }, {}, function(accepted, lines)
@@ -26,8 +26,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("diff review denies with :q", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
     local result
 
     local origin_win = vim.api.nvim_get_current_win()
@@ -54,8 +54,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("diff review can deny edited proposed buffer with :q", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
     local result
 
     diff.open_review("/tmp/omniac-test.txt", { "old" }, { "new" }, {}, function(accepted, lines)
@@ -80,8 +80,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("diff review opens in normal mode", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
 
     vim.cmd("startinsert")
     local edited
@@ -98,8 +98,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("diff review jumps to the first changed line", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
 
     diff.open_review("/tmp/omniac-test.txt", { "keep", "old", "tail" }, { "keep", "new", "tail" }, {})
 
@@ -110,8 +110,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("opens a second diff in the existing review area", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
     local origin_win = vim.api.nvim_get_current_win()
     local first = diff.open_preview("/tmp/omniac-first.txt", { "old" }, { "new" }, {})
 
@@ -130,8 +130,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("change preview is read-only and does not write the file", function()
-    package.loaded["omniac.diff"] = nil
-    local diff = require("omniac.diff")
+    package.loaded["omniac.changes.review"] = nil
+    local diff = require("omniac.changes.review")
     local path = "/private/tmp/omniac-change-preview-" .. tostring(vim.loop.hrtime()) .. ".txt"
     vim.fn.writefile({ "disk" }, path)
 
@@ -199,9 +199,9 @@ describe("omniac.nvim changes", function()
     )
     assert_equal(#changes.get("turn"), 0, "latest turn review should remain on the active turn")
 
-    local change_dialog = require("omniac.change_dialog")
+    local change_dialog = require("omniac.changes.dialog")
     local original_open = change_dialog.open
-    local diff = require("omniac.diff")
+    local diff = require("omniac.changes.review")
     local original_preview = diff.open_preview
     local selected_scope
     local previewed
@@ -245,8 +245,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("change dialog matches the session picker layout and selects a file", function()
-    package.loaded["omniac.change_dialog"] = nil
-    local dialog = require("omniac.change_dialog")
+    package.loaded["omniac.changes.dialog"] = nil
+    local dialog = require("omniac.changes.dialog")
     local result
 
     dialog.open({
@@ -301,8 +301,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("change dialog reports the edit-file action", function()
-    package.loaded["omniac.change_dialog"] = nil
-    local dialog = require("omniac.change_dialog")
+    package.loaded["omniac.changes.dialog"] = nil
+    local dialog = require("omniac.changes.dialog")
     local action
 
     dialog.open(
@@ -344,8 +344,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("change dialog stays in normal mode and cannot be edited", function()
-    package.loaded["omniac.change_dialog"] = nil
-    local dialog = require("omniac.change_dialog")
+    package.loaded["omniac.changes.dialog"] = nil
+    local dialog = require("omniac.changes.dialog")
     vim.cmd("startinsert")
     dialog.open({ { path = "/tmp/project/README.md", operation = "modify" } }, { scope = "turn" }, function() end)
 
@@ -409,8 +409,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("session dialog flattens multiline session titles", function()
-    package.loaded["omniac.session_dialog"] = nil
-    local dialog = require("omniac.session_dialog")
+    package.loaded["omniac.session.dialog"] = nil
+    local dialog = require("omniac.session.dialog")
     local result
 
     dialog.open({
@@ -447,8 +447,8 @@ describe("omniac.nvim changes", function()
   end)
 
   it("opens the session dialog in normal mode", function()
-    package.loaded["omniac.session_dialog"] = nil
-    local dialog = require("omniac.session_dialog")
+    package.loaded["omniac.session.dialog"] = nil
+    local dialog = require("omniac.session.dialog")
 
     vim.cmd("startinsert")
     dialog.open({}, { list_supported = true }, function() end)

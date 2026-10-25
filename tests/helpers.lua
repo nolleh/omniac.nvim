@@ -46,7 +46,7 @@ local function cleanup_after_test()
   pcall(vim.api.nvim_del_user_command, "OmniacReferenceBuffer")
   package.preload["render-markdown"] = nil
   package.loaded["render-markdown"] = nil
-  package.loaded["omniac.clipboard"] = nil
+  package.loaded["omniac.editor.clipboard"] = nil
 end
 
 return {

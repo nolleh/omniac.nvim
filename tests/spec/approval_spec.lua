@@ -11,7 +11,7 @@ describe("omniac.nvim approval", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     package.loaded["omniac.approval"] = nil
-    package.loaded["omniac.permission_dialog"] = nil
+    package.loaded["omniac.ui.choice_dialog"] = nil
     local ui = require("omniac.ui")
     local approval = require("omniac.approval")
     local dialog_text
@@ -142,8 +142,8 @@ describe("omniac.nvim approval", function()
 
   it("permission selector leaves insert mode and stays read-only", function()
     cleanup_omniac_buffers()
-    package.loaded["omniac.permission_dialog"] = nil
-    local dialog = require("omniac.permission_dialog")
+    package.loaded["omniac.ui.choice_dialog"] = nil
+    local dialog = require("omniac.ui.choice_dialog")
 
     vim.cmd("startinsert")
     vim.wait(50, function()
@@ -170,8 +170,8 @@ describe("omniac.nvim approval", function()
 
   it("permission selector has a bordered action area below the request", function()
     cleanup_omniac_buffers()
-    package.loaded["omniac.permission_dialog"] = nil
-    local dialog = require("omniac.permission_dialog")
+    package.loaded["omniac.ui.choice_dialog"] = nil
+    local dialog = require("omniac.ui.choice_dialog")
 
     dialog.open({
       { optionId = "allow_once", name = "Allow Once" },
@@ -209,8 +209,8 @@ describe("omniac.nvim approval", function()
 
   it("permission body wraps long commands and preserves source newlines", function()
     cleanup_omniac_buffers()
-    package.loaded["omniac.permission_dialog"] = nil
-    local dialog = require("omniac.permission_dialog")
+    package.loaded["omniac.ui.choice_dialog"] = nil
+    local dialog = require("omniac.ui.choice_dialog")
     local command = "python3 -c '" .. string.rep("print(1234567890);", 30) .. "'"
 
     dialog.open({ { optionId = "allow_once", name = "Allow Once" } }, {
@@ -233,7 +233,7 @@ describe("omniac.nvim approval", function()
 
   it("permission dialog uses markdown rendering for the body", function()
     cleanup_omniac_buffers()
-    package.loaded["omniac.permission_dialog"] = nil
+    package.loaded["omniac.ui.choice_dialog"] = nil
     package.loaded["render-markdown"] = nil
 
     local render_calls = {}
@@ -246,7 +246,7 @@ describe("omniac.nvim approval", function()
       }
     end
 
-    local dialog = require("omniac.permission_dialog")
+    local dialog = require("omniac.ui.choice_dialog")
 
     dialog.open({
       { optionId = "allow_once", name = "Allow Once" },
@@ -297,7 +297,7 @@ describe("omniac.nvim approval", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     package.loaded["omniac.approval"] = nil
-    package.loaded["omniac.permission_dialog"] = nil
+    package.loaded["omniac.ui.choice_dialog"] = nil
     local ui = require("omniac.ui")
     local approval = require("omniac.approval")
     local dialog_text
@@ -345,7 +345,7 @@ describe("omniac.nvim approval", function()
   it("closing approval state cancels its pending permission", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.approval"] = nil
-    package.loaded["omniac.permission_dialog"] = nil
+    package.loaded["omniac.ui.choice_dialog"] = nil
     local approval = require("omniac.approval").new()
     local replied
 
@@ -375,7 +375,7 @@ describe("omniac.nvim approval", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     package.loaded["omniac.approval"] = nil
-    package.loaded["omniac.permission_dialog"] = nil
+    package.loaded["omniac.ui.choice_dialog"] = nil
     local ui = require("omniac.ui")
     local approval = require("omniac.approval")
 
@@ -620,7 +620,7 @@ describe("omniac.nvim approval", function()
       self.active_turn_id = 8
       self.prompt_callback = callback
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     assert_true(
@@ -667,7 +667,7 @@ describe("omniac.nvim approval", function()
       self.active_turn_id = 11
       self.prompt_callback = callback
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     followup:queue({
@@ -749,7 +749,7 @@ describe("omniac.nvim approval", function()
       self.active_turn_id = 21
       self.prompt_callback = callback
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     followup:queue({
@@ -793,7 +793,7 @@ describe("omniac.nvim approval", function()
     client.prompt = function()
       prompt_count = prompt_count + 1
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     assert_true(
@@ -829,7 +829,7 @@ describe("omniac.nvim approval", function()
       self.active_turn_id = 5
       self.prompt_callback = callback
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     followup:queue({
@@ -869,7 +869,7 @@ describe("omniac.nvim approval", function()
       next_turn = next_turn + 1
       table.insert(callbacks, callback)
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     local function adjusted(path)
@@ -916,7 +916,7 @@ describe("omniac.nvim approval", function()
       self.active_turn_id = 13
       self.prompt_callback = callback
     end
-    local followup = require("omniac.modified_approval").new(client, {}, function()
+    local followup = require("omniac.approval.followup").new(client, {}, function()
       return true
     end)
     followup:queue({
@@ -943,8 +943,8 @@ describe("omniac.nvim approval", function()
 
   it("permission dialog ignores escape without cancelling", function()
     cleanup_omniac_buffers()
-    package.loaded["omniac.permission_dialog"] = nil
-    local dialog = require("omniac.permission_dialog")
+    package.loaded["omniac.ui.choice_dialog"] = nil
+    local dialog = require("omniac.ui.choice_dialog")
     local choice = "unset"
 
     dialog.open({
@@ -971,8 +971,8 @@ describe("omniac.nvim approval", function()
 
   it("permission dialog replaces an existing dialog", function()
     cleanup_omniac_buffers()
-    package.loaded["omniac.permission_dialog"] = nil
-    local dialog = require("omniac.permission_dialog")
+    package.loaded["omniac.ui.choice_dialog"] = nil
+    local dialog = require("omniac.ui.choice_dialog")
 
     dialog.open({
       { optionId = "allow_once", name = "Allow Once" },

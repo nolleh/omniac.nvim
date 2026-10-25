@@ -271,8 +271,8 @@ describe("omniac.nvim acp files", function()
   end)
 
   it("ACP fs/read_text_file prefers unsaved buffer content", function()
-    package.loaded["omniac.filesystem"] = nil
-    local filesystem = require("omniac.filesystem")
+    package.loaded["omniac.editor.filesystem"] = nil
+    local filesystem = require("omniac.editor.filesystem")
     local path = "/private/tmp/omniac-fs-read-" .. tostring(vim.loop.now()) .. ".txt"
     vim.fn.writefile({ "disk" }, path)
 
@@ -294,8 +294,8 @@ describe("omniac.nvim acp files", function()
   end)
 
   it("filesystem disk snapshots ignore unsaved buffer content", function()
-    package.loaded["omniac.filesystem"] = nil
-    local filesystem = require("omniac.filesystem")
+    package.loaded["omniac.editor.filesystem"] = nil
+    local filesystem = require("omniac.editor.filesystem")
     local path = "/private/tmp/omniac-fs-snapshot-" .. tostring(vim.loop.now()) .. ".txt"
     vim.fn.writefile({ "disk" }, path)
 
@@ -310,8 +310,8 @@ describe("omniac.nvim acp files", function()
   end)
 
   it("ACP fs/write_text_file writes disk and updates loaded buffer", function()
-    package.loaded["omniac.filesystem"] = nil
-    local filesystem = require("omniac.filesystem")
+    package.loaded["omniac.editor.filesystem"] = nil
+    local filesystem = require("omniac.editor.filesystem")
     local path = "/private/tmp/omniac-fs-write-" .. tostring(vim.loop.now()) .. ".txt"
     vim.fn.writefile({ "old" }, path)
 
@@ -339,8 +339,8 @@ describe("omniac.nvim acp files", function()
   end)
 
   it("filesystem line writes update disk and loaded buffer", function()
-    package.loaded["omniac.filesystem"] = nil
-    local filesystem = require("omniac.filesystem")
+    package.loaded["omniac.editor.filesystem"] = nil
+    local filesystem = require("omniac.editor.filesystem")
     local path = "/private/tmp/omniac-fs-lines-" .. tostring(vim.loop.now()) .. ".txt"
     vim.fn.writefile({ "old" }, path)
 

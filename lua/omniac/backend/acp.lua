@@ -1,5 +1,5 @@
 local transport = require("omniac.transport")
-local filesystem = require("omniac.filesystem")
+local filesystem = require("omniac.editor.filesystem")
 local normalize = require("omniac.acp.normalize")
 
 local M = {}

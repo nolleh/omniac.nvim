@@ -1,16 +1,16 @@
 local config = require("omniac.config")
-local selection = require("omniac.selection")
-local mentions = require("omniac.mentions")
+local selection = require("omniac.editor.selection")
+local mentions = require("omniac.editor.mentions")
 local acp_backend = require("omniac.backend.acp")
 local ui = require("omniac.ui")
 local approval = require("omniac.approval")
-local session_dialog = require("omniac.session_dialog")
-local model_dialog = require("omniac.model_dialog")
-local mode_dialog = require("omniac.mode_dialog")
-local filesystem = require("omniac.filesystem")
-local tree = require("omniac.tree")
+local session_dialog = require("omniac.session.dialog")
+local model_dialog = require("omniac.session.model_dialog")
+local mode_dialog = require("omniac.session.mode_dialog")
+local filesystem = require("omniac.editor.filesystem")
+local tree = require("omniac.editor.tree")
 local changes = require("omniac.changes")
-local modified_approval = require("omniac.modified_approval")
+local modified_approval = require("omniac.approval.followup")
 
 local M = {
   config = config.defaults,
@@ -515,10 +515,10 @@ function M.setup(opts)
   })
   register_command("OmniacDiff", diff, { nargs = 1, complete = "file" })
   register_command("OmniacDiffAccept", function()
-    require("omniac.diff").accept_current_review()
+    require("omniac.changes.review").accept_current_review()
   end, {})
   register_command("OmniacDiffDeny", function()
-    require("omniac.diff").deny_current_review()
+    require("omniac.changes.review").deny_current_review()
   end, {})
 end
 
@@ -920,12 +920,12 @@ function M.ask_with_files(extra, paths)
 end
 
 function M.open_diff(before_lines, after_lines, opts)
-  local diff = require("omniac.diff")
+  local diff = require("omniac.changes.review")
   return diff.open(before_lines, after_lines, opts)
 end
 
 function M.open_file_diff(path, proposed_lines, opts)
-  local diff = require("omniac.diff")
+  local diff = require("omniac.changes.review")
   return diff.open_file(path, proposed_lines, opts)
 end
 

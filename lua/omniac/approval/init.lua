@@ -1,7 +1,7 @@
 local state_factory = require("omniac.approval.state")
-local diff = require("omniac.diff")
-local filesystem = require("omniac.filesystem")
-local permission_dialog = require("omniac.permission_dialog")
+local diff = require("omniac.changes.review")
+local filesystem = require("omniac.editor.filesystem")
+local choice_dialog = require("omniac.ui.choice_dialog")
 
 local M = {}
 local EDIT_DIFF_WAIT_MS = 1000
@@ -337,7 +337,7 @@ local function select_permission_option(params, reply, config, notice_index, not
     if approval_state and not approval_state:is_active() then
       return
     end
-    permission_dialog.open(options, {
+    choice_dialog.open(options, {
       prompt = permission_summary(params),
       body = permission_body(params),
     }, function(choice)
@@ -501,7 +501,7 @@ local function open_permission_diff(pending)
   pending.index = 1
   pending.adjustments = {}
   pending.selector_open = false
-  permission_dialog.dismiss()
+  choice_dialog.dismiss()
   if pending.diff_timer then
     pending.diff_timer:stop()
     pending.diff_timer:close()
@@ -680,7 +680,7 @@ function M.new()
 
   function state:close()
     approval_state:close()
-    permission_dialog.dismiss()
+    choice_dialog.dismiss()
   end
 
   return state

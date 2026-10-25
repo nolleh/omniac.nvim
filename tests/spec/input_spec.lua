@@ -600,7 +600,7 @@ describe("omniac.nvim input", function()
   it("input ctrl-v attaches clipboard image and submits it", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
-    package.loaded["omniac.clipboard"] = {
+    package.loaded["omniac.editor.clipboard"] = {
       read_image = function()
         return {
           type = "image",
@@ -636,13 +636,13 @@ describe("omniac.nvim input", function()
     assert_equal(submitted_attachments[1].mimeType, "image/png", "image mime type should be preserved")
     assert_equal(submitted_attachments[1]._position, 0, "image should retain its position before the typed text")
 
-    package.loaded["omniac.clipboard"] = nil
+    package.loaded["omniac.editor.clipboard"] = nil
   end)
 
   it("renders an inline attachment as one highlighted backspace unit", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
-    package.loaded["omniac.clipboard"] = {
+    package.loaded["omniac.editor.clipboard"] = {
       read_image = function()
         return {
           type = "image",
@@ -691,7 +691,7 @@ describe("omniac.nvim input", function()
     feed("<CR>")
     assert_equal(submissions, 0, "a removed attachment should not be submitted")
 
-    package.loaded["omniac.clipboard"] = nil
+    package.loaded["omniac.editor.clipboard"] = nil
   end)
 
   it("input allows greater-than as user text", function()

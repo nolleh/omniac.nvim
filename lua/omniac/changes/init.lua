@@ -1,6 +1,6 @@
-local diff = require("omniac.diff")
-local change_dialog = require("omniac.change_dialog")
-local change_telescope = require("omniac.change_telescope")
+local diff = require("omniac.changes.review")
+local change_dialog = require("omniac.changes.dialog")
+local change_telescope = require("omniac.changes.telescope")
 
 local M = {}
 
