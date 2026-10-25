@@ -114,6 +114,26 @@ local function read_disk_lines(path)
   return lines, nil
 end
 
+function M.read_disk_content(path)
+  if type(path) ~= "string" or path == "" then
+    return nil
+  end
+
+  local uv = vim.uv or vim.loop
+  local stat = uv.fs_stat(path)
+  if not stat or stat.type ~= "file" then
+    return nil
+  end
+
+  local fd = uv.fs_open(path, "r", 438)
+  if not fd then
+    return nil
+  end
+  local content = uv.fs_read(fd, stat.size, 0)
+  uv.fs_close(fd)
+  return content
+end
+
 local function write_disk_content(path, content)
   local fd, open_err = vim.loop.fs_open(path, "w", 438)
   if not fd then
@@ -141,7 +161,7 @@ local function write_disk_content(path, content)
   return nil
 end
 
-local function update_loaded_buffer(path, content)
+local function update_loaded_buffer_lines(path, lines)
   local buf = path_buffer(path)
   if not buf then
     return
@@ -152,7 +172,7 @@ local function update_loaded_buffer(path, content)
     vim.bo[buf].modifiable = true
   end
 
-  local ok = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, content_to_lines(content))
+  local ok = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
   if ok then
     vim.bo[buf].modified = false
   end
@@ -160,6 +180,21 @@ local function update_loaded_buffer(path, content)
   if not was_modifiable and vim.api.nvim_buf_is_valid(buf) then
     vim.bo[buf].modifiable = false
   end
+end
+
+local function update_loaded_buffer(path, content)
+  update_loaded_buffer_lines(path, content_to_lines(content))
+end
+
+function M.write_file_lines(path, lines)
+  if type(path) ~= "string" or path == "" then
+    return false
+  end
+
+  lines = type(lines) == "table" and lines or {}
+  vim.fn.writefile(lines, path)
+  update_loaded_buffer_lines(path, lines)
+  return true
 end
 
 function M.read_text_file(params)

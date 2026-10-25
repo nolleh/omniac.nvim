@@ -1,4 +1,5 @@
 local diff = require("omniac.diff")
+local filesystem = require("omniac.filesystem")
 local permission_dialog = require("omniac.permission_dialog")
 
 local M = {}
@@ -598,32 +599,6 @@ local function schedule_edit_permission_fallback(pending)
   )
 end
 
-local function write_lines(path, lines)
-  if type(path) ~= "string" or path == "" then
-    return
-  end
-
-  vim.fn.writefile(lines or {}, path)
-
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf) == path then
-      local was_modifiable = vim.bo[buf].modifiable
-      if not was_modifiable then
-        vim.bo[buf].modifiable = true
-      end
-
-      local ok = pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines or {})
-      if ok then
-        vim.bo[buf].modified = false
-      end
-
-      if not was_modifiable and vim.api.nvim_buf_is_valid(buf) then
-        vim.bo[buf].modifiable = false
-      end
-    end
-  end
-end
-
 function M.review_acp_permission(params, reply, config, on_adjusted, matches_followup)
   local tool_call = params and params.toolCall
   local notice_index, notice_text = show_permission_text(params, config)
@@ -701,14 +676,14 @@ function M.review_file_update(params, config)
   end
 
   vim.api.nvim_echo({ { "[omniac approval] opening file update review " .. path, "Comment" } }, true, {})
-  write_lines(path, before)
+  filesystem.write_file_lines(path, before)
 
   diff.open_review(path, before, after, {
     title = "Omniac file update: " .. path,
     origin_win = diff.select_review_window(),
     separate_tab = diff_separate_tab(config),
   }, function(accepted, accepted_lines)
-    write_lines(path, accepted and (accepted_lines or after) or before)
+    filesystem.write_file_lines(path, accepted and (accepted_lines or after) or before)
     vim.api.nvim_echo({
       {
         accepted and ("[omniac approval] accepted " .. path) or ("[omniac approval] denied " .. path),
@@ -744,7 +719,7 @@ function M.apply_file_update(params)
     return false
   end
 
-  write_lines(path, after)
+  filesystem.write_file_lines(path, after)
   vim.api.nvim_echo({
     { "[omniac approval] applied completed edit " .. path, "Comment" },
   }, true, {})

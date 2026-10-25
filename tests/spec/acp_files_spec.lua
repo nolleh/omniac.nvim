@@ -293,6 +293,22 @@ describe("omniac.nvim acp files", function()
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 
+  it("filesystem disk snapshots ignore unsaved buffer content", function()
+    package.loaded["omniac.filesystem"] = nil
+    local filesystem = require("omniac.filesystem")
+    local path = "/private/tmp/omniac-fs-snapshot-" .. tostring(vim.loop.now()) .. ".txt"
+    vim.fn.writefile({ "disk" }, path)
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_name(buf, path)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "unsaved" })
+    vim.bo[buf].modified = true
+
+    assert_equal(filesystem.read_disk_content(path), "disk\n", "disk snapshots should not read unsaved buffers")
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    pcall(vim.fn.delete, path)
+  end)
+
   it("ACP fs/write_text_file writes disk and updates loaded buffer", function()
     package.loaded["omniac.filesystem"] = nil
     local filesystem = require("omniac.filesystem")
@@ -320,5 +336,28 @@ describe("omniac.nvim acp files", function()
     )
     assert_equal(vim.bo[buf].modified, false, "loaded buffer should be marked unmodified after write")
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end)
+
+  it("filesystem line writes update disk and loaded buffer", function()
+    package.loaded["omniac.filesystem"] = nil
+    local filesystem = require("omniac.filesystem")
+    local path = "/private/tmp/omniac-fs-lines-" .. tostring(vim.loop.now()) .. ".txt"
+    vim.fn.writefile({ "old" }, path)
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_name(buf, path)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "old" })
+    vim.bo[buf].modified = true
+
+    assert_true(filesystem.write_file_lines(path, { "new", "value" }), "line writes should succeed")
+    assert_equal(table.concat(vim.fn.readfile(path), "\n"), "new\nvalue", "line writes should update disk")
+    assert_equal(
+      table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"),
+      "new\nvalue",
+      "line writes should update the loaded buffer"
+    )
+    assert_equal(vim.bo[buf].modified, false, "line writes should mark the buffer unmodified")
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    pcall(vim.fn.delete, path)
   end)
 end)

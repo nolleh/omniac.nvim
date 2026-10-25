@@ -1,4 +1,5 @@
 local transport = require("omniac.transport")
+local filesystem = require("omniac.filesystem")
 
 local M = {}
 
@@ -533,26 +534,6 @@ local function update_old_text(item)
   return type(item.oldText) == "string" and item.oldText or ""
 end
 
-local function read_file_content(path)
-  if type(path) ~= "string" or path == "" then
-    return nil
-  end
-
-  local uv = vim.uv or vim.loop
-  local stat = uv.fs_stat(path)
-  if not stat or stat.type ~= "file" then
-    return nil
-  end
-
-  local fd = uv.fs_open(path, "r", 438)
-  if not fd then
-    return nil
-  end
-  local content = uv.fs_read(fd, stat.size, 0)
-  uv.fs_close(fd)
-  return content
-end
-
 function M.new(config)
   local state = {
     config = config or {},
@@ -779,9 +760,9 @@ function M.new(config)
               local completed_without_snapshot = update.status == "completed"
               file = {
                 path = item.path,
-                oldText = completed_without_snapshot and update_old_text(item)
-                  or read_file_content(item.path)
-                  or update_old_text(item),
+                oldText = completed_without_snapshot and update_old_text(item) or filesystem.read_disk_content(
+                  item.path
+                ) or update_old_text(item),
                 newText = item.newText,
                 operation = type(item._meta) == "table" and item._meta.kind or nil,
                 captured_before = not completed_without_snapshot,
@@ -816,7 +797,7 @@ function M.new(config)
             local file = edit_call.files[path]
             local new_text = file.newText
             if file.captured_before then
-              new_text = read_file_content(path)
+              new_text = filesystem.read_disk_content(path)
               if new_text == nil and file.operation == "delete" then
                 new_text = ""
               end
