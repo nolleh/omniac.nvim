@@ -1,5 +1,6 @@
 local transport = require("omniac.transport")
 local filesystem = require("omniac.filesystem")
+local normalize = require("omniac.acp.normalize")
 
 local M = {}
 
@@ -41,13 +42,10 @@ local function extract_text(value, seen)
     end
   end
 
-  local content_items = value.contentItems or value.content_items
-  if type(content_items) == "table" then
-    for _, item in ipairs(content_items) do
-      local found = extract_text(item, seen)
-      if found and found ~= "" then
-        return found
-      end
+  for _, item in ipairs(normalize.content_items(value)) do
+    local found = extract_text(item, seen)
+    if found and found ~= "" then
+      return found
     end
   end
 
@@ -75,13 +73,10 @@ local function extract_response_result_text(result)
     end
   end
 
-  local content_items = result.contentItems or result.content_items
-  if type(content_items) == "table" then
-    for _, item in ipairs(content_items) do
-      local found = extract_text(item)
-      if found and found ~= "" then
-        return found
-      end
+  for _, item in ipairs(normalize.content_items(result)) do
+    local found = extract_text(item)
+    if found and found ~= "" then
+      return found
     end
   end
 
@@ -184,7 +179,7 @@ local function debug_payload_summary(event, payload)
     return {
       id = payload.id,
       method = payload.method,
-      sessionUpdate = update.sessionUpdate or update.type,
+      sessionUpdate = normalize.update_type(update),
       toolCallId = update.toolCallId,
       hasResult = payload.result ~= nil,
       hasError = payload.error ~= nil,
@@ -205,35 +200,6 @@ local function sorted_keys(value)
   end
   table.sort(keys)
   return keys
-end
-
-local function agent_capabilities(result)
-  return (result and (result.agentCapabilities or result.agent_capabilities)) or {}
-end
-
-local function has_load_session(capabilities)
-  return capabilities.loadSession == true or capabilities.load_session == true
-end
-
-local function session_capability(capabilities, name)
-  local session_capabilities = capabilities.sessionCapabilities or capabilities.session_capabilities or {}
-  return session_capabilities[name] ~= nil
-end
-
-local function prompt_capability(capabilities, name)
-  local prompt_capabilities = capabilities.promptCapabilities or capabilities.prompt_capabilities or {}
-  return prompt_capabilities[name] == true
-end
-
-local function session_id_from_result(result)
-  if type(result) ~= "table" then
-    return nil
-  end
-
-  return result.sessionId
-    or result.session_id
-    or (result.session and (result.session.id or result.session.sessionId or result.session.session_id))
-    or result.id
 end
 
 local function result_table(result)
@@ -271,7 +237,7 @@ local function mode_state_from_config_options(config_options)
       return {
         source = "config",
         configId = option.id,
-        currentModeId = option.currentValue or option.current_value,
+        currentModeId = normalize.current_value(option),
         availableModes = modes,
       }
     end
@@ -306,7 +272,7 @@ local function model_state_from_config_options(config_options)
 
       return {
         configId = option.id,
-        currentModelId = option.currentValue or option.current_value,
+        currentModelId = normalize.current_value(option),
         availableModels = models,
       }
     end
@@ -320,10 +286,7 @@ local function mode_state_from_modes(modes)
     return nil
   end
 
-  local available = modes.availableModes or modes.available_modes or {}
-  if type(available) ~= "table" then
-    available = {}
-  end
+  local available = normalize.available_modes(modes)
 
   local result = {}
   for _, mode in ipairs(available) do
@@ -337,7 +300,7 @@ local function mode_state_from_modes(modes)
   end
   return {
     source = "modes",
-    currentModeId = modes.currentModeId or modes.current_mode_id,
+    currentModeId = normalize.current_mode_id(modes),
     availableModes = result,
   }
 end
@@ -392,7 +355,7 @@ local function update_summary(update)
   end
 
   local parts = {
-    "type=" .. tostring(update.sessionUpdate or update.type),
+    "type=" .. tostring(normalize.update_type(update)),
     "kind=" .. tostring(update.kind),
     "status=" .. tostring(update.status),
     "title=" .. value_brief(update.title),
@@ -451,7 +414,8 @@ local function tool_activity(update)
   end
 
   local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
-  local raw_output = type(update.rawOutput) == "table" and update.rawOutput or {}
+  local normalized_output = normalize.raw_output(update)
+  local raw_output = type(normalized_output) == "table" and normalized_output or {}
   local meta = type(update._meta) == "table" and update._meta or {}
   local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
   local title = update.title or raw_input.command or update.kind or update.toolCallId
@@ -489,7 +453,7 @@ local function tool_result(update)
   end
 
   local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
-  local raw_output = update.rawOutput or update.raw_output
+  local raw_output = normalize.raw_output(update)
   local output = raw_output_text(raw_output) or extract_text(update.content)
   if type(output) ~= "string" or output == "" then
     return nil
@@ -609,11 +573,11 @@ function M.new(config)
   end
 
   function state:supports_session_capability(name)
-    return session_capability(self.agent_capabilities, name)
+    return normalize.session_capability(self.agent_capabilities, name)
   end
 
   function state:supports_prompt_capability(name)
-    return prompt_capability(self.agent_capabilities, name)
+    return normalize.prompt_capability(self.agent_capabilities, name)
   end
 
   function state:_transport_config()
@@ -670,7 +634,7 @@ function M.new(config)
 
     if method == "session/update" then
       local update = params.update or params
-      local update_type = update and (update.sessionUpdate or update.type)
+      local update_type = normalize.update_type(update)
 
       if update_type == "tool_call" or update_type == "tool_call_update" then
         self:_emit_notification({
@@ -679,25 +643,25 @@ function M.new(config)
         })
       end
 
-      if update_type == "available_commands_update" or update_type == "availableCommandsUpdate" then
+      if update_type == "available_commands_update" then
         self:_emit_notification({
           method = "omniac/available_commands_update",
           params = {
             sessionId = self.session_id,
-            availableCommands = update.availableCommands or update.available_commands or {},
+            availableCommands = normalize.available_commands(update),
           },
         })
         return
       end
 
-      if update_type == "config_option_update" or update_type == "configOptionUpdate" then
+      if update_type == "config_option_update" then
         self:_apply_session_state({
-          configOptions = update.configOptions or update.config_options,
+          configOptions = normalize.config_options(update),
         })
         return
       end
 
-      if update_type == "usage_update" or update_type == "usageUpdate" then
+      if update_type == "usage_update" then
         self:_emit_notification({
           method = "omniac/usage_update",
           params = {
@@ -710,13 +674,13 @@ function M.new(config)
         return
       end
 
-      if update_type == "current_mode_update" or update_type == "currentModeUpdate" then
+      if update_type == "current_mode_update" then
         if self.session_mode then
-          self.session_mode.currentModeId = update.modeId or update.mode_id or self.session_mode.currentModeId
+          self.session_mode.currentModeId = normalize.mode_id(update) or self.session_mode.currentModeId
         else
           self.session_mode = {
             source = "modes",
-            currentModeId = update.modeId or update.mode_id,
+            currentModeId = normalize.mode_id(update),
             availableModes = {},
           }
         end
@@ -835,7 +799,7 @@ function M.new(config)
         return
       end
 
-      if update_type == "agent_thought_chunk" or update_type == "agentThoughtChunk" then
+      if update_type == "agent_thought_chunk" then
         local text = extract_text(update.content or update.delta or update)
         local title = type(text) == "string" and text:match("^%s*%*%*(.-)%*%*%s*$") or nil
         if title and title ~= "" and self.active_turn_id ~= nil then
@@ -851,7 +815,7 @@ function M.new(config)
         return
       end
 
-      if update_type == "agent_message_chunk" or update_type == "agentMessageChunk" then
+      if update_type == "agent_message_chunk" then
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then
           if self.active_turn_id ~= nil then
@@ -870,7 +834,7 @@ function M.new(config)
         return
       end
 
-      if update_type == "agent_message_final" or update_type == "agentMessageFinal" then
+      if update_type == "agent_message_final" then
         local text = extract_text(update.content or update.delta or update)
         if text and text ~= "" then
           if self.active_turn_id ~= nil then
@@ -891,7 +855,7 @@ function M.new(config)
     end
 
     if method == "session/started" then
-      self.session_id = params.sessionId or params.session_id or params.id or self.session_id
+      self.session_id = normalize.session_id(params) or self.session_id
       return
     end
 
@@ -952,7 +916,10 @@ function M.new(config)
       mcpServers = self.config.mcpServers or {},
     }
 
-    if self.config.additionalDirectories and session_capability(self.agent_capabilities, "additionalDirectories") then
+    if
+      self.config.additionalDirectories
+      and normalize.session_capability(self.agent_capabilities, "additionalDirectories")
+    then
       params.additionalDirectories = self.config.additionalDirectories
     end
 
@@ -1012,7 +979,7 @@ function M.new(config)
         return
       end
 
-      local session_id = session_id_from_result(result)
+      local session_id = normalize.session_id(result)
       if not session_id then
         callback({ message = "session/new did not return a session id" })
         return
@@ -1086,7 +1053,7 @@ function M.new(config)
     if action == "new" then
       self:_create_session(function(err, result)
         if not err then
-          self.session_id = session_id_from_result(result) or self.session_id
+          self.session_id = normalize.session_id(result) or self.session_id
         end
         callback(err, result, "session/new")
       end)
@@ -1101,7 +1068,7 @@ function M.new(config)
     end
 
     if action == "load" then
-      if not has_load_session(self.agent_capabilities) then
+      if not normalize.has_load_session(self.agent_capabilities) then
         callback({
           message = "agent does not advertise loadSession",
         }, nil, "session/load")
@@ -1114,7 +1081,7 @@ function M.new(config)
       return
     end
 
-    if not session_capability(self.agent_capabilities, "resume") then
+    if not normalize.session_capability(self.agent_capabilities, "resume") then
       callback({
         message = "agent does not advertise sessionCapabilities.resume",
       }, nil, "session/resume")
@@ -1178,10 +1145,7 @@ function M.new(config)
     end
 
     local session = type(result.session) == "table" and result.session or {}
-    local config_options = result.configOptions
-      or result.config_options
-      or session.configOptions
-      or session.config_options
+    local config_options = normalize.config_options(result) or normalize.config_options(session)
     if type(config_options) == "table" then
       self.config_options = config_options
       self:_emit_notification({
@@ -1362,7 +1326,7 @@ function M.new(config)
       return
     end
 
-    local current = collaboration.currentValue or collaboration.current_value
+    local current = normalize.current_value(collaboration)
     local next_mode = current == "plan" and "default" or "plan"
     local available = false
     for _, option in ipairs(collaboration.options or {}) do
@@ -1425,7 +1389,7 @@ function M.new(config)
     end
 
     self.response_emitted = true
-    self.last_stop_reason = result and (result.stopReason or result.stop_reason) or nil
+    self.last_stop_reason = normalize.stop_reason(result)
 
     local text = table.concat(self.response_chunks)
     self.response_chunks = {}
@@ -1589,7 +1553,7 @@ function M.new(config)
         })
       end
 
-      self.agent_capabilities = agent_capabilities(result)
+      self.agent_capabilities = normalize.agent_capabilities(result)
 
       self:_setup_session(function(session_err, session_result, session_method)
         if session_err then
@@ -1609,7 +1573,7 @@ function M.new(config)
           return
         end
 
-        self.session_id = session_id_from_result(session_result) or self.session_id
+        self.session_id = normalize.session_id(session_result) or self.session_id
         self:_apply_session_state(session_result)
 
         local function finish_session_start()

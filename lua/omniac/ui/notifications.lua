@@ -1,22 +1,8 @@
 local M = {}
-
-local function normalized_stop_reason(params)
-  params = params or {}
-  local reason = params.stopReason or params.stop_reason
-  if not reason and type(params.result) == "table" then
-    reason = params.result.stopReason or params.result.stop_reason
-  end
-  return type(reason) == "string" and reason or nil
-end
-
-local function notification_turn_id(params)
-  params = params or {}
-  local turn_id = params.turnId or params.turn_id
-  return type(turn_id) == "number" and turn_id or nil
-end
+local normalize = require("omniac.acp.normalize")
 
 local function stop_reason_activity(reason, config)
-  if reason == "cancelled" or reason == "canceled" then
+  if reason == "cancelled" then
     return "Turn cancelled."
   end
   if reason == "interrupted" then
@@ -62,7 +48,7 @@ end
 function M.handle(state, message, config, handlers)
   local method = message and message.method
   local params = message and message.params or {}
-  local turn_id = notification_turn_id(params)
+  local turn_id = normalize.turn_id(params)
 
   if belongs_to_inactive_turn(state, method, turn_id) then
     return
@@ -107,7 +93,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/response" then
-    local reason = normalized_stop_reason(params)
+    local reason = normalize.stop_reason(params)
     handlers.add_message("Omniac", params.text or "", config, {
       stop_footer = stop_reason_footer(reason),
     })
@@ -144,7 +130,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/available_commands_update" then
-    handlers.set_available_commands(params.availableCommands or params.available_commands or {})
+    handlers.set_available_commands(normalize.available_commands(params))
     return
   end
 
@@ -159,7 +145,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/session_config_update" then
-    handlers.set_session_config(params.configOptions or params.config_options)
+    handlers.set_session_config(normalize.config_options(params))
     return
   end
 
@@ -169,7 +155,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/response_completed" then
-    local reason = normalized_stop_reason(params)
+    local reason = normalize.stop_reason(params)
     local suppress_stop_ui = state.suppress_current_turn
     handlers.complete_response(config, {
       stop_footer = suppress_stop_ui and nil or stop_reason_footer(reason),

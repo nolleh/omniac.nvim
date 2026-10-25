@@ -1,4 +1,5 @@
 local M = {}
+local normalize = require("omniac.acp.normalize")
 
 local function applied_count(batch)
   local filesystem = require("omniac.filesystem")
@@ -62,10 +63,10 @@ function M.new(client, config, is_current)
         state.sending = false
         local continued = state.active and state.active.followup_queued
         state.active = nil
-        local stop_reason = result and (result.stopReason or result.stop_reason)
-        if continued and not prompt_err and (stop_reason == "cancelled" or stop_reason == "canceled") then
+        local stop_reason = normalize.stop_reason(result)
+        if continued and not prompt_err and stop_reason == "cancelled" then
           ui.set_activity("Adjusted approval captured; applying the next reviewed edit.", config)
-        elseif prompt_err or stop_reason == "cancelled" or stop_reason == "canceled" or stop_reason == "error" then
+        elseif prompt_err or stop_reason == "cancelled" or stop_reason == "error" then
           local reason = type(prompt_err) == "table" and (prompt_err.message or prompt_err)
             or (prompt_err or stop_reason)
           local applied = applied_count(batch)
