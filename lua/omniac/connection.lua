@@ -136,6 +136,8 @@ function M.connect(app, opts, submission_failure)
           vim.log.levels.ERROR,
           { title = "omniac error" }
         )
+      elseif method == "omniac/warning" then
+        vim.notify(tostring(params.message or "omniac warning"), vim.log.levels.WARN, { title = "omniac warning" })
       end
     end)
     :on_exit(function(code, signal)

@@ -423,6 +423,42 @@ function M.new(config)
       return
     end
 
+    local mode_state = self.session_mode
+    local available_modes = mode_state and mode_state.availableModes or {}
+    local supported = false
+    for _, mode in ipairs(available_modes) do
+      if mode.id == mode_id then
+        supported = true
+        break
+      end
+    end
+
+    if not supported then
+      local choices = {}
+      for _, mode in ipairs(available_modes) do
+        table.insert(choices, string.format("%s (%s)", mode.name or mode.id, mode.id))
+      end
+
+      local current_mode_id = mode_state and mode_state.currentModeId
+      local current_mode_name = mode_state and session_state.mode_name(mode_state)
+      local current_mode = current_mode_id and string.format("%s (%s)", current_mode_name, current_mode_id)
+        or "the agent's default mode"
+      local available = #choices > 0 and table.concat(choices, ", ") or "none advertised"
+      self:_emit_notification({
+        method = "omniac/warning",
+        params = {
+          message = string.format(
+            "Configured agent.mode_id %q is not supported by this agent. Available modes: %s. Continuing with %s.",
+            mode_id,
+            available,
+            current_mode
+          ),
+        },
+      })
+      callback(nil, nil)
+      return
+    end
+
     self:set_session_mode(mode_id, callback)
   end
 

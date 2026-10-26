@@ -92,7 +92,7 @@ Use a project-local working directory and enable debug logging:
 | `agent.args`                           | `{}`                        | Additional agent arguments.                                                           |
 | `agent.env`                            | `{}`                        | Environment variables passed to the agent subprocess.                                 |
 | `agent.cwd`                            | `nil`                       | Working directory for the agent subprocess.                                           |
-| `agent.mode_id`                        | `"read-only"`               | Initial ACP agent mode ID; choose one advertised by the agent.                        |
+| `agent.mode_id`                        | `"read-only"`               | Initial ACP agent mode ID; choose one advertised by the agent. Unsupported IDs produce a warning and keep the agent's current mode. |
 | `agent.pty`                            | `false`                     | Runs the subprocess through a PTY when supported.                                     |
 | `agent.session.action`                 | `"new"`                     | ACP session startup action: `"new"`, `"load"`, `"resume"`, or `"select"`.            |
 | `agent.session.id`                     | `nil`                       | ACP session ID used when `agent.session.action` is `"load"` or `"resume"`.            |
@@ -137,6 +137,7 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 - `/model` opens a model selector for the active session; `/model <model>` changes it directly
 - `/mode` opens the agent's mode selector; `/mode <id>` changes the active session mode directly
   The initial mode is configured with `agent.mode_id`, for example `agent = { mode_id = "workspace-write" }`.
+  The ID must be advertised by the configured agent. If it is unsupported, Omniac warns with the available modes and keeps the session's current mode.
   A change made with `/mode` applies to the current session. Omniac applies `agent.mode_id` when creating a new
   session, while loaded or resumed sessions keep their saved mode.
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
