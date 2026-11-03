@@ -177,10 +177,12 @@ Start Neovim with a live ACP agent:
 ```sh
 make dev                 # Codex (default)
 make dev agent=copilot  # Copilot
+make dev agent=copilot model=gpt-5.4
 ```
 
 The Copilot command uses an installed `copilot` executable when available and otherwise runs
-`@github/copilot` through `npx`.
+`@github/copilot` through `npx`. Copilot supports selecting its initial model with `model=...`;
+Codex exposes model selection through the active ACP session instead.
 
 Run the mocked Plenary test suite with:
 

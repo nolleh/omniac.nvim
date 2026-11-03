@@ -1,7 +1,9 @@
 agent ?= codex
+model ?=
 
 PLENARY_DIR ?= $(if $(XDG_DATA_HOME),$(XDG_DATA_HOME),$(HOME)/.local/share)/nvim/lazy/plenary.nvim
-COPILOT_CMD ?= $(if $(shell command -v copilot 2>/dev/null),copilot --acp --stdio,npx --yes @github/copilot --acp --stdio)
+copilot_model_arg := $(if $(strip $(model)),--model $(model) )
+COPILOT_CMD ?= $(if $(shell command -v copilot 2>/dev/null),copilot $(copilot_model_arg)--acp --stdio,npx --yes @github/copilot $(copilot_model_arg)--acp --stdio)
 
 agent_cmd.codex := codex-acp
 agent_cmd.copilot := $(COPILOT_CMD)
@@ -12,12 +14,14 @@ e2e_dir.copilot := tests/e2e/copilot
 .PHONY: help dev test e2e
 
 help:
-	@echo "make dev [agent=codex|copilot]  Open Omniac with a live ACP agent"
+	@echo "make dev [agent=codex|copilot] [model=<copilot-model>]"
+	@echo "                                 Open Omniac with a live ACP agent"
 	@echo "make test                        Run mocked Plenary specs"
 	@echo "make e2e [agent=codex|copilot]  Run live E2E (uses agent quota)"
 
 dev:
 	@test -n "$(agent_cmd.$(agent))" || { echo "Unsupported agent: $(agent)" >&2; exit 2; }
+	@if [ -n "$(strip $(model))" ] && [ "$(agent)" != "copilot" ]; then echo "model= is only supported for agent=copilot" >&2; exit 2; fi
 	ACPCLIENT_AGENT_CMD='$(agent_cmd.$(agent))' nvim -c "luafile dev-load.lua"
 
 test:
