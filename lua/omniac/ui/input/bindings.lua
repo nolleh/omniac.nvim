@@ -1,4 +1,5 @@
 local attachments = require("omniac.ui.input.attachments")
+local ambient = require("omniac.ui.input.ambient")
 local completion = require("omniac.ui.input.completion")
 local editing = require("omniac.ui.input.editing")
 
@@ -60,6 +61,7 @@ end
 
 function M.setup(state, opts)
   local buf = state.input_buf
+  ambient.suppress_completion(buf)
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     local value, prepared_attachments = opts.prepared_input()
     if value == "" and #prepared_attachments == 0 then

@@ -7,6 +7,58 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim input", function()
   after_each(helpers.cleanup_after_test)
 
+  it("suppresses ambient completion in the input buffer", function()
+    local original_buf = vim.api.nvim_get_current_buf()
+    local input_buf = vim.api.nvim_create_buf(false, true)
+    local configured_buf
+    local closed = false
+
+    package.loaded["cmp"] = nil
+    package.loaded["omniac.ui.input.ambient"] = nil
+    package.preload["cmp"] = function()
+      return {
+        setup = {
+          buffer = function(config)
+            configured_buf = vim.api.nvim_get_current_buf()
+            assert_equal(config.enabled, false, "nvim-cmp should be disabled for the input buffer")
+          end,
+        },
+        visible = function()
+          return true
+        end,
+        close = function()
+          closed = true
+        end,
+      }
+    end
+
+    local ok, err = xpcall(function()
+      vim.bo[input_buf].complete = ".,w,b,u,t,i"
+      vim.bo[input_buf].completefunc = "CompleteFunc"
+      vim.bo[input_buf].omnifunc = "OmniFunc"
+      vim.bo[input_buf].thesaurusfunc = "ThesaurusFunc"
+
+      require("omniac.ui.input.ambient").suppress_completion(input_buf)
+
+      assert_equal(configured_buf, input_buf, "nvim-cmp buffer config should target Omniac input")
+      assert_equal(vim.api.nvim_get_current_buf(), original_buf, "completion setup should preserve the active buffer")
+      assert_equal(vim.bo[input_buf].complete, "", "built-in completion sources should be disabled")
+      assert_equal(vim.bo[input_buf].completefunc, "", "completefunc should be disabled")
+      assert_equal(vim.bo[input_buf].omnifunc, "", "omnifunc should be disabled")
+      assert_equal(vim.bo[input_buf].thesaurusfunc, "", "thesaurusfunc should be disabled")
+      assert_equal(vim.b[input_buf].omniac_disable_completion, true, "input should advertise completion suppression")
+      assert_equal(closed, true, "an existing nvim-cmp menu should close")
+    end, debug.traceback)
+
+    package.preload["cmp"] = nil
+    package.loaded["cmp"] = nil
+    package.loaded["omniac.ui.input.ambient"] = nil
+    vim.api.nvim_buf_delete(input_buf, { force = true })
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("keeps input when submission is rejected and restores saved attachments", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
