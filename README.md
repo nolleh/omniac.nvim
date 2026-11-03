@@ -172,17 +172,28 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 
 ## Dev
 
-Start Neovim with `scripts/dev.lua` to load this plugin with the default `codex-acp` command already configured.
-
-Run the test suite with:
+Start Neovim with a live ACP agent:
 
 ```sh
-./test.sh
+make dev                 # Codex (default)
+make dev agent=copilot  # Copilot
+```
+
+The Copilot command uses an installed `copilot` executable when available and otherwise runs
+`@github/copilot` through `npx`.
+
+Run the mocked Plenary test suite with:
+
+```sh
+make test
 ```
 
 The tests use Plenary's Busted-compatible test harness in a minimal Neovim environment. The runner uses
 `PLENARY_DIR` when it is set, reuses a lazy.nvim installation when available, and otherwise downloads a
 test-only copy into the user cache directory.
+
+Run a live ACP integration test with `make e2e` for Codex or `make e2e agent=copilot` for Copilot.
+These tests use the authenticated agent and consume its usage quota.
 
 ## TODO
 
