@@ -1,5 +1,6 @@
 local M = {}
 local text = require("omniac.ui.text")
+local chat_render = require("omniac.ui.chat.render")
 
 local function is_terminal_activity(state)
   return state.tool_activity and (state.tool_activity:match("^Completed ") or state.tool_activity:match("^Failed "))
@@ -108,6 +109,7 @@ function M.toggle_output(state, config, handlers)
     local message = state.messages[index]
     if message and message.type == "tool_result" and #(text.split_lines(message.output or "")) > 4 then
       message.expanded = not message.expanded
+      chat_render.invalidate(state, index)
       handlers.render_chat(config or state.config)
       handlers.focus_input()
       return true
@@ -125,6 +127,7 @@ function M.add_result(state, params, config, handlers)
 
   if state.streaming_message_index and state.messages[state.streaming_message_index] then
     state.messages[state.streaming_message_index].complete = true
+    chat_render.invalidate(state, state.streaming_message_index)
     state.streaming_message_index = nil
   end
 

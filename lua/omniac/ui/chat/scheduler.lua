@@ -10,7 +10,7 @@ end
 function M.request(state, config, opts, render)
   opts = opts or {}
   config = config or state.config
-  if opts.immediate then
+  if opts.immediate and not state.session_loading then
     M.cancel(state)
     render(config, opts)
     return
@@ -38,7 +38,7 @@ function M.request(state, config, opts, render)
     state.chat_render_config = nil
     state.chat_render_opts = nil
     render(pending_config, pending_opts)
-  end, 24)
+  end, state.session_loading and 48 or 24)
 end
 
 return M

@@ -1,5 +1,7 @@
 local M = {}
 local tools = require("omniac.ui.tools")
+local render = require("omniac.ui.chat.render")
+local markdown = require("omniac.ui.markdown")
 
 local function transport_activity_text(value)
   value = tostring(value or ""):gsub("\r", "")
@@ -25,6 +27,8 @@ end
 
 function M.clear(state, config, handlers)
   state.messages = {}
+  state.chat_render_cache = nil
+  state.chat_dirty_from = nil
   state.streaming_message_index = nil
   state.tool_activity = nil
   state.cancel_requested = false
@@ -61,6 +65,7 @@ end
 function M.add_notice(state, role, value, config, handlers)
   if state.streaming_message_index and state.messages[state.streaming_message_index] then
     state.messages[state.streaming_message_index].complete = true
+    render.invalidate(state, state.streaming_message_index)
     state.streaming_message_index = nil
   end
   table.insert(state.messages, {
@@ -78,6 +83,7 @@ function M.update_notice(state, index, value, config, opts, handlers)
     return
   end
   state.messages[index].text = value or state.messages[index].text or ""
+  render.invalidate(state, index)
   if opts and opts.permission_status then
     state.messages[index].permission_status = opts.permission_status
   end
@@ -96,6 +102,7 @@ function M.append_response_chunk(state, value, config, handlers)
   if activity then
     if state.streaming_message_index and state.messages[state.streaming_message_index] then
       state.messages[state.streaming_message_index].complete = true
+      render.invalidate(state, state.streaming_message_index)
       state.streaming_message_index = nil
     end
     handlers.set_activity(activity, config)
@@ -115,9 +122,11 @@ function M.append_response_chunk(state, value, config, handlers)
   end
 
   local message = state.messages[index]
+  markdown.suspend(state.chat_buf)
   message.complete = false
   message.pending_chunks = message.pending_chunks or {}
   table.insert(message.pending_chunks, value)
+  render.invalidate(state, index)
   handlers.request_render(config, { skip_markdown = true, follow = true })
 end
 
@@ -127,6 +136,7 @@ function M.complete_response(state, config, opts, handlers)
   if index and state.messages[index] and state.messages[index].role == "Omniac" then
     state.messages[index].complete = true
     state.messages[index].stop_footer = opts.stop_footer
+    render.invalidate(state, index)
     handlers.request_render(config, { immediate = true, follow = true })
   end
   state.streaming_message_index = nil

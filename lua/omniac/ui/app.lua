@@ -102,6 +102,9 @@ local function new()
   end
 
   render_chat = function(config, opts)
+    if state.session_loading then
+      opts = vim.tbl_extend("force", opts or {}, { skip_markdown = true })
+    end
     chat_view.render(state, config, opts, runtime.chat_view)
   end
 

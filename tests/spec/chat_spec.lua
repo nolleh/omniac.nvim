@@ -75,6 +75,74 @@ describe("omniac.nvim chat", function()
     package.loaded["render-markdown"] = nil
   end)
 
+  it("excludes user messages from markdown rendering", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    package.loaded["render-markdown"] = nil
+
+    local original_start = vim.treesitter.start
+    local original_get_parser = vim.treesitter.get_parser
+    local included
+    vim.treesitter.start = function() end
+    vim.treesitter.get_parser = function()
+      return {
+        set_included_regions = function(_, regions)
+          included = regions
+        end,
+        parse = function() end,
+      }
+    end
+    package.preload["render-markdown"] = function()
+      return {
+        initialized = true,
+        render = function() end,
+      }
+    end
+
+    local ok, err = xpcall(function()
+      local ui = require("omniac.ui")
+      local config = { agent = { cmd = { "codex-acp" } }, ui = { chat_width = 48 } }
+      ui.open(config, function(_) end)
+      ui.add_message("You", "[Image 1] **literal**", config)
+      ui.add_message("Omniac", "**assistant**", config)
+
+      local chat_buf = vim.fn.bufnr("omniac")
+      local user_row
+      local assistant_row
+      for row, line in ipairs(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)) do
+        if line:find("[Image 1]", 1, true) then
+          user_row = row - 1
+        elseif line:find("**assistant**", 1, true) then
+          assistant_row = row - 1
+        end
+      end
+
+      local function parsed(row)
+        for _, region in ipairs(included or {}) do
+          for _, range in ipairs(region) do
+            if row >= range[1] and row < range[3] then
+              return true
+            end
+          end
+        end
+        return false
+      end
+
+      assert_true(user_row ~= nil, "user attachment marker should remain in the chat buffer")
+      assert_true(assistant_row ~= nil, "assistant markdown should remain in the chat buffer")
+      assert_true(not parsed(user_row), "user message should be outside markdown parser ranges")
+      assert_true(parsed(assistant_row), "assistant message should remain inside markdown parser ranges")
+    end, debug.traceback)
+
+    vim.treesitter.start = original_start
+    vim.treesitter.get_parser = original_get_parser
+    package.preload["render-markdown"] = nil
+    package.loaded["render-markdown"] = nil
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("streaming response defers markdown rendering until complete", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

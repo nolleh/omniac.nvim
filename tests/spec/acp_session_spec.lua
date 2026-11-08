@@ -5,6 +5,34 @@ local assert_true = helpers.assert_true
 describe("omniac.nvim acp session", function()
   after_each(helpers.cleanup_after_test)
 
+  it("announces history loading before replay updates and the load callback", function()
+    local client = require("omniac.backend.acp").new({})
+    local events = {}
+    client:on_notification(function(message)
+      table.insert(events, message.method)
+    end)
+    client.transport = {
+      request = function(_, method, params, callback)
+        assert_equal(method, "session/load")
+        assert_equal(params.sessionId, "history-session")
+        client:_handle_notification({
+          method = "session/update",
+          params = {
+            update = { sessionUpdate = "agent_message_chunk", content = { type = "text", text = "history" } },
+          },
+        })
+        callback(nil, {})
+      end,
+    }
+    client:_load_session("history-session", function()
+      client:_emit_notification({ method = "test/load_finished" })
+    end)
+    assert_true(vim.wait(100, function()
+      return #events == 3
+    end))
+    assert.are.same({ "omniac/session_loading", "omniac/response_chunk", "test/load_finished" }, events)
+  end)
+
   it("returns a queued prompt when initialization rejects the protocol version", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

@@ -336,6 +336,7 @@ function M.new(config)
   function state:_load_session(session_id, callback)
     local params = self:_session_params()
     params.sessionId = session_id
+    self:_emit_notification({ method = "omniac/session_loading", params = { sessionId = session_id } })
     self.transport:request("session/load", params, callback)
   end
 

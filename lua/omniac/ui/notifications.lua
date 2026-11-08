@@ -1,5 +1,7 @@
 local M = {}
 local normalize = require("omniac.acp.normalize")
+local chat_scheduler = require("omniac.ui.chat.scheduler")
+local chat_render = require("omniac.ui.chat.render")
 
 local function stop_reason_activity(reason, config)
   if reason == "cancelled" then
@@ -54,7 +56,20 @@ function M.handle(state, message, config, handlers)
     return
   end
 
+  if method == "omniac/session_loading" then
+    state.session_loading = true
+    return
+  end
+
   if method == "omniac/session_started" then
+    if state.session_loading and state.streaming_message_index then
+      local index = state.streaming_message_index
+      state.messages[index].complete = true
+      chat_render.invalidate(state, index)
+      state.streaming_message_index = nil
+    end
+    state.session_loading = false
+    chat_scheduler.cancel(state)
     if params.clearChat then
       handlers.clear_conversation(config)
     end
@@ -172,6 +187,8 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/error" then
+    state.session_loading = false
+    chat_scheduler.cancel(state)
     handlers.add_message("Error", vim.inspect(params), config)
     handlers.set_status("error", config)
   end

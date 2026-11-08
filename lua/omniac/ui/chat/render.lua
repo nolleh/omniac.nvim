@@ -2,6 +2,10 @@ local text = require("omniac.ui.text")
 
 local M = {}
 
+function M.invalidate(state, index)
+  state.chat_dirty_from = math.min(state.chat_dirty_from or index, index)
+end
+
 local function add_line(lines, marks, value, group)
   table.insert(lines, value)
   if group then
@@ -123,6 +127,8 @@ function M.build(opts)
   local lines = {}
   local marks = {}
   local permission_marks = {}
+  local markdown_excluded_ranges = {}
+  local message_ranges = {}
 
   local function add_message_separator()
     add_line(
@@ -153,7 +159,8 @@ function M.build(opts)
     add_boxed_line(lines, marks, "cwd: " .. vim.fn.fnamemodify(vim.loop.cwd() or "", ":~"), width, "OmniacMuted")
     add_line(lines, marks, text.box_line("╰", "─", "╯", width), "OmniacBorder")
   else
-    for _, message in ipairs(state.messages) do
+    for index = opts.start_index or 1, #state.messages do
+      local message = state.messages[index]
       local value = materialize_message_text(message)
       local message_start = #lines + 1
       local group = message.role == "You" and "OmniacUserBubble" or nil
@@ -162,8 +169,12 @@ function M.build(opts)
       end
 
       if message.role == "You" then
+        local range_start = #lines
         for _, line in ipairs(text.wrapped(value, text_width)) do
           add_line(lines, marks, "  " .. text.fit(line, width - 4) .. "  ", group)
+        end
+        if #lines > range_start then
+          table.insert(markdown_excluded_ranges, { from = range_start, to = #lines })
         end
         add_message_separator()
       else
@@ -211,10 +222,17 @@ function M.build(opts)
         add_mark(marks, message_start, 0, -1, "OmniacAccent")
       end
       add_line(lines, marks, "", nil)
+      message_ranges[index] = { from = message_start - 1, to = #lines }
     end
   end
 
-  return { lines = lines, marks = marks, permission_marks = permission_marks }
+  return {
+    lines = lines,
+    marks = marks,
+    permission_marks = permission_marks,
+    markdown_excluded_ranges = markdown_excluded_ranges,
+    message_ranges = message_ranges,
+  }
 end
 
 return M

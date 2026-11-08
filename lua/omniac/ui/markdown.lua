@@ -11,25 +11,80 @@ local function valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf)
 end
 
-function M.start(buf)
+local function reset_children(parser)
+  if parser and parser.children and parser.remove_child then
+    for lang in pairs(parser:children()) do
+      parser:remove_child(lang)
+    end
+  end
+end
+
+local function included_regions(buf, excluded)
+  local result = {}
+  local cursor = 0
+  local line_count = vim.api.nvim_buf_line_count(buf)
+  for _, range in ipairs(excluded or {}) do
+    local from = math.min(math.max(range.from or 0, cursor), line_count)
+    local to = math.min(math.max(range.to or from, from), line_count)
+    if cursor < from then
+      table.insert(result, { { cursor, 0, from, 0 } })
+    end
+    cursor = to
+  end
+  if cursor < line_count then
+    table.insert(result, { { cursor, 0, line_count, 0 } })
+  end
+  return result
+end
+
+function M.suspend(buf)
+  if not valid_buf(buf) then
+    return
+  end
+  vim.b[buf].omniac_markdown_generation = (vim.b[buf].omniac_markdown_generation or 0) + 1
+  if vim.b[buf].omniac_markdown_suspended and not vim.b[buf].omniac_markdown_parsing then
+    return
+  end
+  vim.b[buf].omniac_markdown_suspended = true
+  vim.b[buf].omniac_markdown_parsing = false
+  if vim.treesitter and vim.treesitter.stop then
+    pcall(vim.treesitter.stop, buf)
+  end
+  local ok, renderer = pcall(require, "render-markdown")
+  if ok and type(renderer.buf_disable) == "function" then
+    pcall(vim.api.nvim_buf_call, buf, renderer.buf_disable)
+  end
+  if vim.treesitter and vim.treesitter.get_parser then
+    local ok_parser, parser = pcall(vim.treesitter.get_parser, buf, "markdown")
+    if ok_parser then
+      reset_children(parser)
+      pcall(parser.set_included_regions, parser, {})
+    end
+  end
+end
+
+function M.start(buf, excluded)
   if not valid_buf(buf) or not (vim.treesitter and vim.treesitter.start) then
     return
   end
-  pcall(vim.treesitter.start, buf, "markdown")
+  local ok, parser = pcall(vim.treesitter.get_parser, buf, "markdown")
+  if ok and parser then
+    pcall(parser.set_included_regions, parser, included_regions(buf, excluded))
+  end
 end
 
-function M.clear(buf)
+function M.clear(buf, from)
   if not valid_buf(buf) then
     return
   end
   for name, id in pairs(vim.api.nvim_get_namespaces()) do
     if type(name) == "string" and name:match("render.markdown") then
-      pcall(vim.api.nvim_buf_clear_namespace, buf, id, 0, -1)
+      pcall(vim.api.nvim_buf_clear_namespace, buf, id, from or 0, -1)
     end
   end
 end
 
-function M.render(buf, win, event)
+local function render(buf, win, event)
   if not valid_buf(buf) then
     return
   end
@@ -60,7 +115,60 @@ function M.render(buf, win, event)
       config = config,
     })
   elseif type(renderer.buf_enable) == "function" then
-    pcall(renderer.buf_enable)
+    pcall(vim.api.nvim_buf_call, buf, renderer.buf_enable)
+  end
+end
+
+function M.render(buf, win, event)
+  if not valid_buf(buf) then
+    return
+  end
+  if not vim.b[buf].omniac_markdown_suspended then
+    render(buf, win, event)
+    return
+  end
+
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  local generation = (vim.b[buf].omniac_markdown_generation or 0) + 1
+  vim.b[buf].omniac_markdown_generation = generation
+  vim.b[buf].omniac_markdown_parsing = true
+  local ok, parser = pcall(vim.treesitter.get_parser, buf, "markdown")
+  local completed = false
+  local function complete(err)
+    if completed then
+      return
+    end
+    completed = true
+    if
+      not valid_buf(buf)
+      or generation ~= vim.b[buf].omniac_markdown_generation
+      or tick ~= vim.api.nvim_buf_get_changedtick(buf)
+    then
+      return
+    end
+    vim.b[buf].omniac_markdown_parsing = false
+    if err then
+      reset_children(parser)
+      if parser and parser.invalidate then
+        pcall(parser.invalidate, parser, true)
+      end
+      return
+    end
+    vim.b[buf].omniac_markdown_suspended = false
+    pcall(vim.treesitter.start, buf, "markdown")
+    render(buf, win, event)
+  end
+  if ok and parser and parser.parse then
+    -- Parse injections before redraw or render-markdown can request a synchronous
+    -- parse. The callback API yields to Neovim and observes its redrawtime budget.
+    local parsed, result = pcall(parser.parse, parser, true, complete)
+    if not parsed then
+      complete(result)
+    elseif type(result) == "table" then
+      complete()
+    end
+  else
+    complete()
   end
 end
 
