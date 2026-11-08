@@ -675,8 +675,10 @@ describe("omniac.nvim input", function()
     end)
 
     vim.cmd("startinsert")
+    vim.v.errmsg = ""
     feed("<C-v>")
     vim.wait(20)
+    assert_true(not vim.v.errmsg:find("E565", 1, true), "clipboard image rendering should run outside textlock")
     vim.cmd("stopinsert")
     local line = vim.api.nvim_buf_get_lines(vim.api.nvim_get_current_buf(), 1, 2, false)[1]
     vim.api.nvim_buf_set_lines(vim.api.nvim_get_current_buf(), 1, 2, false, { line .. "describe image" })

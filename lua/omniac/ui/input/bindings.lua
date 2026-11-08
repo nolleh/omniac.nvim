@@ -27,15 +27,13 @@ local function complete_current(state, opts, scheduled)
   return true
 end
 
-local function add_clipboard_image(state, opts)
-  local image, err = require("omniac.editor.clipboard").read_image()
-  if not image then
-    return false, err
+local function add_clipboard_image(state, opts, image)
+  if not opts.valid_buf(state.input_buf) or not opts.valid_win(state.input_win) then
+    return false
   end
 
   local lines = opts.editing.read()
-  local cursor = opts.valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win)
-    or { 2, #opts.editing.prompt }
+  local cursor = vim.api.nvim_win_get_cursor(state.input_win)
   lines, cursor = attachments.insert(state, image, lines, opts.editing.logical_cursor(cursor))
   opts.editing.render(lines, cursor)
   vim.schedule(opts.focus)
@@ -113,10 +111,18 @@ function M.setup(state, opts)
   end
 
   vim.keymap.set("i", "<C-v>", function()
-    return add_clipboard_image(state, opts) and "" or "<C-r>+"
+    local image = require("omniac.editor.clipboard").read_image()
+    if not image then
+      return "<C-r>+"
+    end
+    vim.schedule(function()
+      add_clipboard_image(state, opts, image)
+    end)
+    return ""
   end, { buffer = buf, expr = true, nowait = true, desc = "Paste Omniac clipboard image or text" })
   vim.keymap.set("n", "<C-v>", function()
-    if not add_clipboard_image(state, opts) then
+    local image = require("omniac.editor.clipboard").read_image()
+    if not image or not add_clipboard_image(state, opts, image) then
       vim.cmd('normal! "+p')
     end
   end, { buffer = buf, nowait = true, desc = "Paste Omniac clipboard image or text" })
