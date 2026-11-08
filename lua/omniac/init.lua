@@ -375,7 +375,7 @@ function M.select_session()
     connect_session(selection.action or "new", selection.id)
   end
 
-  if M.backend then
+  if M.backend and M.backend.running then
     local completed = false
     local timer = vim.loop.new_timer()
     timer:start(5000, 0, function()
@@ -419,11 +419,7 @@ function M.select_session()
     return
   end
 
-  ui.set_status("ready", M.config)
-  session_dialog.open({}, {
-    list_supported = false,
-    message = "no active ACP session; choose new or enter a session id",
-  }, continue_with)
+  connect_session("select")
 end
 
 function M.resize(width)
