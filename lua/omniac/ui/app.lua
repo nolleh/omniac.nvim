@@ -535,11 +535,6 @@ local function new()
     return lifecycle.is_open(state, valid_win)
   end
 
-  function M.statusline()
-    local text = string.format(" %s | %s | %s ", "Omniac", state.status, agent_name(state.config))
-    return "%#OmniacStatusMode#" .. text .. "%#OmniacStatus#%="
-  end
-
   return M
 end
 

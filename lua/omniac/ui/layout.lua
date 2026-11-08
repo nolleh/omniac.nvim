@@ -110,22 +110,18 @@ function M.open_windows(state, opts)
   end
   pcall(vim.api.nvim_win_set_width, state.chat_win, M.target_width(state))
   vim.wo[state.chat_win].winfixwidth = true
-  vim.wo[state.chat_win].statusline = "%!v:lua.require'omniac.ui'.statusline()"
 
   state.activity_win = M.open_split("belowright", state.activity_buf)
   M.configure_window(state.activity_win)
   pcall(vim.api.nvim_win_set_height, state.activity_win, state.activity_height or 1)
-  vim.wo[state.activity_win].statusline = "%#OmniacStatus#%="
 
   state.input_win = M.open_split("belowright", state.input_buf)
   M.configure_window(state.input_win)
   pcall(vim.api.nvim_win_set_height, state.input_win, 3)
-  vim.wo[state.input_win].statusline = "%#OmniacStatus#%="
 
   state.status_win = M.open_split("belowright", state.status_buf)
   M.configure_window(state.status_win)
   pcall(vim.api.nvim_win_set_height, state.status_win, 1)
-  vim.wo[state.status_win].statusline = "%#OmniacStatus#%="
 
   if state.card_pinned then
     vim.api.nvim_set_current_win(state.chat_win)
@@ -134,7 +130,6 @@ function M.open_windows(state, opts)
     vim.wo[state.card_win].wrap = false
     vim.wo[state.card_win].winbar = " omniac"
     vim.wo[state.chat_win].winbar = ""
-    vim.wo[state.card_win].statusline = "%#OmniacStatus#%="
     pcall(vim.api.nvim_win_set_height, state.card_win, opts.card_height)
   end
 end

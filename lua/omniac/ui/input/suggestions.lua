@@ -54,7 +54,6 @@ function M.update(state, value, opts)
     })
     opts.configure_window(state.command_win)
     vim.wo[state.command_win].wrap = false
-    vim.wo[state.command_win].statusline = "%#OmniacStatus#%="
   end
 
   local target = opts.width()

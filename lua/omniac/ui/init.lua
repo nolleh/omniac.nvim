@@ -28,7 +28,6 @@ local public_methods = {
   set_status = true,
   set_tool_activity = true,
   show_failure_action = true,
-  statusline = true,
   submit = true,
   toggle_tool_output = true,
   update_notice = true,
