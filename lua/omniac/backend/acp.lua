@@ -60,6 +60,7 @@ function M.new(config)
     response_streamed = false,
     pending_prompt = nil,
     edit_tool_calls = {},
+    tool_calls = {},
     debug_log = {},
     agent_capabilities = {},
     turn_sequence = 0,
@@ -312,6 +313,7 @@ function M.new(config)
       self.response_emitted = false
       self.response_streamed = false
       self.edit_tool_calls = {}
+      self.tool_calls = {}
       self.active_turn_id = nil
       self.pending_prompt = nil
       self.config_options = nil
@@ -336,6 +338,7 @@ function M.new(config)
   function state:_load_session(session_id, callback)
     local params = self:_session_params()
     params.sessionId = session_id
+    self.tool_calls = {}
     self:_emit_notification({ method = "omniac/session_loading", params = { sessionId = session_id } })
     self.transport:request("session/load", params, callback)
   end
@@ -343,6 +346,7 @@ function M.new(config)
   function state:_resume_session(session_id, callback)
     local params = self:_session_params()
     params.sessionId = session_id
+    self.tool_calls = {}
     self.transport:request("session/resume", params, callback)
   end
 
@@ -852,6 +856,7 @@ function M.new(config)
         self.response_streamed = false
         self.pending_prompt = nil
         self.edit_tool_calls = {}
+        self.tool_calls = {}
         self:_emit(self.exit_handler, code, signal)
       end)
 
@@ -1018,6 +1023,7 @@ function M.new(config)
       self.response_chunks = {}
       self.response_emitted = false
       self.response_streamed = false
+      self.tool_calls = {}
       self:_emit_notification({
         method = "omniac/prompt_started",
         params = {
@@ -1080,6 +1086,7 @@ function M.new(config)
     self.response_emitted = false
     self.response_streamed = false
     self.edit_tool_calls = {}
+    self.tool_calls = {}
     self.pending_prompt = nil
     self.active_turn_id = nil
   end

@@ -1,67 +1,12 @@
 local content = require("omniac.acp.content")
 local filesystem = require("omniac.editor.filesystem")
 local normalize = require("omniac.acp.normalize")
+local tool_calls = require("omniac.acp.tool_calls")
 
 local M = {}
 
 local function emit(client, method, params)
   client:_emit_notification({ method = method, params = params })
-end
-
-local function tool_activity(update)
-  local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
-  local normalized_output = normalize.raw_output(update)
-  local raw_output = type(normalized_output) == "table" and normalized_output or {}
-  local meta = type(update._meta) == "table" and update._meta or {}
-  local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
-  return {
-    toolCallId = update.toolCallId,
-    kind = update.kind,
-    status = update.status,
-    title = update.title or raw_input.command or update.kind or update.toolCallId,
-    exitCode = raw_output.exit_code or raw_output.exitCode or terminal_exit.exit_code or terminal_exit.exitCode,
-  }
-end
-
-local function raw_output_text(raw_output)
-  if type(raw_output) == "string" then
-    return raw_output
-  end
-  if type(raw_output) ~= "table" then
-    return nil
-  end
-  for _, key in ipairs({ "output", "stdout", "stderr", "text", "message", "content" }) do
-    local value = raw_output[key]
-    if type(value) == "string" and value ~= "" then
-      return value
-    end
-  end
-  return content.text(raw_output)
-end
-
-local function tool_result(update)
-  local raw_input = type(update.rawInput) == "table" and update.rawInput or {}
-  local raw_output = normalize.raw_output(update)
-  local output = raw_output_text(raw_output) or content.text(update.content)
-  if type(output) ~= "string" or output == "" then
-    return nil
-  end
-  local raw_output_table = type(raw_output) == "table" and raw_output or {}
-  local meta = type(update._meta) == "table" and update._meta or {}
-  local terminal_exit = type(meta.terminal_exit) == "table" and meta.terminal_exit or {}
-  return {
-    toolCallId = update.toolCallId,
-    kind = update.kind,
-    status = update.status,
-    title = update.title or raw_input.command or update.kind or update.toolCallId,
-    command = raw_input.command or raw_input.cmd or update.title,
-    cwd = raw_input.cwd,
-    output = output,
-    exitCode = raw_output_table.exit_code
-      or raw_output_table.exitCode
-      or terminal_exit.exit_code
-      or terminal_exit.exitCode,
-  }
 end
 
 local function file_items(update)
@@ -169,10 +114,6 @@ end
 
 function M.handle(client, update)
   local update_type = normalize.update_type(update)
-
-  if update_type == "tool_call" or update_type == "tool_call_update" then
-    emit(client, "omniac/tool_activity", tool_activity(update))
-  end
   if update_type == "available_commands_update" then
     emit(client, "omniac/available_commands_update", {
       sessionId = client.session_id,
@@ -208,18 +149,15 @@ function M.handle(client, update)
   end
 
   local call = type(update) == "table" and edit_call(client, update) or nil
-  if (update_type == "tool_call" or update_type == "tool_call_update") and call then
-    handle_edit(client, update, call)
-    return true
-  end
-  if
-    (update_type == "tool_call" or update_type == "tool_call_update")
-    and (update.status == "completed" or update.status == "failed")
-  then
-    local result = tool_result(update)
-    if result then
+  if update_type == "tool_call" or update_type == "tool_call_update" then
+    local activity, result = tool_calls.update(client, update)
+    emit(client, "omniac/tool_activity", activity)
+    if call then
+      handle_edit(client, update, call)
+    elseif result then
       emit(client, "omniac/tool_result", result)
     end
+    return true
   end
 
   if update_type == "agent_thought_chunk" then
