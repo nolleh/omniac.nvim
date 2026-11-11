@@ -1,4 +1,5 @@
 local M = {}
+local default_width = require("omniac.config").defaults.ui.chat_width
 
 function M.floating_win(win, valid_win)
   if not valid_win(win) then
@@ -16,13 +17,49 @@ function M.is_ui_win(state, win)
     or win == state.status_win
 end
 
+local function parse_width(value)
+  if type(value) ~= "number" and type(value) ~= "string" then
+    return nil
+  end
+  if type(value) == "string" then
+    local percent = value:match("^%s*(%d+%.?%d*)%%%s*$")
+    if percent then
+      percent = tonumber(percent)
+      if percent > 0 and percent <= 100 then
+        return percent / 100, true
+      end
+      return nil
+    end
+  end
+  local number = tonumber(value)
+  if not number or number ~= number or number == math.huge or number == -math.huge then
+    return nil
+  end
+  return number, number > 0 and number < 1
+end
+
+function M.resolve_width(value)
+  local number, relative = parse_width(value)
+  if not number then
+    return nil
+  end
+  if relative then
+    number = number * vim.o.columns
+  end
+  return math.floor(math.min(math.max(number, 42), math.max(42, vim.o.columns - 20)))
+end
+
 function M.target_width(state)
-  local configured = ((state.config or {}).ui or {}).chat_width or 58
-  local value = state.user_width or math.min(math.max(configured, 42), math.max(42, vim.o.columns - 20))
-  return math.min(math.max(value, 42), math.max(42, vim.o.columns - 20))
+  local configured = ((state.config or {}).ui or {}).chat_width or default_width
+  return M.resolve_width(state.user_width or configured) or M.resolve_width(default_width)
 end
 
 function M.capture_width(state, valid_win)
+  local configured = ((state.config or {}).ui or {}).chat_width or default_width
+  local _, relative = parse_width(state.user_width or configured)
+  if relative then
+    return
+  end
   if valid_win(state.chat_win) then
     state.user_width = vim.api.nvim_win_get_width(state.chat_win)
   end

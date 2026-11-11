@@ -48,7 +48,8 @@ M.defaults = {
     diff_title = "ACP Diff",
     diff_separate_tab = false,
     change_review = "summary",
-    chat_width = 58,
+    -- Screen ratio (0 < width < 1), percentage string ("35%"), or fixed columns (72).
+    chat_width = 0.35,
     welcome_card = "pinned",
     mascot_follow_cursor = true,
     mascot_motion = true,

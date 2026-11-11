@@ -34,13 +34,12 @@ function M.relayout(state, handlers)
 end
 
 function M.resize(state, value, handlers)
-  local target_width = tonumber(value)
+  local target_width = layout.resolve_width(value)
   if not target_width then
     return false
   end
 
-  target_width = math.floor(math.min(math.max(target_width, 42), math.max(42, vim.o.columns - 20)))
-  state.user_width = target_width
+  state.user_width = value
   for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
     if handlers.valid_win(win) then
       pcall(vim.api.nvim_win_set_width, win, target_width)

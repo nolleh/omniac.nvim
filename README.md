@@ -60,7 +60,7 @@ Customize the UI width and diff review behavior:
   "nolleh/omniac.nvim",
   opts = {
     ui = {
-      chat_width = 72,
+      chat_width = "35%", -- or 0.35; use 72 for a fixed width in columns
       welcome_card = "welcome_only", -- reclaim chat space after the first message
       diff_separate_tab = true,
       diff_title = "Omniac Review",
@@ -84,6 +84,11 @@ Use a project-local working directory and enable debug logging:
 ```
 
 ### Options
+
+Relative widths use the full Neovim screen width and update automatically when the screen is resized,
+including after closing and reopening Omniac. Widths are rounded down and clamped to at least 42 columns,
+leaving 20 columns for the editor when space permits. `:OmniacResize` overrides the configured width for
+the current UI instance; passing a column count switches back to a fixed width.
 
 | Option                                 | Default           | Description                                                                           |
 | -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------- |
@@ -114,7 +119,7 @@ Use a project-local working directory and enable debug logging:
 | `ui.diff_title`                        | `"ACP Diff"`                | Buffer title used for proposed-change reviews.                                        |
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
 | `ui.change_review`                     | `"summary"`                | Post-turn change review: `"summary"`, `"open"`, or `"off"`.                     |
-| `ui.chat_width`                        | `58`                        | Width of the Omniac side UI.                                                          |
+| `ui.chat_width`                        | `0.35`                      | Side UI width: columns (e.g. `72`), a ratio between 0 and 1 (e.g. `0.35`), or a percentage string (e.g. `"35%"`). |
 | `ui.welcome_card`                     | `"pinned"`                | Keep the mascot card above the chat; `"welcome_only"` shows it only before the first message. In short windows (under 32 lines), Omniac uses welcome-only mode to preserve chat space. |
 | `ui.mascot_follow_cursor`              | `true`                      | Let the mascot react to Omniac focus and slowly follow the cursor inside chat or input while its card is visible. |
 | `ui.mascot_motion`                     | `true`                      | Animate idle walks, antenna twitches, working gestures, and jumps inside the pinned card. Set to `false` to disable these motions; `mascot_follow_cursor` controls gaze separately. |
@@ -149,7 +154,7 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 - Closing a selected file's full preview returns to the same list and selection
 - change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
 - change review history is kept in memory and starts fresh after `load`, `resume`, or reconnect; use `git diff` as the source of truth for the current working tree
-- `:OmniacResize {width}` resizes the Omniac side UI as one body
+- `:OmniacResize {width}` resizes the Omniac side UI as one body, e.g. `:OmniacResize 72`, `:OmniacResize 0.35`, or `:OmniacResize 35%`
 - `:OmniacAsk` sends the built prompt to the active ACP agent when connected
 - `:OmniacReferenceBuffer` attaches the current buffer to the Omniac input; `<leader>ab` is the default mapping
 - `:'<,'>OmniacReference` captures selected lines from the source buffer and attaches them to the Omniac input
