@@ -123,8 +123,8 @@ the current UI instance; passing a column count switches back to a fixed width.
 | `ui.welcome_card`                     | `"pinned"`                | Keep the mascot card above the chat; `"welcome_only"` shows it only before the first message. In short windows (under 32 lines), Omniac uses welcome-only mode to preserve chat space. |
 | `ui.mascot_follow_cursor`              | `true`                      | Let the mascot react to Omniac focus and slowly follow the cursor inside chat or input while its card is visible. |
 | `ui.mascot_motion`                     | `true`                      | Animate idle walks, antenna twitches, working gestures, and jumps inside the pinned card. Set to `false` to disable these motions; `mascot_follow_cursor` controls gaze separately. |
-| `ui.tool_results`                      | `"compact"`                 | Chat visibility for completed tool output: `"compact"`, `"all"`, or `"none"`.        |
-| `ui.tool_result_max_lines`             | `4`                         | Maximum output lines shown in compact tool-result mode.                               |
+| `ui.tool_results`                      | `"compact"`                 | Tool results with a colored task title, a four-row command preview, and collapsible output. `"compact"` hides opaque calls; `"all"` includes them; `"none"` hides successful results. Failures remain visible. |
+| `ui.tool_result_max_lines`             | `4`                         | Maximum wrapped output rows in a collapsed tool result. Ctrl-T expands the full command and output, including long named results in compact mode. |
 | `logs.dir`                             | `"logs"`                    | Directory used for protocol logs when `debug` is enabled.                             |
 
 With `debug = true`, `acp-*.jsonl` records client requests and notifications (`client_request`, `client_notification`), agent responses (`agent_response`), and agent requests and notifications with their client responses (`request`, `notification`, `response`). This includes `session/prompt` and `session/cancel` traffic.

@@ -1,6 +1,6 @@
 local M = {}
-local text = require("omniac.ui.text")
 local chat_render = require("omniac.ui.chat.render")
+local tool_result = require("omniac.ui.chat.tool_result")
 
 local function is_terminal_activity(state)
   return state.tool_activity and (state.tool_activity:match("^Completed ") or state.tool_activity:match("^Failed "))
@@ -46,7 +46,7 @@ local function should_show_result(state, params, config)
     return false
   end
 
-  return #(text.split_lines(params.output or "")) <= result_max_lines(state, config)
+  return true
 end
 
 function M.stop_timer(state)
@@ -105,9 +105,14 @@ function M.set_activity(state, params, render_activity)
 end
 
 function M.toggle_output(state, config, handlers)
+  local width = state.chat_win
+      and vim.api.nvim_win_is_valid(state.chat_win)
+      and vim.api.nvim_win_get_width(state.chat_win)
+    or (state.chat_render_cache and state.chat_render_cache.width)
+    or 60
   for index = #state.messages, 1, -1 do
     local message = state.messages[index]
-    if message and message.type == "tool_result" and #(text.split_lines(message.output or "")) > 4 then
+    if message and message.type == "tool_result" and tool_result.can_expand(message, width) then
       message.expanded = not message.expanded
       chat_render.invalidate(state, index)
       handlers.render_chat(config or state.config)
@@ -142,6 +147,7 @@ function M.add_result(state, params, config, handlers)
     output = output,
     exitCode = params.exitCode,
     expanded = false,
+    output_preview_lines = result_max_lines(state, config),
   })
   handlers.request_chat_render(config, { immediate = true, follow = true })
   handlers.focus_input_if_active()

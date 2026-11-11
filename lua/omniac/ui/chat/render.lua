@@ -1,4 +1,5 @@
 local text = require("omniac.ui.text")
+local tool_result = require("omniac.ui.chat.tool_result")
 
 local M = {}
 
@@ -52,51 +53,6 @@ local function unwrap_markdown_fences(value)
   end
   if #result > 0 and result[#result] == "" then
     table.remove(result)
-  end
-  return table.concat(result, "\n")
-end
-
-local function nonempty_tail(lines)
-  for index = #lines, 1, -1 do
-    if tostring(lines[index] or ""):match("%S") then
-      return lines[index]
-    end
-  end
-  return nil
-end
-
-local function collapsed_tool_lines(lines)
-  if #lines <= 4 then
-    return vim.deepcopy(lines)
-  end
-  return { lines[1], lines[2], "…", lines[#lines - 1], lines[#lines] }
-end
-
-local function tool_result_text(message)
-  local command = message.command or message.title or message.kind or "tool"
-  local lines = text.split_lines(message.output or "")
-  local visible = message.expanded and lines or collapsed_tool_lines(lines)
-  local hidden = math.max(0, #lines - 4)
-  local title = message.status == "failed" and "Failed" or "Ran"
-  local suffix = message.exitCode ~= nil and (" (exit " .. tostring(message.exitCode) .. ")") or ""
-  local result = { title .. " " .. command .. suffix }
-
-  if #lines == 1 then
-    local tail = nonempty_tail(lines)
-    if tail and tail ~= "" then
-      result[1] = result[1] .. ": " .. tail
-    end
-  elseif #visible > 0 then
-    table.insert(result, "```text")
-    vim.list_extend(result, visible)
-    table.insert(result, "```")
-  end
-  if #lines > 4 then
-    table.insert(
-      result,
-      message.expanded and ("-" .. tostring(hidden) .. " lines (Ctrl-T to collapse)")
-        or ("+" .. tostring(hidden) .. " lines (Ctrl-T to expand)")
-    )
   end
   return table.concat(result, "\n")
 end
@@ -177,11 +133,18 @@ function M.build(opts)
           table.insert(markdown_excluded_ranges, { from = range_start, to = #lines })
         end
         add_message_separator()
-      else
-        local message_text = message.type == "tool_result" and tool_result_text(message) or value
-        if message.type ~= "tool_result" then
-          message_text = unwrap_markdown_fences(message_text)
+      elseif message.type == "tool_result" then
+        local offset = #lines
+        local rendered = tool_result.render(message, width)
+        vim.list_extend(lines, rendered.lines)
+        for _, mark in ipairs(rendered.marks) do
+          add_mark(marks, offset + mark.line, mark.from, mark.to, mark.group)
         end
+        -- Commands and output are literal text, not chat Markdown. In
+        -- particular, heredocs and fences must not hide or restyle the preview.
+        table.insert(markdown_excluded_ranges, { from = offset, to = #lines })
+      else
+        local message_text = unwrap_markdown_fences(value)
         for _, line in ipairs(text.split_lines(message_text)) do
           for _, display_line in ipairs(chat_message_lines(line, width)) do
             add_line(lines, marks, display_line, group)
