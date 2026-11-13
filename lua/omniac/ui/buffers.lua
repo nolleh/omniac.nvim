@@ -13,7 +13,7 @@ end
 
 function M.ensure(state, valid_buf)
   if not valid_buf(state.chat_buf) then
-    state.chat_buf = create("omniac", "markdown")
+    state.chat_buf = create("omniac", "omniac")
   end
   if state.card_pinned and not valid_buf(state.card_buf) then
     state.card_buf = create("omniac://card", "omniac-card")

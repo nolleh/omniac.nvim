@@ -268,7 +268,8 @@ describe("omniac.nvim approval", function()
 
     local dialog_buf = vim.fn.bufnr("omniac://permission")
     assert_true(dialog_buf ~= -1, "permission dialog should open")
-    assert_equal(vim.bo[dialog_buf].filetype, "markdown", "permission dialog should use markdown filetype")
+    assert_equal(vim.bo[dialog_buf].filetype, "omniac-permission", "permission dialogs should have their own filetype")
+    assert_equal(vim.treesitter.language.get_lang("omniac-permission"), "markdown")
     assert_true(#render_calls > 0, "permission dialog should call render-markdown")
     assert_equal(render_calls[#render_calls].buf, dialog_buf, "render-markdown should receive the permission buffer")
     assert_equal(

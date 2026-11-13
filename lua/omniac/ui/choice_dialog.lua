@@ -198,7 +198,7 @@ function M.open(options, opts, callback)
   local row = math.max(0, math.floor((vim.o.lines - total_height - 4) / 3))
   local col = math.max(0, math.floor((vim.o.columns - width) / 2))
 
-  state.body_buf = dialog.create_buffer({ name = "omniac://permission", filetype = "markdown" })
+  state.body_buf = dialog.create_buffer({ name = "omniac://permission", filetype = "omniac-permission" })
 
   state.body_win = vim.api.nvim_open_win(state.body_buf, false, {
     relative = "editor",

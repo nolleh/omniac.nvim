@@ -1,5 +1,8 @@
 local M = {}
 
+local filetypes = { "omniac", "omniac-permission" }
+vim.treesitter.language.register("markdown", filetypes)
+
 local config = {
   pipe_table = {
     border_virtual = true,
@@ -98,16 +101,44 @@ local function render(buf, win, event)
     pcall(
       renderer.setup,
       vim.tbl_deep_extend("force", {
-        file_types = { "markdown" },
+        file_types = { "markdown", unpack(filetypes) },
       }, config)
     )
   end
 
-  if type(renderer.render) == "function" then
-    local ok_state, renderer_state = pcall(require, "render-markdown.state")
-    if ok_state and type(renderer_state) == "table" and type(renderer_state.cache) == "table" then
+  local ok_state, renderer_state = pcall(require, "render-markdown.state")
+  if ok_state and type(renderer_state) == "table" then
+    -- Register only our filetypes when the user has already set up the
+    -- renderer. Re-running setup would replace their settings and callbacks.
+    if type(renderer_state.file_types) == "table" then
+      for _, filetype in ipairs(filetypes) do
+        if not vim.tbl_contains(renderer_state.file_types, filetype) then
+          table.insert(renderer_state.file_types, filetype)
+        end
+      end
+    end
+    if type(renderer_state.cache) == "table" then
+      local cached = renderer_state.cache[buf]
+      if vim.tbl_contains(filetypes, vim.bo[buf].filetype) and cached then
+        -- Already queued renderer updates retain this config object. Release
+        -- Omniac's temporary suspension before replacing it, so an old clear
+        -- update cannot erase the newly rendered buffer.
+        cached.enabled = renderer_state.enabled
+      end
       renderer_state.cache[buf] = nil
     end
+  end
+
+  if vim.tbl_contains(filetypes, vim.bo[buf].filetype) then
+    -- The FileType event may precede renderer initialization. Attach its usual
+    -- scroll/cursor handlers explicitly, after Omniac's async parse is ready.
+    local ok_manager, manager = pcall(require, "render-markdown.core.manager")
+    if ok_manager and type(manager.attach) == "function" then
+      pcall(manager.attach, buf)
+    end
+  end
+
+  if type(renderer.render) == "function" then
     pcall(renderer.render, {
       buf = buf,
       win = win,
