@@ -4,6 +4,8 @@ local default_keymaps = {
   { name = "open", mode = "n", command = "Omniac", desc = "Toggle Omniac" },
   { name = "focus", mode = "n", command = "OmniacFocus", desc = "Focus Omniac" },
   { name = "session", mode = "n", command = "OmniacSession", desc = "Resume Omniac session" },
+  { name = "model", mode = "n", command = "OmniacModel", desc = "Select Omniac model" },
+  { name = "mode", mode = "n", command = "OmniacMode", desc = "Select Omniac session mode" },
   { name = "buffer", mode = "n", command = "OmniacReferenceBuffer", desc = "Add current buffer to Omniac" },
   { name = "reference", mode = "x", command = "OmniacReference", desc = "Send selection to Omniac" },
   { name = "diff_accept", mode = "n", command = "OmniacDiffAccept", desc = "Accept Omniac diff" },

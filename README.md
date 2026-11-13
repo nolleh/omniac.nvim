@@ -27,6 +27,8 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
       open = "<leader>ac",
       focus = "<leader>af",
       session = "<leader>ar",
+      model = "<leader>am",
+      mode = "<leader>aM",
       buffer = "<leader>ab",
       reference = "<leader>as",
       tree_add = "<leader>as",
@@ -37,7 +39,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
-Omniac registers these defaults when `setup()` runs. They follow the corresponding `claudecode.nvim` keys, skip keys that are already mapped, and can be changed by setting a different value or disabled per action with `false`. Set `keymaps = false` to disable all Omniac mappings. `<leader>ac` toggles the Omniac windows, while `<leader>af` opens them when hidden and focuses the input when they are already visible. `<leader>as` sends a visual selection, and in supported file-tree buffers it adds the file under the cursor (`nvim-tree`, `neo-tree`, `oil.nvim`, or `mini.files`). Session selection is available through `<leader>ar`, and model selection is available with `/model` in the chat.
+Omniac registers these defaults when `setup()` runs. Where applicable, they follow the corresponding `claudecode.nvim` keys, skip keys that are already mapped, and can be changed by setting a different value or disabled per action with `false`. Set `keymaps = false` to disable all Omniac mappings. `<leader>ac` toggles the Omniac windows, while `<leader>af` opens them when hidden and focuses the input when they are already visible. `<leader>as` sends a visual selection, and in supported file-tree buffers it adds the file under the cursor (`nvim-tree`, `neo-tree`, `oil.nvim`, or `mini.files`). Session selection is available through `<leader>ar`, model selection through `<leader>am`, and session mode selection through `<leader>aM` in normal mode. The selectors are also available through `:OmniacModel` and `:OmniacMode`, or `/model` and `/mode` in the chat.
 
 Chat and permission bodies use the dedicated `omniac` and `omniac-permission` filetypes. Omniac connects them to the Markdown parser and `render-markdown.nvim` explicitly, without running `FileType markdown` document hooks such as browser previews.
 

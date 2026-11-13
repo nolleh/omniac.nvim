@@ -126,6 +126,96 @@ function M.toggle_chat(connect_opts)
   M.open_chat(connect_opts)
 end
 
+function M.select_model(arguments)
+  arguments = arguments or ""
+  if not M.backend or not M.backend.get_session_model then
+    ui.set_activity("Model selection is not available until the ACP session is ready.", M.config)
+    return
+  end
+  if arguments == "" then
+    local model_state = M.backend:get_session_model()
+    if
+      not model_dialog.open(model_state, function(choice)
+        if not choice then
+          return
+        end
+        M.backend:set_session_model(choice.id, function(err, _, selected)
+          if err then
+            ui.set_activity(tostring(err.message or err.error or err), M.config)
+            return
+          end
+          M.config.agent.model = selected
+          ui.set_session_model({
+            currentModelId = selected,
+            currentModelName = selected,
+          })
+          ui.set_activity("Model changed to " .. selected .. ".", M.config)
+        end)
+      end)
+    then
+      ui.set_activity(model_activity(model_state), M.config)
+    end
+    return
+  end
+  M.backend:set_session_model(arguments, function(err, _, selected)
+    if err then
+      ui.set_activity(tostring(err.message or err.error or err), M.config)
+      return
+    end
+    M.config.agent.model = selected
+    ui.set_session_model({
+      currentModelId = selected,
+      currentModelName = selected,
+    })
+    ui.set_activity("Model changed to " .. selected .. ".", M.config)
+  end)
+  return
+end
+
+function M.select_mode(arguments)
+  arguments = arguments or ""
+  if not M.backend or not M.backend.get_session_mode then
+    ui.set_activity("Mode selection is not available until the ACP session is ready.", M.config)
+    return
+  end
+  local mode_state = M.backend:get_session_mode()
+  local modes = mode_state and mode_state.availableModes or {}
+  if #modes == 0 then
+    ui.set_activity("The agent did not advertise selectable modes.", M.config)
+    return
+  end
+  local function select_mode(mode_id)
+    local selected
+    for _, mode in ipairs(modes) do
+      if mode.id == mode_id then
+        selected = mode
+        break
+      end
+    end
+    if not selected then
+      ui.set_activity("Unknown mode: " .. mode_id, M.config)
+      return
+    end
+    M.backend:set_session_mode(mode_id, function(err)
+      if err then
+        ui.set_activity(tostring(err.message or err.error or err), M.config)
+        return
+      end
+      ui.set_activity("Mode changed to " .. (selected.name or selected.id) .. ".", M.config)
+    end)
+  end
+  if arguments == "" then
+    mode_dialog.open(mode_state, function(choice)
+      if choice then
+        select_mode(choice.id)
+      end
+    end)
+  else
+    select_mode(arguments)
+  end
+  return
+end
+
 function M.open_chat(connect_opts)
   ui.set_change_review_handler(function(scope)
     M.review_changes(scope)
@@ -223,89 +313,11 @@ function M.open_chat(connect_opts)
       return
     end
     if command == "model" and #(attachments or {}) == 0 then
-      if not M.backend or not M.backend.get_session_model then
-        ui.set_activity("Model selection is not available until the ACP session is ready.", M.config)
-        return
-      end
-      if arguments == "" then
-        local model_state = M.backend:get_session_model()
-        if
-          not model_dialog.open(model_state, function(choice)
-            if not choice then
-              return
-            end
-            M.backend:set_session_model(choice.id, function(err, _, selected)
-              if err then
-                ui.set_activity(tostring(err.message or err.error or err), M.config)
-                return
-              end
-              M.config.agent.model = selected
-              ui.set_session_model({
-                currentModelId = selected,
-                currentModelName = selected,
-              })
-              ui.set_activity("Model changed to " .. selected .. ".", M.config)
-            end)
-          end)
-        then
-          ui.set_activity(model_activity(model_state), M.config)
-        end
-        return
-      end
-      M.backend:set_session_model(arguments, function(err, _, selected)
-        if err then
-          ui.set_activity(tostring(err.message or err.error or err), M.config)
-          return
-        end
-        M.config.agent.model = selected
-        ui.set_session_model({
-          currentModelId = selected,
-          currentModelName = selected,
-        })
-        ui.set_activity("Model changed to " .. selected .. ".", M.config)
-      end)
+      M.select_model(arguments)
       return
     end
     if command == "mode" and #(attachments or {}) == 0 then
-      if not M.backend or not M.backend.get_session_mode then
-        ui.set_activity("Mode selection is not available until the ACP session is ready.", M.config)
-        return
-      end
-      local mode_state = M.backend:get_session_mode()
-      local modes = mode_state and mode_state.availableModes or {}
-      if #modes == 0 then
-        ui.set_activity("The agent did not advertise selectable modes.", M.config)
-        return
-      end
-      local function select_mode(mode_id)
-        local selected
-        for _, mode in ipairs(modes) do
-          if mode.id == mode_id then
-            selected = mode
-            break
-          end
-        end
-        if not selected then
-          ui.set_activity("Unknown mode: " .. mode_id, M.config)
-          return
-        end
-        M.backend:set_session_mode(mode_id, function(err)
-          if err then
-            ui.set_activity(tostring(err.message or err.error or err), M.config)
-            return
-          end
-          ui.set_activity("Mode changed to " .. (selected.name or selected.id) .. ".", M.config)
-        end)
-      end
-      if arguments == "" then
-        mode_dialog.open(mode_state, function(choice)
-          if choice then
-            select_mode(choice.id)
-          end
-        end)
-      else
-        select_mode(arguments)
-      end
+      M.select_mode(arguments)
       return
     end
 
