@@ -34,6 +34,7 @@ function M.clear(state, config, handlers)
   state.cancel_requested = false
   state.suppress_current_turn = false
   state.active_turn_id = nil
+  state.session_usage = nil
   state.available_commands = {}
   state.input_attachments = {}
   state.transient_activity = nil

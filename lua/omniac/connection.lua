@@ -104,6 +104,7 @@ function M.connect(app, opts, submission_failure)
       end
 
       if method == "omniac/prompt_failed" then
+        changes.finish_turn(params)
         followup:finish_turn(params)
         return
       end

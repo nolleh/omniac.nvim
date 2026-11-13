@@ -4,6 +4,7 @@ local logging = require("omniac.acp.logging")
 local normalize = require("omniac.acp.normalize")
 local session_state = require("omniac.acp.session_state")
 local updates = require("omniac.acp.updates")
+local workspace = require("omniac.acp.workspace")
 
 local M = {}
 
@@ -171,6 +172,9 @@ function M.new(config)
     local params = message and message.params or {}
 
     if method == "session/update" then
+      if params.sessionId and self.session_id and params.sessionId ~= self.session_id then
+        return
+      end
       local update = params.update or params
       if updates.handle(self, update) then
         return
@@ -309,6 +313,7 @@ function M.new(config)
       end
 
       self.session_id = session_id
+      self.workspace = nil
       self.response_chunks = {}
       self.response_emitted = false
       self.response_streamed = false
@@ -752,6 +757,11 @@ function M.new(config)
     end
 
     self.response_emitted = true
+    turn_id = turn_id or self.active_turn_id
+    if self.workspace then
+      self.workspace:finish()
+      self.workspace = nil
+    end
     self.last_stop_reason = normalize.stop_reason(result)
 
     local text = table.concat(self.response_chunks)
@@ -849,6 +859,10 @@ function M.new(config)
           signal = signal,
         })
         logging.flush(self.config)
+        if self.workspace then
+          self.workspace:finish()
+          self.workspace = nil
+        end
         self.running = false
         self.transport = nil
         self.session_id = nil
@@ -1024,6 +1038,8 @@ function M.new(config)
       self.response_emitted = false
       self.response_streamed = false
       self.tool_calls = {}
+      self.edit_tool_calls = {}
+      self.workspace = workspace.new(self)
       self:_emit_notification({
         method = "omniac/prompt_started",
         params = {
@@ -1034,6 +1050,10 @@ function M.new(config)
       self.transport:request("session/prompt", request_params, function(err, result)
         if err then
           local turn_id = self.active_turn_id
+          if self.workspace then
+            self.workspace:finish()
+            self.workspace = nil
+          end
           self.active_turn_id = nil
           self:_emit_notification({
             method = "omniac/prompt_failed",
@@ -1074,6 +1094,10 @@ function M.new(config)
   end
 
   function state:close()
+    if self.workspace then
+      self.workspace:finish()
+      self.workspace = nil
+    end
     self.closing = true
     if self.transport then
       self.transport:close()

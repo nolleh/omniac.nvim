@@ -156,7 +156,8 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 - `:OmniacChanges [turn|session]` opens the change browser in Telescope when available, with a diff preview; otherwise it uses the built-in dialog
 - In the change browser, press `Enter` to review the diff or `Ctrl-e` to edit the file at its first changed line
 - Closing a selected file's full preview returns to the same list and selection
-- change history includes structured ACP edit updates and client-mediated `fs/write_text_file` writes; commands that modify files without reporting a diff are not attributed to Omniac
+- change history includes ACP edits and client-mediated writes regardless of whether approval was requested. Edits and terminal commands without a reported diff are also captured from disk.
+- change tracking compares text files in `agent.cwd` around agent edit/terminal tool execution; existing changes and saves outside that execution window are excluded. Concurrent external writes during an agent command cannot be distinguished from command writes. Git-ignored files, binary files, and files larger than 2 MiB are excluded from workspace comparisons. Without Git, text files under `agent.cwd` are scanned directly.
 - change review history is kept in memory and starts fresh after `load`, `resume`, or reconnect; use `git diff` as the source of truth for the current working tree
 - `:OmniacResize {width}` resizes the Omniac side UI as one body, e.g. `:OmniacResize 72`, `:OmniacResize 0.35`, or `:OmniacResize 35%`
 - `:OmniacAsk` sends the built prompt to the active ACP agent when connected

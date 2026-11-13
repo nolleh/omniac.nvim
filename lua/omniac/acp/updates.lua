@@ -2,6 +2,7 @@ local content = require("omniac.acp.content")
 local filesystem = require("omniac.editor.filesystem")
 local normalize = require("omniac.acp.normalize")
 local tool_calls = require("omniac.acp.tool_calls")
+local snapshot = require("omniac.changes.snapshot")
 
 local M = {}
 
@@ -30,7 +31,15 @@ end
 
 local function edit_call(client, update)
   local call = update.toolCallId and client.edit_tool_calls[update.toolCallId] or nil
-  if update.kind == "edit" and update.toolCallId and type(call) ~= "table" then
+  local previous = update.toolCallId and client.tool_calls[update.toolCallId]
+  local kind = update.kind or (previous and previous.kind)
+  for _, item in ipairs(file_items(update)) do
+    if is_file_item(item) then
+      kind = "edit"
+      break
+    end
+  end
+  if (kind == "edit" or kind == "delete" or kind == "move") and update.toolCallId and type(call) ~= "table" then
     call = { turn_id = client.active_turn_id, files = {}, order = {}, title = update.title }
     client.edit_tool_calls[update.toolCallId] = call
   end
@@ -39,22 +48,53 @@ end
 
 local function handle_edit(client, update, call)
   call.title = update.title or call.title
+  local workspace = client.workspace
+  local function absolute(path)
+    if path:sub(1, 1) == "/" then
+      return vim.fs.normalize(path)
+    end
+    return vim.fs.normalize(((client.config.agent or {}).cwd or vim.loop.cwd()) .. "/" .. path)
+  end
+  for _, location in ipairs(type(update.locations) == "table" and update.locations or {}) do
+    if type(location.path) == "string" then
+      local path = absolute(location.path)
+      if not call.files[path] then
+        local before
+        if update.status ~= "completed" and update.status ~= "failed" then
+          before = filesystem.read_disk_content(path)
+          if before == nil and not (vim.uv or vim.loop).fs_lstat(path) then
+            before = ""
+          end
+        else
+          before = workspace and snapshot.content(workspace.initial, path)
+        end
+        call.files[path] = { path = path, oldText = before, captured_before = before ~= nil }
+        table.insert(call.order, path)
+      end
+    end
+  end
   for _, item in ipairs(file_items(update)) do
     if is_file_item(item) then
-      local file = call.files[item.path]
+      local path = absolute(item.path)
+      local file = call.files[path]
       if not file then
         local completed_without_snapshot = update.status == "completed"
+        local before
+        if not completed_without_snapshot and update.status ~= "failed" then
+          before = filesystem.read_disk_content(path)
+        else
+          before = workspace and snapshot.content(workspace.initial, path)
+        end
         file = {
-          path = item.path,
-          oldText = completed_without_snapshot and old_text(item)
-            or filesystem.read_disk_content(item.path)
-            or old_text(item),
+          path = path,
+          oldText = type(before) == "string" and before
+            or (completed_without_snapshot and old_text(item) or filesystem.read_disk_content(path) or old_text(item)),
           newText = item.newText,
           operation = type(item._meta) == "table" and item._meta.kind or nil,
-          captured_before = not completed_without_snapshot,
+          captured_before = type(before) == "string" or not completed_without_snapshot,
         }
-        call.files[item.path] = file
-        table.insert(call.order, item.path)
+        call.files[path] = file
+        table.insert(call.order, path)
       else
         file.newText = item.newText
         file.operation = (type(item._meta) == "table" and item._meta.kind) or file.operation
@@ -75,31 +115,36 @@ local function handle_edit(client, update, call)
     end
   end
 
-  if update.status == "completed" then
+  if update.status == "completed" or update.status == "failed" then
     for _, path in ipairs(call.order) do
       local file = call.files[path]
       local new_text = file.newText
       if file.captured_before then
         new_text = filesystem.read_disk_content(path)
-        if new_text == nil and file.operation == "delete" then
+        if new_text == nil and not (vim.uv or vim.loop).fs_lstat(path) then
           new_text = ""
         end
-        new_text = new_text or file.newText
+        if update.status ~= "failed" then
+          new_text = new_text or file.newText
+        end
       end
-      emit(client, "omniac/file_update", {
-        sessionId = client.session_id,
-        turnId = call.turn_id,
-        path = path,
-        oldText = file.oldText,
-        newText = new_text,
-        operation = file.operation,
-        toolCallId = update.toolCallId,
-        title = call.title,
-        status = update.status,
-        error = update.error or update.rawOutput,
-      })
+      if type(file.oldText) == "string" and type(new_text) == "string" and file.oldText ~= new_text then
+        emit(client, "omniac/file_update", {
+          sessionId = client.session_id,
+          turnId = call.turn_id,
+          path = path,
+          oldText = file.oldText,
+          newText = new_text,
+          operation = file.operation,
+          toolCallId = update.toolCallId,
+          title = call.title,
+          status = update.status,
+          error = update.error or update.rawOutput,
+        })
+      end
     end
-  elseif update.status == "failed" then
+  end
+  if update.status == "failed" then
     emit(client, "omniac/edit_failed", {
       toolCallId = update.toolCallId,
       title = update.title,
@@ -152,6 +197,9 @@ function M.handle(client, update)
   if update_type == "tool_call" or update_type == "tool_call_update" then
     local activity, result = tool_calls.update(client, update)
     emit(client, "omniac/tool_activity", activity)
+    if client.workspace then
+      client.workspace:update(update, activity)
+    end
     if call then
       handle_edit(client, update, call)
     elseif result then

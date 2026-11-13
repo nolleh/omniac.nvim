@@ -88,6 +88,39 @@ describe("omniac.nvim status", function()
     assert_true(line:find("GPT-5 Mini · Medium", 1, true) ~= nil, "model and effort should share a capsule")
   end)
 
+  it("clears context usage when a new session clears the conversation", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = {
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 58 },
+    }
+    ui.open(config, function() end)
+    local status_buf = vim.fn.bufnr("omniac://status")
+    local function status_text()
+      return table.concat(vim.api.nvim_buf_get_lines(status_buf, 0, -1, false), "\n")
+    end
+
+    ui.handle_notification({
+      method = "omniac/usage_update",
+      params = { used = 75000, size = 100000 },
+    }, config)
+    assert_true(status_text():find("ctx 75%", 1, true) ~= nil, "previous session usage should be visible")
+
+    ui.handle_notification({
+      method = "omniac/session_started",
+      params = { sessionId = "new-session", method = "session/new", clearChat = true },
+    }, config)
+    assert_true(status_text():find("ctx", 1, true) == nil, "new session should discard previous context usage")
+
+    ui.handle_notification({
+      method = "omniac/usage_update",
+      params = { used = 1000, size = 100000 },
+    }, config)
+    assert_true(status_text():find("ctx 1%", 1, true) ~= nil, "new session usage should appear when reported")
+  end)
+
   it("status renders ACP context usage as a percentage", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
