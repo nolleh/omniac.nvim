@@ -38,8 +38,9 @@ Agent-specific authentication guidance and protocol authentication support remai
 - [x] Send selected code as ACP embedded context when advertised, with a text fallback for other agents.
 - [x] Add the current buffer as a pending prompt reference, linking clean on-disk files and preserving modified buffer contents.
 - [x] Add file-tree integrations that can attach selected paths as prompt references.
-- [ ] Define the exact prompt shape for file references and other mixed text-plus-context input.
-- [ ] Verify the input pipeline still behaves predictably when the user is already in `omniac://input`.
+- [x] Define and manually verify mixed text-plus-context input: selected buffer contents are embedded resources, file paths and line ranges are resource links, and images are image blocks; surrounding text and attachment order are preserved.
+- [x] Manually verify that selected buffer contents remain attached during both immediate mid-turn delivery (`Enter`) and queued delivery (`Tab`); queued messages arrive after the active turn finishes.
+- [x] Verify the input pipeline still behaves predictably when the user is already in `omniac://input`: manually confirmed that `:OmniacReferenceBuffer` shows the source-buffer-required warning instead of attaching the input buffer.
 
 ## Change Review
 
