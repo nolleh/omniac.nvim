@@ -130,6 +130,14 @@ function M.build(opts)
         for _, line in ipairs(text.wrapped(value, text_width)) do
           add_line(lines, marks, "  " .. text.fit(line, width - 4) .. "  ", group)
         end
+        if message.queued then
+          add_line(
+            lines,
+            marks,
+            "  " .. text.fit("Queued · waiting for current turn", width - 4) .. "  ",
+            "OmniacMuted"
+          )
+        end
         if #lines > range_start then
           table.insert(markdown_excluded_ranges, { from = range_start, to = #lines })
         end

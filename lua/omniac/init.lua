@@ -21,16 +21,20 @@ local M = {
 local submission_failure
 
 local function send_next_queued()
-  if M.active_submission or M.failed_submission or #M.queued_submissions == 0 then
-    return
-  end
-  local item = table.remove(M.queued_submissions, 1)
-  M.active_submission = item
-  ui.submit(item.text, M.config, item.attachments)
-  local ok, err = pcall(M.ask, item.text, item.attachments, item)
-  if not ok then
-    submission_failure(item, err)
-  end
+  vim.schedule(function()
+    if M.active_submission or M.failed_submission or #M.queued_submissions == 0 then
+      return
+    end
+    local item = table.remove(M.queued_submissions, 1)
+    M.active_submission = item
+    item.message = item.message or ui.queue_prompt(item.text, M.config, item.attachments)
+    item.queued = false
+    ui.submit(item.text, M.config, item.attachments, item.message)
+    local ok, err = pcall(M.ask, item.text, item.attachments, item)
+    if not ok then
+      submission_failure(item, err)
+    end
+  end)
 end
 
 submission_failure = function(item, err)
@@ -357,8 +361,14 @@ function M.open_chat(connect_opts)
     if not M.active_submission or M.failed_submission then
       return false
     end
-    table.insert(M.queued_submissions, { text = text, attachments = vim.deepcopy(attachments or {}) })
-    ui.set_activity("Queued prompt (" .. #M.queued_submissions .. ").", M.config)
+    local item = { text = text, attachments = vim.deepcopy(attachments or {}), queued = true }
+    table.insert(M.queued_submissions, item)
+    vim.schedule(function()
+      if item.queued then
+        item.message = item.message or ui.queue_prompt(item.text, M.config, item.attachments)
+        ui.set_activity("Queued prompt (" .. #M.queued_submissions .. ").", M.config)
+      end
+    end)
     return true
   end)
 

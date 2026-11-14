@@ -14,6 +14,7 @@ local public_methods = {
   handle_notification = true,
   is_open = true,
   open = true,
+  queue_prompt = true,
   resize = true,
   restore_input = true,
   set_activity = true,

@@ -148,9 +148,7 @@ function M.complete_response(state, config, opts, handlers)
   state.streaming_message_index = nil
 end
 
-function M.submit(state, value, config, attachments, handlers)
-  state.suppress_current_turn = false
-  handlers.clear_input_history()
+local function user_message_text(value, attachments, handlers)
   local display = value or ""
   local positioned = {}
   local trailing = {}
@@ -176,7 +174,37 @@ function M.submit(state, value, config, attachments, handlers)
   if summary then
     display = display ~= "" and (display .. "\n[" .. summary .. "]") or ("[" .. summary .. "]")
   end
-  handlers.add_message("You", display, config)
+  return display
+end
+
+function M.queue_prompt(state, value, config, attachments, handlers)
+  local message = {
+    role = "You",
+    text = user_message_text(value, attachments, handlers),
+    queued = true,
+  }
+  table.insert(state.messages, message)
+  handlers.request_render(config, { immediate = true, follow = true })
+  return message
+end
+
+function M.submit(state, value, config, attachments, handlers, queued_message)
+  state.suppress_current_turn = false
+  handlers.clear_input_history()
+  local reused = false
+  for index, message in ipairs(state.messages) do
+    if message == queued_message then
+      message.queued = false
+      render.invalidate(state, index)
+      state.streaming_message_index = nil
+      handlers.request_render(config, { immediate = true, follow = true })
+      reused = true
+      break
+    end
+  end
+  if not reused then
+    handlers.add_message("You", user_message_text(value, attachments, handlers), config)
+  end
   handlers.set_status("working", config)
 end
 

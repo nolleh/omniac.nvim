@@ -513,8 +513,12 @@ local function new()
     chat_messages.complete_response(state, config, opts, runtime.chat)
   end
 
-  function M.submit(text, config, attachments)
-    chat_messages.submit(state, text, config, attachments, runtime.chat)
+  function M.queue_prompt(text, config, attachments)
+    return chat_messages.queue_prompt(state, text, config, attachments, runtime.chat)
+  end
+
+  function M.submit(text, config, attachments, message)
+    chat_messages.submit(state, text, config, attachments, runtime.chat, message)
   end
 
   function M.restore_input(text, attachments)

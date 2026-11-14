@@ -151,7 +151,8 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
   session, while loaded or resumed sessions keep their saved mode.
 - Agent execution plans show completed / total steps and the current step in the activity bar, alongside tool activity. A single plan entry in chat updates as the plan changes and remains in the transcript after completion, cancellation, or failure.
 - ANSI colors and text styles in command output, tool summaries, activity, and agent replies render as Neovim highlights. Terminal control sequences are hidden; stored output and debug logs retain the original bytes.
-- `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
+- `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised.
+- While a prompt is running, `Tab` queues the input after slash-command completion has been handled. Queued prompts appear as user messages marked `Queued`, then send in order after the active prompt completes. The same message loses its queue marker when sent; a failed prompt pauses the queue until you resolve the failure.
 - `Ctrl-k` and `Ctrl-j` move between the welcome card, chat, and input in normal or insert mode, skipping the activity and status bars. When the welcome card is hidden, they move between chat and input.
 - `/changes` reviews files changed in the latest turn; `/changes session` reviews changes accumulated since the current connection started
 - When the activity window shows a change summary, press `t` for the latest turn or `s` for the current session from any Omniac window except the input
