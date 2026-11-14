@@ -64,7 +64,32 @@ local definitions = {
   OmniacPermissionSelected = { fg = "#11111b", bg = "#94e2d5", bold = true },
 }
 
+local function plan_definitions()
+  local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+  local background = normal.bg or (vim.o.background == "light" and 0xffffff or 0x1e1e2e)
+  local foreground = normal.fg or (vim.o.background == "light" and 0x202020 or 0xcdd6f4)
+  local function shade(amount)
+    local color = 0
+    for _, shift in ipairs({ 16, 8, 0 }) do
+      local base = math.floor(background / 2 ^ shift) % 256
+      local target = math.floor(foreground / 2 ^ shift) % 256
+      color = color + math.floor(base + (target - base) * amount) * 2 ^ shift
+    end
+    return color
+  end
+  return {
+    OmniacPlanSummary = { fg = foreground, bg = shade(0.12), bold = true },
+    OmniacPlanDetail = { fg = foreground, bg = shade(0.04) },
+  }
+end
+
 function M.setup(prefix)
+  local dynamic = plan_definitions()
+  for name, definition in pairs(dynamic) do
+    if not prefix or name:sub(1, #prefix) == prefix then
+      vim.api.nvim_set_hl(0, name, definition)
+    end
+  end
   for name, definition in pairs(definitions) do
     if not prefix or name:sub(1, #prefix) == prefix then
       vim.api.nvim_set_hl(0, name, definition)

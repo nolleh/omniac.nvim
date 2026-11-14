@@ -19,6 +19,81 @@ describe("omniac.nvim agent plans", function()
     return state, send, activity
   end
 
+  it("expands the live plan in place and keeps input focus and text", function()
+    local state, send, activity = setup()
+    local entries = {
+      { content = "Inspect", status = "completed" },
+      { content = "Implement", status = "in_progress" },
+      { content = "Verify", status = "pending" },
+      { content = "Obsolete", status = "cancelled" },
+    }
+    send("omniac/plan_update", { turnId = 7, entries = entries })
+    assert.is_truthy(activity():find("[Ctrl-P] Expand plan", 1, true))
+    assert.is_nil(activity():find("Verify", 1, true))
+    local input = vim.api.nvim_buf_get_lines(state.input_buf, 0, -1, false)
+    local count = #vim.api.nvim_list_wins()
+    vim.api.nvim_set_current_win(state.input_win)
+    helpers.feed("<C-p>")
+    assert.equals(state.input_win, vim.api.nvim_get_current_win())
+    assert.same(input, vim.api.nvim_buf_get_lines(state.input_buf, 0, -1, false))
+    assert.equals(count, #vim.api.nvim_list_wins())
+    assert.is_truthy(activity():find("[x] 1. Inspect", 1, true))
+    assert.is_truthy(activity():find("[~] 2. Implement", 1, true))
+    assert.is_truthy(activity():find("[ ] 3. Verify", 1, true))
+    assert.is_truthy(activity():find("[-] 4. Obsolete", 1, true))
+    assert.equals(6, state.activity_height)
+    entries[3].status = "in_progress"
+    send("omniac/plan_update", { turnId = 7, entries = entries })
+    assert.is_truthy(activity():find("[~] 3. Verify", 1, true))
+    helpers.feed("<C-k>")
+    assert.equals(state.activity_win, vim.api.nvim_get_current_win())
+    helpers.feed("<C-p>")
+    assert.is_false(state.plan_expanded)
+    assert.equals(2, state.activity_height)
+    assert.is_nil(activity():find("Obsolete", 1, true))
+    helpers.feed("<C-p>")
+    send("omniac/response_completed", { turnId = 7 })
+    assert.is_false(state.plan_expanded)
+    assert.is_nil(activity():find("Ctrl-P", 1, true))
+    assert.equals(1, state.activity_height)
+  end)
+
+  it("wraps full plan details and keeps long lists scrollable in a bounded bar", function()
+    local state, send, activity = setup()
+    local entries = {}
+    for index = 1, 30 do
+      entries[index] = { content = string.rep("한글", 35) .. " end " .. index, status = "pending" }
+    end
+    send("omniac/plan_update", { turnId = 7, plan = { type = "items", planId = "work", entries = entries } })
+    helpers.feed("<C-p>")
+    assert.is_truthy(activity():find("end 30", 1, true))
+    assert.is_nil(activity():find("…", activity():find("[ ] 1.", 1, true), true))
+    assert.is_true(state.activity_height <= math.floor(vim.o.lines / 3))
+    assert.is_true(vim.api.nvim_buf_line_count(state.activity_buf) > state.activity_height)
+    vim.api.nvim_set_current_win(state.activity_win)
+    helpers.feed("G")
+    local cursor = vim.api.nvim_win_get_cursor(state.activity_win)
+    send("omniac/tool_activity", { title = "Tests", status = "in_progress" })
+    assert.same(cursor, vim.api.nvim_win_get_cursor(state.activity_win))
+    send("omniac/session_loading")
+    assert.is_false(state.plan_expanded)
+  end)
+
+  it("expands the latest Markdown document and falls back after removal", function()
+    local state, send, activity = setup()
+    send("omniac/plan_update", { turnId = 7, entries = { { content = "Legacy", status = "pending" } } })
+    send("omniac/plan_update", {
+      turnId = 7,
+      plan = { type = "markdown", planId = "design", content = "# Design\nDetailed proposal" },
+    })
+    helpers.feed("<C-p>")
+    assert.is_truthy(activity():find("Detailed proposal", 1, true))
+    send("omniac/plan_update", { turnId = 7, removedPlanId = "design" })
+    assert.is_truthy(activity():find("[ ] 1. Legacy", 1, true))
+    send("omniac/plan_update", { turnId = 7, entries = {} })
+    assert.is_nil(activity():find("Ctrl-P", 1, true))
+  end)
+
   it("advertises plan support as a JSON object in configured and minimal clients", function()
     for _, config in ipairs({ {}, require("omniac.config").merge({}) }) do
       local client = require("omniac.backend.acp").new(config)

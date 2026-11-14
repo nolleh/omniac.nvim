@@ -9,7 +9,12 @@ local function move_focus(state, direction, valid_win)
   if valid_win(state.card_win) then
     table.insert(windows, state.card_win)
   end
-  for _, win in ipairs({ state.chat_win, state.input_win }) do
+  local areas = { state.chat_win }
+  if state.activity_plan_visible and state.plan_expanded then
+    table.insert(areas, state.activity_win)
+  end
+  table.insert(areas, state.input_win)
+  for _, win in ipairs(areas) do
     if valid_win(win) then
       table.insert(windows, win)
     end
@@ -67,6 +72,14 @@ local function bind_sidebar_movement(buf, opts)
 end
 
 function M.setup(state, opts)
+  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
+    vim.keymap.set({ "n", "i" }, "<C-p>", opts.toggle_plan_details, {
+      buffer = buf,
+      nowait = true,
+      desc = "Expand or collapse Omniac plan",
+    })
+  end
+
   for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
     vim.keymap.set({ "n", "i" }, "<C-t>", opts.toggle_tool_output, {
       buffer = buf,

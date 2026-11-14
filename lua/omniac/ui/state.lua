@@ -62,6 +62,8 @@ function M.new()
     session_config = nil,
     session_usage = nil,
     plan_toggle_handler = nil,
+    plan_expanded = false,
+    activity_plan_visible = false,
     relayout_pending = false,
     close_pending = false,
     user_width = nil,

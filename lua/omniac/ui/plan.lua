@@ -3,6 +3,7 @@ local M = {}
 local markers = { pending = "[ ]", in_progress = "[~]", completed = "[x]", cancelled = "[-]" }
 
 function M.clear(state)
+  state.plan_expanded = false
   state.plan_entries = nil
   state.plan_notice_index = nil
   state.plan_documents = nil
@@ -128,23 +129,41 @@ function M.finish(state, reason, config, handlers)
   M.clear(state)
 end
 
-function M.activity(state)
-  local entries = state.plan_entries
+local function active_plan(state)
   for index = #(state.plan_document_order or {}), 1, -1 do
     local document = state.plan_documents[state.plan_document_order[index]]
     if document then
-      if document.type == "items" then
-        entries = document.entries
-        break
-      elseif document.type == "markdown" then
-        local title = document.content:match("[^\r\n]+") or ""
-        return "Plan: " .. title:gsub("^%s*#+%s*", "")
-      elseif document.type == "file" then
-        return "Plan: " .. document.uri
-      else
-        return "Plan: unsupported content"
-      end
+      return document
     end
+  end
+  return { type = "items", entries = state.plan_entries }
+end
+
+function M.details(state, width)
+  local document = active_plan(state)
+  local value
+  if document.type == "items" then
+    local lines = {}
+    for index, entry in ipairs(document.entries or {}) do
+      table.insert(lines, string.format("%s %d. %s", markers[entry.status], index, entry.content))
+    end
+    value = table.concat(lines, "\n")
+  else
+    value = document_text(document)
+  end
+  return require("omniac.ui.text").wrapped(value, width)
+end
+
+function M.activity(state)
+  local document = active_plan(state)
+  local entries = document.entries
+  if document.type == "markdown" then
+    local title = document.content:match("[^\r\n]+") or ""
+    return "Plan: " .. title:gsub("^%s*#+%s*", "")
+  elseif document.type == "file" then
+    return "Plan: " .. document.uri
+  elseif document.type ~= "items" then
+    return "Plan: unsupported content"
   end
   if type(entries) ~= "table" or #entries == 0 then
     return nil

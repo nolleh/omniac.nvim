@@ -375,6 +375,12 @@ local function new()
     close_ui = function(...)
       return M.close(...)
     end,
+    toggle_plan_details = function()
+      if state.status == "working" and require("omniac.ui.plan").activity(state) then
+        state.plan_expanded = not state.plan_expanded
+        render_activity()
+      end
+    end,
     toggle_tool_output = function()
       return M.toggle_tool_output(state.config)
     end,

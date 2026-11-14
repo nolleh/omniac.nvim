@@ -87,6 +87,7 @@ function M.new(state, deps)
     valid_win = deps.valid_win,
     focus_input = deps.focus_input,
     toggle_tool_output = deps.toggle_tool_output,
+    toggle_plan_details = deps.toggle_plan_details,
     move_sidebar = deps.move_sidebar,
   }
 
