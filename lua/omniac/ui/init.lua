@@ -2,6 +2,7 @@ local app = require("omniac.ui.app").new()
 
 local public_methods = {
   add_message = true,
+  add_user_message = true,
   add_notice = true,
   add_tool_result = true,
   append_response_chunk = true,

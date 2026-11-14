@@ -517,6 +517,10 @@ local function new()
     return chat_messages.queue_prompt(state, text, config, attachments, runtime.chat)
   end
 
+  function M.add_user_message(text, config, attachments)
+    return chat_messages.add_user_message(state, text, config, attachments, runtime.chat)
+  end
+
   function M.submit(text, config, attachments, message)
     chat_messages.submit(state, text, config, attachments, runtime.chat, message)
   end

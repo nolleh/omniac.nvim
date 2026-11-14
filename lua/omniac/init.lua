@@ -8,6 +8,7 @@ local model_dialog = require("omniac.session.model_dialog")
 local mode_dialog = require("omniac.session.mode_dialog")
 local changes = require("omniac.changes")
 local prompt_builder = require("omniac.prompt.build")
+local steering = require("omniac.acp.steering")
 
 local M = {
   config = config.defaults,
@@ -20,9 +21,13 @@ local M = {
 
 local submission_failure
 
+local function turn_is_active()
+  return M.active_submission ~= nil or (M.backend and (M.backend.active_turn_id ~= nil or steering.busy(M.backend)))
+end
+
 local function send_next_queued()
   vim.schedule(function()
-    if M.active_submission or M.failed_submission or #M.queued_submissions == 0 then
+    if turn_is_active() or M.failed_submission or #M.queued_submissions == 0 then
       return
     end
     local item = table.remove(M.queued_submissions, 1)
@@ -325,9 +330,8 @@ function M.open_chat(connect_opts)
       return
     end
 
-    if M.active_submission then
-      ui.set_activity("Wait for the current prompt before sending another.", M.config)
-      return false
+    if turn_is_active() then
+      return M.steer(text, attachments)
     end
     if M.failed_submission then
       vim.ui.select({ "Keep failed prompt", "Discard failed prompt" }, {
@@ -358,7 +362,7 @@ function M.open_chat(connect_opts)
     end
     return true
   end, function(text, attachments)
-    if not M.active_submission or M.failed_submission then
+    if not turn_is_active() or M.failed_submission then
       return false
     end
     local item = { text = text, attachments = vim.deepcopy(attachments or {}), queued = true }
@@ -494,6 +498,47 @@ function M.ask(extra, attachments, item)
 
   vim.notify(prompt, vim.log.levels.INFO, { title = "omniac prompt" })
   return prompt
+end
+
+function M.steer(text, attachments)
+  local client = M.backend
+  if not client or not client.supports_steering or not client:supports_steering() then
+    ui.set_activity("This agent cannot receive messages during a turn. Use Tab to queue the input.", M.config)
+    return false
+  end
+  if not client.running or not client.session_id then
+    ui.set_activity("The ACP session is still starting. Keep the input and send it when ready.", M.config)
+    return false
+  end
+  local session_id = client.session_id
+  local prompt = prompt_builder.text(text)
+  local saved_attachments = vim.deepcopy(attachments or {})
+  local params
+  if #saved_attachments > 0 then
+    params =
+      { prompt = prompt_builder.items(prompt, saved_attachments, client:supports_prompt_capability("embeddedContext")) }
+  end
+  ui.add_user_message(text, M.config, saved_attachments)
+  local function completed(err)
+    vim.schedule(function()
+      if M.backend ~= client or client.session_id ~= session_id then
+        return
+      end
+      if err then
+        local reason = type(err) == "table" and (err.message or err.error) or err
+        ui.add_notice("Error", "Could not deliver the additional message: " .. tostring(reason), M.config)
+        if not ui.restore_input(text, saved_attachments) then
+          ui.set_activity("Additional message failed. It remains in chat; resend it when ready.", M.config)
+        end
+      end
+      send_next_queued()
+    end)
+  end
+  local ok, err = pcall(client.steer, client, prompt, params, completed)
+  if not ok then
+    completed(err)
+  end
+  return true
 end
 
 function M.retry_failed_submission()

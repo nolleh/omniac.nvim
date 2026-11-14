@@ -159,6 +159,10 @@ end
 
 function M.handle(client, update)
   local update_type = normalize.update_type(update)
+  if update_type == "session_info_update" then
+    require("omniac.acp.steering").status(client, update)
+    return true
+  end
   if update_type == "plan_update" or update_type == "plan_removed" then
     emit(client, "omniac/plan_update", {
       sessionId = client.session_id,

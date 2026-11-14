@@ -5,6 +5,7 @@ local normalize = require("omniac.acp.normalize")
 local session_state = require("omniac.acp.session_state")
 local updates = require("omniac.acp.updates")
 local workspace = require("omniac.acp.workspace")
+local steering = require("omniac.acp.steering")
 
 local M = {}
 
@@ -234,7 +235,11 @@ function M.new(config)
         version = client.version or "0.1.0",
       },
       clientCapabilities = capabilities,
-    }, callback)
+    }, function(err, result)
+      local meta = type(result) == "table" and type(result._meta) == "table" and result._meta.steering or nil
+      self.steering_supported = not err and type(meta) == "table" and meta.supported == true
+      callback(err, result)
+    end)
   end
 
   function state:_session_params()
@@ -998,7 +1003,7 @@ function M.new(config)
     return self
   end
 
-  function state:prompt(text, params, callback)
+  function state:_prompt_params(text, params)
     local request_params = deepcopy(params or {})
     request_params.sessionId = request_params.sessionId or self.session_id
     request_params.prompt = request_params.prompt
@@ -1011,66 +1016,93 @@ function M.new(config)
 
     for _, item in ipairs(request_params.prompt or {}) do
       if type(item) == "table" and item.type == "image" and not self:supports_prompt_capability("image") then
-        if callback then
-          callback({
-            message = "agent does not support image prompts",
-          })
-        end
-        return
+        return nil, { message = "agent does not support image prompts" }
       end
       if
         type(item) == "table"
         and item.type == "resource"
         and not self:supports_prompt_capability("embeddedContext")
       then
-        if callback then
-          callback({
-            message = "agent does not support embedded context",
-          })
-        end
-        return
+        return nil, { message = "agent does not support embedded context" }
       end
     end
 
+    return request_params
+  end
+
+  function state:supports_steering()
+    return self.steering_supported == true
+  end
+
+  function state:steer(text, params, callback)
+    if not self:supports_steering() or not self.transport or not self.running or not self.session_id then
+      callback({ message = "The agent does not support steering in this session" })
+      return
+    end
+    local request_params, err = self:_prompt_params(text, params)
+    if err then
+      callback(err)
+      return
+    end
+    steering.request(self, request_params, callback)
+  end
+
+  function state:_start_prompt_turn()
+    self.steering_idle_observed = false
+    self.turn_sequence = self.turn_sequence + 1
+    self.active_turn_id = self.turn_sequence
+    self.response_chunks = {}
+    self.response_emitted = false
+    self.response_streamed = false
+    self.tool_calls = {}
+    self.edit_tool_calls = {}
+    self.workspace = workspace.new(self)
+    self:_emit_notification({
+      method = "omniac/prompt_started",
+      params = {
+        sessionId = self.session_id,
+        turnId = self.active_turn_id,
+      },
+    })
+  end
+
+  function state:prompt(text, params, callback)
+    local request_params, validation_err = self:_prompt_params(text, params)
+    if validation_err then
+      if callback then
+        callback(validation_err)
+      end
+      return
+    end
     local function send_prompt()
-      self.turn_sequence = self.turn_sequence + 1
-      self.active_turn_id = self.turn_sequence
-      self.response_chunks = {}
-      self.response_emitted = false
-      self.response_streamed = false
-      self.tool_calls = {}
-      self.edit_tool_calls = {}
-      self.workspace = workspace.new(self)
-      self:_emit_notification({
-        method = "omniac/prompt_started",
-        params = {
-          sessionId = self.session_id,
-          turnId = self.active_turn_id,
-        },
-      })
+      self:_start_prompt_turn()
+      local turn_id = self.active_turn_id
       self.transport:request("session/prompt", request_params, function(err, result)
         if err then
-          local turn_id = self.active_turn_id
-          if self.workspace then
-            self.workspace:finish()
-            self.workspace = nil
+          if self.active_turn_id == turn_id then
+            if self.workspace then
+              self.workspace:finish()
+              self.workspace = nil
+            end
+            self.active_turn_id = nil
+            self:_emit_notification({
+              method = "omniac/prompt_failed",
+              params = {
+                sessionId = self.session_id,
+                turnId = turn_id,
+                error = err,
+              },
+            })
           end
-          self.active_turn_id = nil
-          self:_emit_notification({
-            method = "omniac/prompt_failed",
-            params = {
-              sessionId = self.session_id,
-              turnId = turn_id,
-              error = err,
-            },
-          })
           if callback then
             callback(err, nil, result)
           end
           return
         end
 
-        self:_emit_response(result, self.active_turn_id)
+        if self.active_turn_id == turn_id then
+          self:_emit_response(result, turn_id)
+        end
 
         if callback then
           callback(nil, result, nil)
@@ -1095,6 +1127,11 @@ function M.new(config)
   end
 
   function state:close()
+    self.steering_supported = false
+    self.steering_external_turn = false
+    self.steering_requests = 0
+    self.steering_waiters = nil
+    self.steering_idle_observed = false
     if self.workspace then
       self.workspace:finish()
       self.workspace = nil

@@ -177,15 +177,19 @@ local function user_message_text(value, attachments, handlers)
   return display
 end
 
-function M.queue_prompt(state, value, config, attachments, handlers)
+function M.add_user_message(state, value, config, attachments, handlers, queued)
   local message = {
     role = "You",
     text = user_message_text(value, attachments, handlers),
-    queued = true,
+    queued = queued == true,
   }
   table.insert(state.messages, message)
   handlers.request_render(config, { immediate = true, follow = true })
   return message
+end
+
+function M.queue_prompt(state, value, config, attachments, handlers)
+  return M.add_user_message(state, value, config, attachments, handlers, true)
 end
 
 function M.submit(state, value, config, attachments, handlers, queued_message)
