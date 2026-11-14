@@ -1,5 +1,6 @@
 local text = require("omniac.ui.text")
 local tool_result = require("omniac.ui.chat.tool_result")
+local ansi = require("omniac.ui.ansi")
 
 local M = {}
 
@@ -66,14 +67,14 @@ local function chat_message_lines(line, width)
     or value:match("^%s*~~~")
     or value:match("^%s*%-%-%-+%s*$")
   then
-    return { line }
+    return { line }, 0
   end
 
   local result = {}
   for _, wrapped_line in ipairs(text.wrapped(line, math.max(1, width - 4))) do
     table.insert(result, "  " .. text.fit(wrapped_line, math.max(1, width - 4)) .. "  ")
   end
-  return result
+  return result, 2
 end
 
 function M.build(opts)
@@ -144,11 +145,18 @@ function M.build(opts)
         -- particular, heredocs and fences must not hide or restyle the preview.
         table.insert(markdown_excluded_ranges, { from = offset, to = #lines })
       else
-        local message_text = unwrap_markdown_fences(value)
+        local message_text, colors = ansi.parse(unwrap_markdown_fences(value))
+        local source_offset = 0
         for _, line in ipairs(text.split_lines(message_text)) do
-          for _, display_line in ipairs(chat_message_lines(line, width)) do
+          local display_lines, padding = chat_message_lines(line, width)
+          local consumed = 0
+          for _, display_line in ipairs(display_lines) do
             add_line(lines, marks, display_line, group)
+            local length = math.min(#line - consumed, #display_line - padding * 2)
+            vim.list_extend(marks, ansi.marks(colors, source_offset + consumed, length, #lines, padding))
+            consumed = consumed + length
           end
+          source_offset = source_offset + #line + 1
         end
         if message.stop_footer and message.stop_footer ~= "" then
           add_line(lines, marks, "  " .. text.fit(message.stop_footer, width - 4) .. "  ", "OmniacMuted")

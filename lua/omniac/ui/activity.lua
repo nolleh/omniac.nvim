@@ -1,4 +1,5 @@
 local M = {}
+local ansi = require("omniac.ui.ansi")
 
 local frames = { "Working", "Working.", "Working..", "Working..." }
 local groups = { "OmniacWorking1", "OmniacWorking2", "OmniacWorking3", "OmniacWorking4" }
@@ -34,18 +35,25 @@ function M.render(opts)
   local win_width = opts.valid_win(state.activity_win) and vim.api.nvim_win_get_width(state.activity_win)
     or opts.width()
   local value = activity_text(state)
+  local plain, colors = ansi.parse(value)
   local lines = { "" }
+  local color_marks = {}
   if value ~= "" then
     local inner_width = math.max(1, win_width - 4)
-    local source_lines = opts.split_lines(tostring(value):gsub("\r\n", "\n"):gsub("\r", "\n"))
+    local source_lines = opts.split_lines(plain)
     local truncated = #source_lines > opts.max_lines
     lines = {}
+    local offset = 0
     for index = 1, math.min(#source_lines, opts.max_lines) do
       local source = source_lines[index]
       if truncated and index == opts.max_lines then
         source = source .. "…"
       end
-      table.insert(lines, "  " .. opts.fit(source, inner_width) .. "  ")
+      local fitted = opts.fit(source, inner_width)
+      table.insert(lines, "  " .. fitted .. "  ")
+      local retained = ansi.retained(source_lines[index], fitted)
+      vim.list_extend(color_marks, ansi.marks(colors, offset, retained, index, 2))
+      offset = offset + #source_lines[index] + 1
     end
   end
 
@@ -62,6 +70,9 @@ function M.render(opts)
   if value ~= "" then
     for index = 1, #lines do
       opts.add_hl(state.activity_buf, index, 0, -1, groups[state.activity_frame])
+    end
+    for _, mark in ipairs(color_marks) do
+      opts.add_hl(state.activity_buf, mark.line, mark.from, mark.to, mark.group)
     end
     if state.failure_action or state.change_summary then
       for index, line in ipairs(lines) do
