@@ -179,4 +179,35 @@ describe("omniac.nvim session recovery", function()
     helpers.assert_equal(requests[#requests].method, "session/prompt")
     helpers.assert_equal(requests[#requests].params.sessionId, "second-session")
   end)
+
+  it("loads image history as placeholders without changing the replay content", function()
+    local state
+    ui.open = function(cfg, callback, queue_callback)
+      submit = callback or submit
+      state = original_open(cfg, callback, queue_callback)
+      return state
+    end
+    local image = { type = "image", mimeType = "image/png", data = string.rep("A", 100000) }
+    replay_history = function(instance, id)
+      for _, block in ipairs({
+        { type = "text", text = "Screenshot [@im" },
+        { type = "text", text = "age](data:image/png;base64," .. string.rep("B", 100000) },
+        { type = "text", text = ") caption " },
+        image,
+        { type = "text", text = " [@im" },
+      }) do
+        instance.notify({
+          method = "session/update",
+          params = { sessionId = id, update = { sessionUpdate = "user_message_chunk", content = block } },
+        })
+      end
+    end
+    app.open_chat({ session = { action = "load", id = "image-session" } })
+    helpers.assert_true(vim.wait(1000, function()
+      return app.backend and app.backend.session_id == "image-session" and not state.session_loading
+    end))
+    helpers.assert_equal(#state.messages, 1)
+    helpers.assert_equal(state.messages[1].text, "Screenshot [Image attachment] caption [Image attachment] [@im")
+    helpers.assert_equal(image.data, string.rep("A", 100000))
+  end)
 end)

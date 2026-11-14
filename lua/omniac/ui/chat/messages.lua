@@ -35,6 +35,7 @@ function M.clear(state, config, handlers)
   state.streaming_message_index = nil
   state.history_user_index = nil
   state.history_user_id = nil
+  state.history_user_display = nil
   state.tool_activity = nil
   state.cancel_requested = false
   state.suppress_current_turn = false

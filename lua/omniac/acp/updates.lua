@@ -258,7 +258,8 @@ function M.handle(client, update)
   end
 
   if update_type == "user_message_chunk" then
-    local text = content.text(update.content or update.delta or update)
+    local block = update.content or update.delta or update
+    local text = type(block) == "table" and block.type == "image" and "[Image attachment]" or content.text(block)
     if text and text ~= "" then
       emit(client, "omniac/user_message_chunk", {
         text = text,

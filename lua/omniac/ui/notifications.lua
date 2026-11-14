@@ -3,6 +3,28 @@ local plan = require("omniac.ui.plan")
 local normalize = require("omniac.acp.normalize")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local chat_render = require("omniac.ui.chat.render")
+local attachments = require("omniac.ui.chat.attachments")
+
+local function append_history_user(state, text, config, handlers)
+  if text == "" then
+    return
+  end
+  local index = state.history_user_index
+  if index then
+    handlers.update_notice(index, state.messages[index].text .. text, config)
+  else
+    state.history_user_index = handlers.add_notice("You", text, config)
+  end
+end
+
+local function finish_history_user(state, config, handlers)
+  if state.history_user_display then
+    append_history_user(state, attachments.push(state.history_user_display, "", true), config, handlers)
+  end
+  state.history_user_display = nil
+  state.history_user_index = nil
+  state.history_user_id = nil
+end
 
 local function stop_reason_activity(reason, config)
   if reason == "cancelled" then
@@ -64,11 +86,13 @@ function M.handle(state, message, config, handlers)
     handlers.clear_conversation(config)
     state.history_user_index = nil
     state.history_user_id = nil
+    state.history_user_display = nil
     state.session_loading = true
     return
   end
 
   if method == "omniac/session_started" then
+    finish_history_user(state, config, handlers)
     plan.clear(state)
     if state.session_loading and state.streaming_message_index then
       local index = state.streaming_message_index
@@ -120,6 +144,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/response" then
+    finish_history_user(state, config, handlers)
     local reason = normalize.stop_reason(params)
     plan.finish(state, stop_reason_activity(reason, config) or stop_reason_footer(reason), config, handlers)
     handlers.add_message("Omniac", params.text or "", config, {
@@ -135,8 +160,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/response_chunk" then
-    state.history_user_index = nil
-    state.history_user_id = nil
+    finish_history_user(state, config, handlers)
     handlers.append_response_chunk(params.text or "", config)
     return
   end
@@ -145,13 +169,12 @@ function M.handle(state, message, config, handlers)
     if not state.session_loading or type(params.text) ~= "string" or params.text == "" then
       return
     end
-    local index = state.history_user_index
-    if index and (not params.messageId or not state.history_user_id or params.messageId == state.history_user_id) then
-      handlers.update_notice(index, state.messages[index].text .. params.text, config)
-    else
-      state.history_user_index = handlers.add_notice("You", params.text, config)
-      state.history_user_id = params.messageId
+    if params.messageId and state.history_user_id and params.messageId ~= state.history_user_id then
+      finish_history_user(state, config, handlers)
     end
+    state.history_user_id = params.messageId or state.history_user_id
+    state.history_user_display = state.history_user_display or {}
+    append_history_user(state, attachments.push(state.history_user_display, params.text), config, handlers)
     return
   end
 
