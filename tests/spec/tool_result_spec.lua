@@ -96,7 +96,7 @@ describe("tool result previews", function()
     assert.are.same({ "one", "two", "three", "four", "five" }, section(result.render(message, 60), "OmniacToolOutput"))
   end)
 
-  it("uses a bash fence without rewriting shell source or interpreting output as Markdown", function()
+  it("uses a sh fence without rewriting shell source or interpreting output as Markdown", function()
     local command = "printf '%s' '" .. string.rep("long argument ", 12) .. "' \\\n  | cat <<'EOF'\n```literal\nEOF"
     local rendered = result.render({
       kind = "execute",
@@ -106,7 +106,7 @@ describe("tool result previews", function()
     }, 42)
     assert.are.equal(command, table.concat(command_lines(rendered), "\n"))
     local region = rendered.command_markdown
-    assert.are.equal("  ````bash", rendered.lines[region.from + 1])
+    assert.are.equal("  ````sh", rendered.lines[region.from + 1])
     assert.are.equal("  ````", rendered.lines[region.to])
     assert.is_truthy(table.concat(section(rendered, "OmniacToolOutput")):find("# literal output", 1, true))
     for _, mark in ipairs(rendered.marks) do
@@ -114,6 +114,37 @@ describe("tool result previews", function()
         mark.line <= rendered.command_range.from or mark.line > rendered.command_range.to,
         "shell highlighting must come from the Bash parser rather than a uniform command color"
       )
+    end
+  end)
+
+  it("keeps soft-wrapped command continuations inside the chat padding", function()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local config = { ui = { chat_width = 60 } }
+    local state = ui.open(config, function() end)
+    local command = "printf '%s' '" .. string.rep("argument ", 30) .. "'"
+    ui.add_tool_result({ kind = "execute", command = command, output = "PASS" }, config)
+    helpers.feed("<C-t>")
+    local lines = vim.api.nvim_buf_get_lines(state.chat_buf, 0, -1, false)
+    local command_row
+    for row, line in ipairs(lines) do
+      if line == "  " .. command then
+        command_row = row
+        break
+      end
+    end
+    assert.is_not_nil(command_row, "the command source must stay intact")
+    for _, width in ipairs({ 42, 60 }) do
+      vim.api.nvim_win_set_width(state.chat_win, width)
+      vim.api.nvim_win_call(state.chat_win, function()
+        vim.api.nvim_win_set_cursor(state.chat_win, { command_row, 0 })
+        vim.cmd("normal! zt")
+      end)
+      vim.cmd("redraw")
+      local first = vim.fn.screenpos(state.chat_win, command_row, 3)
+      local continuation = vim.fn.screenpos(state.chat_win, command_row, width + 1)
+      assert.are.equal(first.row + 1, continuation.row)
+      assert.are.equal(first.col, continuation.col, "wrapped commands should retain the two-space left padding")
     end
   end)
 
@@ -140,7 +171,7 @@ describe("tool result previews", function()
     local excluded = state.chat_render_cache.excluded
     assert.are.equal(2, #excluded, "only the fenced command should participate in Markdown parsing")
     local code = table.concat(vim.api.nvim_buf_get_lines(state.chat_buf, excluded[1].to, excluded[2].from, false), "\n")
-    assert.is_truthy(code:find("````bash", 1, true), "the outer fence must contain literal triple backticks safely")
+    assert.is_truthy(code:find("````sh", 1, true), "the outer fence must contain literal triple backticks safely")
     assert.is_truthy(code:find("```lua", 1, true))
     assert.is_nil(code:find("Output", 1, true))
     helpers.feed("<C-t>")

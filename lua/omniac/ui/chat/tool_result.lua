@@ -120,7 +120,7 @@ function M.render(message, width)
     end
     local fence = string.rep("`", fence_size)
     command_markdown = { from = #lines }
-    table.insert(lines, "  " .. fence .. "bash")
+    table.insert(lines, "  " .. fence .. "sh")
     command_range = { from = #lines }
     local remaining = COMMAND_PREVIEW_LINES
     for _, line in ipairs(info.command_source) do
