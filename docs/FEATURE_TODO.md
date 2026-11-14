@@ -6,10 +6,9 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 Work through these in order; completed protocol features alone do not establish release readiness.
 
-1. **Visible progress:** show ACP agent plans alongside tool activity, preserving completed and interrupted plans in chat. Implemented; live-agent verification remains.
-2. **Interaction stability:** audit ambient popups and focus-stealing keymaps while composing input and reviewing permissions.
-3. **Agent onboarding and recovery:** actionable authentication errors and session-startup retry. Prompt resend / restore is already available.
-4. **Release validation:** run live Codex and Copilot integration tests, then verify install, connect, prompt, cancel, approval, session selection, and reconnect manually.
+1. **Release validation:** run live Codex and Copilot integration tests, then verify install, connect, prompt, cancel, approval, session selection, and reconnect manually. Include live verification of the implemented agent plan display, which preserves completed and interrupted plans in chat.
+
+Input popup and focus interference has been resolved; the completed interaction-stability work is tracked under UX Safety below.
 
 ## Input Experience
 
@@ -23,12 +22,15 @@ Work through these in order; completed protocol features alone do not establish 
 
 - [x] Open the session selector with `:OmniacSession` while disconnected, using the agent's advertised session list and load / resume support.
 - [x] Add `/clear` to start a fresh ACP session while keeping the current connection.
+- [x] Recover from failed session startup through session selection: block prompts on the failed session and allow opening another session through `/resume`. Verified manually; prompt resend / restore is also available.
+
+Agent-specific authentication guidance and protocol authentication support remain follow-up work in Protocol TODO rather than a next-release blocker.
 
 ## UX Safety
 
 - [x] Prevent ambient floating windows opened by normal typing, completion, or file navigation from interrupting the Omniac experience.
 - [x] Make `Esc` behavior context-aware so it closes transient UI without accidentally stopping an active chat turn.
-- [ ] Audit keymaps and popup handlers that can steal focus while the input is active.
+- [x] Audit keymaps and popup handlers that can steal focus while the input is active.
 
 ## Prompt Context
 

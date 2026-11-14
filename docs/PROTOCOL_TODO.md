@@ -7,12 +7,13 @@ This file tracks what is already working and what still needs to be implemented 
 ## Overview
 
 - [x] Speak JSON-RPC-style request / response / notification messages over the active transport.
+- [x] Treat JSON null object fields as absent while preserving null response completion and array positions.
 - [x] Keep ACP session flow in `lua/omniac/backend/acp.lua`.
 - [x] Keep process framing and subprocess communication in `lua/omniac/transport/`.
 - [x] Write protocol logs when debug mode is enabled.
 - [ ] Confirm exact ACP schema details against each supported agent and isolate per-agent adapters.
 - [x] Add explicit resend / restore behavior for failed prompt submission.
-- [ ] Add explicit retry behavior for failed session startup.
+- [x] Recover from failed session startup by allowing another session selection through `/resume`, while preventing prompts on the failed session.
 - [x] Add integration tests against `codex-acp` and at least one additional ACP agent (Copilot).
 - [ ] Run both live integration suites as release validation.
 
@@ -115,6 +116,7 @@ This file tracks what is already working and what still needs to be implemented 
 ## Session Config Options
 
 - [x] Read advertised session config options from session metadata and update notifications.
+- [x] Fall back to advertised legacy `models` metadata and `session/set_model` when model config options are unavailable.
 - [ ] Render configurable options in the UI.
 - [x] Send model, mode, and collaboration selections with `session/set_config_option` when advertised.
 - [ ] Support selecting other advertised config options.
