@@ -1,0 +1,11 @@
+[Home](Home.md)
+
+- [Getting started](Getting-Started.md)
+- [Configuration](Configuration.md)
+- [Commands and keymaps](Commands-and-Keymaps.md)
+- [Prompt context](Prompt-Context.md)
+- [Sessions and models](Sessions-and-Models.md)
+- [Plans and tool output](Plans-and-Tool-Output.md)
+- [Change review](Change-Review.md)
+- [Troubleshooting](Troubleshooting.md)
+- [Development](Development.md)

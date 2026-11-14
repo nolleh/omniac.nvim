@@ -6,7 +6,8 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 Work through these in order; completed protocol features alone do not establish release readiness.
 
-1. **Release validation:** run live Codex and Copilot integration tests, then verify install, connect, prompt, cancel, approval, session selection, and reconnect manually. Include live verification of the implemented agent plan display, which preserves completed and interrupted plans in chat.
+1. **Demo:** add the demo video at the top of the README before publishing.
+2. **Release preparation:** choose the release version, finalize concise user-visible changes in `CHANGELOG.md`, and publish the detailed guides from `docs/wiki` to GitHub Wiki when the repository is available.
 
 Input popup and focus interference has been resolved; the completed interaction-stability work is tracked under UX Safety below.
 

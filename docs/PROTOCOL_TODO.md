@@ -17,7 +17,7 @@ Checked items describe the supported scope, not universal compatibility with eve
 - [x] Add explicit resend / restore behavior for failed prompt submission.
 - [x] Recover from failed session startup by allowing another session selection through `/resume`, while preventing prompts on the failed session.
 - [x] Add integration tests against `codex-acp` and at least one additional ACP agent (Copilot).
-- [ ] Run the live Codex integration suite as release validation; interactive checks do not replace this suite.
+- [x] Run the live Codex integration suite as release validation: adjusted-approval E2E passed on 2026-11-15 with codex-acp 2.0.1.
 - [ ] Run the existing live Copilot suite when credentials and usage budget are available, and record its tested version and result separately.
 
 ## Initialization
