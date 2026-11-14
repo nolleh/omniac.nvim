@@ -217,6 +217,7 @@ function M.new(config)
     local capabilities = deepcopy(client.capabilities or {})
     if vim.tbl_isempty(capabilities) then
       capabilities = {
+        plan = vim.empty_dict(),
         fs = {
           readTextFile = true,
           writeTextFile = true,

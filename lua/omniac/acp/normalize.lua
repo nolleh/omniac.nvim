@@ -32,6 +32,8 @@ function M.turn_id(value)
 end
 
 local update_types = {
+  planUpdate = "plan_update",
+  planRemoved = "plan_removed",
   availableCommandsUpdate = "available_commands_update",
   configOptionUpdate = "config_option_update",
   usageUpdate = "usage_update",

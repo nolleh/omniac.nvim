@@ -19,6 +19,104 @@ describe("omniac.nvim agent plans", function()
     return state, send, activity
   end
 
+  it("advertises plan support as a JSON object in configured and minimal clients", function()
+    for _, config in ipairs({ {}, require("omniac.config").merge({}) }) do
+      local client = require("omniac.backend.acp").new(config)
+      local capabilities
+      client.transport = {
+        request = function(_, method, params, callback)
+          assert.equals("initialize", method)
+          capabilities = params.clientCapabilities
+          callback(nil, { protocolVersion = 1 })
+        end,
+      }
+      client:_initialize(function(err)
+        assert.is_nil(err)
+      end)
+      assert.equals("{}", vim.json.encode(capabilities.plan))
+    end
+  end)
+
+  it("preserves explicitly supplied client capabilities", function()
+    local client = require("omniac.backend.acp").new({ client = { capabilities = { terminal = false } } })
+    client.transport = {
+      request = function(_, _, params, callback)
+        assert.is_nil(params.clientCapabilities.plan)
+        callback(nil, {})
+      end,
+    }
+    client:_initialize(function() end)
+  end)
+
+  it("routes negotiated plan documents and replaces them independently by ID", function()
+    local state, send, activity = setup()
+    local client = require("omniac.backend.acp").new({})
+    client.session_id = "session"
+    client.active_turn_id = 7
+    client:on_notification(function(message)
+      send(message.method, message.params)
+    end)
+    local function update(value)
+      client:_handle_notification({ method = "session/update", params = { sessionId = "session", update = value } })
+      vim.wait(30, function()
+        return false
+      end)
+    end
+    update({
+      sessionUpdate = "plan_update",
+      plan = { type = "markdown", planId = "proposal", content = "# Design\nFirst draft" },
+    })
+    local proposal = state.plan_documents.proposal.notice_index
+    assert.is_truthy(activity():find("Plan: Design", 1, true))
+    update({
+      sessionUpdate = "plan_update",
+      plan = { type = "markdown", planId = "proposal", content = "# Final design\nRevised draft" },
+    })
+    assert.equals(proposal, state.plan_documents.proposal.notice_index)
+    assert.equals("# Final design\nRevised draft", state.messages[proposal].text)
+    update({
+      sessionUpdate = "plan_update",
+      plan = {
+        type = "items",
+        planId = "work",
+        entries = {
+          { content = "Inspect", status = "completed", priority = "medium" },
+          { content = "Implement", status = "in_progress", priority = "medium" },
+        },
+      },
+    })
+    local work = state.plan_documents.work.notice_index
+    assert.is_truthy(activity():find("Plan 1/2: Implement", 1, true))
+    assert.equals("# Final design\nRevised draft", state.messages[proposal].text)
+    update({ sessionUpdate = "plan_removed", planId = "work" })
+    assert.is_nil(state.plan_documents.work)
+    assert.equals("Plan removed.", state.messages[work].text)
+    assert.is_truthy(activity():find("Plan: Final design", 1, true))
+    send("omniac/response_completed", { turnId = 7, stopReason = "cancelled" })
+    assert.is_truthy(state.messages[proposal].text:find("Turn cancelled.", 1, true))
+    assert.is_nil(state.plan_documents)
+  end)
+
+  it("replaces changed plan types, handles files and rejects malformed or stale documents", function()
+    local state, send, activity = setup()
+    send("omniac/plan_update", { turnId = 6, plan = { type = "markdown", planId = "old", content = "Stale" } })
+    assert.is_nil(state.plan_documents)
+    send("omniac/plan_update", { turnId = 7, plan = { type = "markdown", planId = "doc" } })
+    assert.is_nil(state.plan_documents)
+    send("omniac/plan_update", { turnId = 7, plan = { type = "file", planId = "doc", uri = "file:///tmp/plan.md" } })
+    local index = state.plan_documents.doc.notice_index
+    assert.equals("Plan file: file:///tmp/plan.md", state.messages[index].text)
+    send("omniac/plan_update", { turnId = 7, plan = { type = "_future", planId = "doc" } })
+    assert.equals(index, state.plan_documents.doc.notice_index)
+    assert.equals("Unsupported plan content: _future", state.messages[index].text)
+    assert.is_nil(activity():find("/tmp/plan.md", 1, true))
+    send("omniac/plan_update", { turnId = 7, plan = { type = "items", planId = "doc", entries = {} } })
+    assert.equals("Plan cleared.", state.messages[index].text)
+    assert.is_truthy(activity():find("Working", 1, true))
+    send("omniac/session_loading")
+    assert.is_nil(state.plan_documents)
+  end)
+
   it("routes ACP plans and replaces the full list without duplicating chat notices", function()
     local state, send, activity = setup()
     local client = require("omniac.backend.acp").new({})

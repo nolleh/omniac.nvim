@@ -119,6 +119,7 @@ the current UI instance; passing a column count switches back to a fixed width.
 | `client.capabilities.fs.readTextFile`  | `true`                      | Advertises ACP text-file read capability.                                             |
 | `client.capabilities.fs.writeTextFile` | `true`                      | Advertises ACP text-file write capability.                                            |
 | `client.capabilities.terminal`         | `false`                     | Advertises terminal capability.                                                       |
+| `client.capabilities.plan`             | `{}`                        | Advertises plan updates; renders plan documents and checklists by plan ID, alongside legacy ACP `plan` updates. |
 | `references.include_modified_buffer` | `false`                     | Include full unsaved buffer contents for `:OmniacReferenceBuffer` when enabled.       |
 | `ui.diff_title`                        | `"ACP Diff"`                | Buffer title used for proposed-change reviews.                                        |
 | `ui.diff_separate_tab`                 | `false`                     | Opens diff reviews in a separate tab.                                                 |
@@ -150,6 +151,7 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
   A change made with `/mode` applies to the current session. Omniac applies `agent.mode_id` when creating a new
   session, while loaded or resumed sessions keep their saved mode.
 - Agent execution plans show completed / total steps and the current step in the activity bar, alongside tool activity. A single plan entry in chat updates as the plan changes and remains in the transcript after completion, cancellation, or failure.
+- Omniac advertises plan support during initialization. Agents can send `plan_update` documents (Markdown, item checklists, or file references) and remove them with `plan_removed`. The latest document appears in the activity bar and each plan ID has its own updating chat entry. This advertises client display support; it does not enable Codex's `update_plan` tool or force the agent to create a plan.
 - ANSI colors and text styles in command output, tool summaries, activity, and agent replies render as Neovim highlights. Terminal control sequences are hidden; stored output and debug logs retain the original bytes.
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised.
 - While a prompt is running, `Tab` queues the input after slash-command completion has been handled. Queued prompts appear as user messages marked `Queued`, then send in order after the active prompt completes. The same message loses its queue marker when sent; a failed prompt pauses the queue until you resolve the failure.

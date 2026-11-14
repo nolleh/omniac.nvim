@@ -39,6 +39,7 @@ M.defaults = {
     request_timeout_ms = 30000,
     prompt_timeout_ms = 600000,
     capabilities = {
+      plan = vim.empty_dict(),
       fs = {
         readTextFile = true,
         writeTextFile = true,
