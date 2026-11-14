@@ -199,6 +199,7 @@ describe("session history rendering", function()
       end,
     })
     ui.handle_notification({ method = "omniac/session_loading", params = {} }, config)
+    writes = 0
     markdown_calls = 0
   end)
 

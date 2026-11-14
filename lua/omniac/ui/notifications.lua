@@ -61,6 +61,9 @@ function M.handle(state, message, config, handlers)
 
   if method == "omniac/session_loading" then
     plan.clear(state)
+    handlers.clear_conversation(config)
+    state.history_user_index = nil
+    state.history_user_id = nil
     state.session_loading = true
     return
   end
@@ -74,6 +77,8 @@ function M.handle(state, message, config, handlers)
       state.streaming_message_index = nil
     end
     state.session_loading = false
+    state.history_user_index = nil
+    state.history_user_id = nil
     chat_scheduler.cancel(state)
     if params.clearChat then
       handlers.clear_conversation(config)
@@ -130,7 +135,23 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/response_chunk" then
+    state.history_user_index = nil
+    state.history_user_id = nil
     handlers.append_response_chunk(params.text or "", config)
+    return
+  end
+
+  if method == "omniac/user_message_chunk" then
+    if not state.session_loading or type(params.text) ~= "string" or params.text == "" then
+      return
+    end
+    local index = state.history_user_index
+    if index and (not params.messageId or not state.history_user_id or params.messageId == state.history_user_id) then
+      handlers.update_notice(index, state.messages[index].text .. params.text, config)
+    else
+      state.history_user_index = handlers.add_notice("You", params.text, config)
+      state.history_user_id = params.messageId
+    end
     return
   end
 

@@ -244,6 +244,18 @@ function M.handle(client, update)
     return true
   end
 
+  if update_type == "user_message_chunk" then
+    local text = content.text(update.content or update.delta or update)
+    if text and text ~= "" then
+      emit(client, "omniac/user_message_chunk", {
+        text = text,
+        sessionId = client.session_id,
+        messageId = update.messageId or update.message_id,
+      })
+    end
+    return true
+  end
+
   return false
 end
 

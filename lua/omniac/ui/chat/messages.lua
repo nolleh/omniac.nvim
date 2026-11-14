@@ -33,6 +33,8 @@ function M.clear(state, config, handlers)
   state.chat_render_cache = nil
   state.chat_dirty_from = nil
   state.streaming_message_index = nil
+  state.history_user_index = nil
+  state.history_user_id = nil
   state.tool_activity = nil
   state.cancel_requested = false
   state.suppress_current_turn = false

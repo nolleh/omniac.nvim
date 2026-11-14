@@ -5,7 +5,7 @@ describe("omniac.nvim session recovery", function()
   local dialog = require("omniac.session.dialog")
   local ui = require("omniac.ui")
   local original_new, original_dialog, original_open
-  local app, submit, requests
+  local app, submit, requests, replay_history
 
   before_each(function()
     original_new = transport.new
@@ -15,12 +15,14 @@ describe("omniac.nvim session recovery", function()
     app = require("omniac")
     app.config = require("omniac.config").merge({ debug = false })
     requests = {}
+    replay_history = nil
     ui.open = function(_, callback)
       submit = callback
     end
     transport.new = function()
       local instance = {}
-      function instance:on_notification()
+      function instance:on_notification(callback)
+        self.notify = callback
         return self
       end
       function instance:on_request()
@@ -49,6 +51,9 @@ describe("omniac.nvim session recovery", function()
           elseif params.sessionId == "locked-session" then
             callback({ message = "Internal error", data = { details = "already has an active writer" } })
           else
+            if method == "session/load" and replay_history then
+              replay_history(self, params.sessionId)
+            end
             callback(nil, { sessionId = params.sessionId or "new-session" })
           end
         end)
@@ -123,5 +128,55 @@ describe("omniac.nvim session recovery", function()
       end),
       "disconnected resume should reconnect and list sessions"
     )
+  end)
+
+  it("replaces history on repeated /resume selections and keeps user and agent turns separate", function()
+    local state
+    ui.open = function(cfg, callback, queue_callback)
+      submit = callback or submit
+      state = original_open(cfg, callback, queue_callback)
+      return state
+    end
+    local selected = "first-session"
+    dialog.open = function(_, _, callback)
+      callback({ action = "load", id = selected })
+    end
+    replay_history = function(instance, id)
+      for _, update in ipairs({
+        { sessionUpdate = "user_message_chunk", content = { type = "text", text = id .. " question" } },
+        { sessionUpdate = "agent_message_chunk", content = { type = "text", text = id .. " answer" } },
+        { sessionUpdate = "user_message_chunk", content = { type = "text", text = "Follow " } },
+        { sessionUpdate = "user_message_chunk", content = { type = "text", text = "up" } },
+        { sessionUpdate = "agent_message_chunk", content = { type = "text", text = "Final answer" } },
+      }) do
+        instance.notify({ method = "session/update", params = { sessionId = id, update = update } })
+      end
+    end
+    app.open_chat()
+    helpers.assert_true(vim.wait(500, function()
+      return app.backend and app.backend.session_id == "new-session"
+    end))
+    ui.add_message("You", "Old conversation", app.config)
+    for _, id in ipairs({ "first-session", "second-session", "second-session" }) do
+      selected = id
+      local previous = app.backend
+      submit("/resume", {})
+      helpers.assert_true(vim.wait(1000, function()
+        return app.backend ~= previous and app.backend and app.backend.session_id == id and not state.session_loading
+      end))
+      helpers.assert_equal(#state.messages, 4, "only the selected conversation should remain")
+      helpers.assert_equal(state.messages[1].role, "You")
+      helpers.assert_equal(state.messages[1].text, id .. " question")
+      helpers.assert_equal(state.messages[2].role, "Omniac")
+      helpers.assert_equal(state.messages[2].text, id .. " answer")
+      helpers.assert_equal(state.messages[3].text, "Follow up")
+      helpers.assert_equal(state.messages[4].text, "Final answer")
+    end
+    submit("Continue", {})
+    helpers.assert_true(vim.wait(500, function()
+      return app.active_submission == nil
+    end))
+    helpers.assert_equal(requests[#requests].method, "session/prompt")
+    helpers.assert_equal(requests[#requests].params.sessionId, "second-session")
   end)
 end)

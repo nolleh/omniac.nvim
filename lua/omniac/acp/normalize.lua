@@ -37,6 +37,7 @@ local update_types = {
   usageUpdate = "usage_update",
   currentModeUpdate = "current_mode_update",
   agentThoughtChunk = "agent_thought_chunk",
+  userMessageChunk = "user_message_chunk",
   agentMessageChunk = "agent_message_chunk",
   agentMessageFinal = "agent_message_final",
 }
