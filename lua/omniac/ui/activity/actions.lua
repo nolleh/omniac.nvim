@@ -85,6 +85,9 @@ function M.set_status(state, status, config, opts)
   state.activity_generation = state.activity_generation + 1
   local previous_status = state.status
   state.status = status or "idle"
+  if state.status == "closed" then
+    require("omniac.ui.plan").clear(state)
+  end
   if state.status == "closed" or state.status == "error" then
     state.session_loading = false
   end

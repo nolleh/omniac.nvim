@@ -99,6 +99,8 @@ function M.new(state, deps)
   }
 
   runtime.notifications = {
+    add_notice = deps.add_notice,
+    update_notice = deps.update_notice,
     clear_conversation = deps.clear_conversation,
     set_status = deps.set_status,
     set_activity = deps.set_activity,

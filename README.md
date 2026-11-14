@@ -149,6 +149,7 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
   The ID must be advertised by the configured agent. If it is unsupported, Omniac warns with the available modes and keeps the session's current mode.
   A change made with `/mode` applies to the current session. Omniac applies `agent.mode_id` when creating a new
   session, while loaded or resumed sessions keep their saved mode.
+- Agent execution plans show completed / total steps and the current step in the activity bar, alongside tool activity. A single plan entry in chat updates as the plan changes and remains in the transcript after completion, cancellation, or failure.
 - ANSI colors and text styles in command output, tool summaries, activity, and agent replies render as Neovim highlights. Terminal control sequences are hidden; stored output and debug logs retain the original bytes.
 - `Shift-Tab` toggles the agent's `collaboration_mode` between `default` and `plan` when both values are advertised. Omniac leaves `Tab` unmapped.
 - `Ctrl-k` and `Ctrl-j` move between the welcome card, chat, and input in normal or insert mode, skipping the activity and status bars. When the welcome card is hidden, they move between chat and input.

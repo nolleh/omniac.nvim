@@ -1,4 +1,5 @@
 local M = {}
+local plan = require("omniac.ui.plan")
 local ansi = require("omniac.ui.ansi")
 
 local frames = { "Working", "Working.", "Working..", "Working..." }
@@ -10,6 +11,12 @@ local function activity_text(state)
   end
   if state.transient_activity then
     return state.transient_activity
+  end
+  if state.status == "working" then
+    local summary = plan.activity(state)
+    if summary then
+      return summary .. (state.tool_activity and ("\n" .. state.tool_activity) or "")
+    end
   end
   if state.status == "working" and state.tool_activity then
     return state.tool_activity

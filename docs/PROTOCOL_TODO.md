@@ -11,8 +11,10 @@ This file tracks what is already working and what still needs to be implemented 
 - [x] Keep process framing and subprocess communication in `lua/omniac/transport/`.
 - [x] Write protocol logs when debug mode is enabled.
 - [ ] Confirm exact ACP schema details against each supported agent and isolate per-agent adapters.
-- [ ] Add explicit retry / recovery behavior for failed session startup and prompt submission.
-- [ ] Add integration tests against `codex-acp` and at least one additional ACP agent.
+- [x] Add explicit resend / restore behavior for failed prompt submission.
+- [ ] Add explicit retry behavior for failed session startup.
+- [x] Add integration tests against `codex-acp` and at least one additional ACP agent (Copilot).
+- [ ] Run both live integration suites as release validation.
 
 ## Initialization
 
@@ -97,9 +99,10 @@ This file tracks what is already working and what still needs to be implemented 
 
 ## Agent Plan
 
-- [ ] Handle plan updates from `session/update`.
-- [ ] Render active plan items in the activity UI.
-- [ ] Reflect completed / failed plan steps without losing chat context.
+- [x] Handle plan updates from `session/update`, replacing the full plan on each update.
+- [x] Render plan progress and the current step alongside tool activity in the activity UI.
+- [x] Preserve the latest plan in one chat notice per turn, marking completed steps and reporting cancellation / turn failure without inventing failed step statuses.
+- [ ] Verify plan rendering against live supported agents.
 
 ## Session Modes
 

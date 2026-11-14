@@ -2,13 +2,22 @@
 
 This file tracks Omniac-facing product and interaction work that is independent from ACP protocol compatibility.
 
+## Next Release Priorities
+
+Work through these in order; completed protocol features alone do not establish release readiness.
+
+1. **Visible progress:** show ACP agent plans alongside tool activity, preserving completed and interrupted plans in chat. Implemented; live-agent verification remains.
+2. **Interaction stability:** audit ambient popups and focus-stealing keymaps while composing input and reviewing permissions.
+3. **Agent onboarding and recovery:** actionable authentication errors and session-startup retry. Prompt resend / restore is already available.
+4. **Release validation:** run live Codex and Copilot integration tests, then verify install, connect, prompt, cancel, approval, session selection, and reconnect manually.
+
 ## Input Experience
 
 - [x] Show ACP context-window usage as a percentage capsule in the input status bar.
 - [x] Add a code-block handoff flow from visual mode into `omniac` input so selected code can be forwarded as reference context without manual copy / paste.
 - [x] Start input history with Up / Down when empty, keep traversing until the user edits the recalled text.
 - [x] Clear the current input and pending references with `Ctrl-c`.
-- [ ] Add a direct model-selector command / keymap so model selection does not require entering `/model` in chat.
+- [x] Add a direct model-selector command / keymap so model selection does not require entering `/model` in chat.
 
 ## Session Workflow
 
@@ -17,7 +26,7 @@ This file tracks Omniac-facing product and interaction work that is independent 
 
 ## UX Safety
 
-- [ ] Prevent ambient floating windows opened by normal typing, completion, or file navigation from interrupting the Omniac experience.
+- [x] Prevent ambient floating windows opened by normal typing, completion, or file navigation from interrupting the Omniac experience.
 - [x] Make `Esc` behavior context-aware so it closes transient UI without accidentally stopping an active chat turn.
 - [ ] Audit keymaps and popup handlers that can steal focus while the input is active.
 

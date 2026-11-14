@@ -1,4 +1,5 @@
 local M = {}
+local plan = require("omniac.ui.plan")
 local normalize = require("omniac.acp.normalize")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
 local chat_render = require("omniac.ui.chat.render")
@@ -32,6 +33,7 @@ local function belongs_to_inactive_turn(state, method, turn_id)
     or method == "omniac/response_chunk"
     or method == "omniac/response_completed"
     or method == "omniac/thought_activity"
+    or method == "omniac/plan_update"
     or method == "omniac/prompt_cancelled"
 end
 
@@ -44,6 +46,7 @@ local function suppressed_for_current_turn(state, method)
     or method == "omniac/response_chunk"
     or method == "omniac/tool_activity"
     or method == "omniac/thought_activity"
+    or method == "omniac/plan_update"
     or method == "omniac/tool_result"
 end
 
@@ -57,11 +60,13 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/session_loading" then
+    plan.clear(state)
     state.session_loading = true
     return
   end
 
   if method == "omniac/session_started" then
+    plan.clear(state)
     if state.session_loading and state.streaming_message_index then
       local index = state.streaming_message_index
       state.messages[index].complete = true
@@ -78,6 +83,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/prompt_started" then
+    plan.clear(state)
     state.streaming_message_index = nil
     state.tool_activity = nil
     state.thought_activity = nil
@@ -89,6 +95,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/prompt_cancelled" then
+    plan.finish(state, "Turn cancelled.", config, handlers)
     state.cancel_requested = false
     state.active_turn_id = turn_id or state.active_turn_id
     handlers.set_status("ready", config)
@@ -109,6 +116,7 @@ function M.handle(state, message, config, handlers)
 
   if method == "omniac/response" then
     local reason = normalize.stop_reason(params)
+    plan.finish(state, stop_reason_activity(reason, config) or stop_reason_footer(reason), config, handlers)
     handlers.add_message("Omniac", params.text or "", config, {
       stop_footer = stop_reason_footer(reason),
     })
@@ -123,6 +131,13 @@ function M.handle(state, message, config, handlers)
 
   if method == "omniac/response_chunk" then
     handlers.append_response_chunk(params.text or "", config)
+    return
+  end
+
+  if method == "omniac/plan_update" then
+    if state.status == "working" or state.session_loading then
+      plan.update(state, params, config, handlers)
+    end
     return
   end
 
@@ -171,6 +186,7 @@ function M.handle(state, message, config, handlers)
 
   if method == "omniac/response_completed" then
     local reason = normalize.stop_reason(params)
+    plan.finish(state, stop_reason_activity(reason, config) or stop_reason_footer(reason), config, handlers)
     local suppress_stop_ui = state.suppress_current_turn
     handlers.complete_response(config, {
       stop_footer = suppress_stop_ui and nil or stop_reason_footer(reason),
@@ -187,6 +203,7 @@ function M.handle(state, message, config, handlers)
   end
 
   if method == "omniac/error" then
+    plan.finish(state, "Turn failed.", config, handlers)
     state.session_loading = false
     chat_scheduler.cancel(state)
     handlers.add_message("Error", vim.inspect(params), config)

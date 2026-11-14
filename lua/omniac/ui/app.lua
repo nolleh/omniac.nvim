@@ -355,6 +355,12 @@ local function new()
       return M.set_activity(...)
     end,
     attachment_summary = attachment_summary,
+    add_notice = function(...)
+      return M.add_notice(...)
+    end,
+    update_notice = function(...)
+      return M.update_notice(...)
+    end,
     add_message = function(...)
       return M.add_message(...)
     end,

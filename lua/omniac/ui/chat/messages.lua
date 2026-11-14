@@ -27,6 +27,7 @@ local function transport_activity_text(value)
 end
 
 function M.clear(state, config, handlers)
+  require("omniac.ui.plan").clear(state)
   follow.reset(state)
   state.messages = {}
   state.chat_render_cache = nil

@@ -159,6 +159,14 @@ end
 
 function M.handle(client, update)
   local update_type = normalize.update_type(update)
+  if update_type == "plan" then
+    emit(client, "omniac/plan_update", {
+      sessionId = client.session_id,
+      turnId = client.active_turn_id,
+      entries = update.entries,
+    })
+    return true
+  end
   if update_type == "available_commands_update" then
     emit(client, "omniac/available_commands_update", {
       sessionId = client.session_id,
