@@ -25,6 +25,9 @@ require("omniac").setup({
         and vim.split(vim.env.ACPCLIENT_AGENT_CMD, "%s+", { trimempty = true })
       or { "codex-acp" },
   },
+  ui = {
+    chat_width = 0.4,
+  },
 })
 
 print("✓ omniac.nvim dev mode loaded!")
