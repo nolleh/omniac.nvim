@@ -1,20 +1,18 @@
 local M = {}
 local chat_render = require("omniac.ui.chat.render")
 local markdown = require("omniac.ui.markdown")
+local follow = require("omniac.ui.chat.follow")
 
 local function capture_view(state, opts, valid_win)
   if not valid_win(state.chat_win) then
     return nil, false
   end
 
-  local cursor = vim.api.nvim_win_get_cursor(state.chat_win)
+  follow.observe(state)
   local is_active = vim.api.nvim_get_current_win() == state.chat_win
   local mode = is_active and vim.fn.mode(1) or ""
   local previous_view = vim.api.nvim_win_call(state.chat_win, vim.fn.winsaveview)
-  local should_follow = opts.follow == true
-    and (is_active or vim.api.nvim_get_current_win() == state.input_win)
-    and mode:match("^[vV\22]") == nil
-    and cursor[1] >= vim.api.nvim_buf_line_count(state.chat_buf)
+  local should_follow = opts.follow == true and state.chat_following ~= false and mode:match("^[vV\22]") == nil
   return previous_view, should_follow
 end
 
@@ -25,7 +23,11 @@ local function restore_view(state, opts, line_count, previous_view, should_follo
       vim.fn.winrestview({ topline = 1, lnum = 1, col = 0 })
     end)
   elseif should_follow and valid_win(state.chat_win) and line_count > 0 then
-    pcall(vim.api.nvim_win_set_cursor, state.chat_win, { line_count, 0 })
+    pcall(vim.api.nvim_win_call, state.chat_win, function()
+      local last = vim.api.nvim_buf_get_lines(state.chat_buf, line_count - 1, line_count, false)[1] or ""
+      vim.api.nvim_win_set_cursor(state.chat_win, { line_count, math.max(0, #last - 1) })
+      vim.cmd("normal! zb")
+    end)
   elseif previous_view and valid_win(state.chat_win) then
     line_count = math.max(line_count, 1)
     previous_view.lnum = math.min(previous_view.lnum, line_count)
@@ -67,6 +69,7 @@ function M.render(state, config, opts, handlers)
   end
 
   local previous_view, should_follow = capture_view(state, opts, handlers.valid_win)
+  state.chat_view_updating = true
   local win_width = handlers.valid_win(state.chat_win) and vim.api.nvim_win_get_width(state.chat_win)
     or handlers.width()
   local cache = state.chat_render_cache
@@ -150,6 +153,10 @@ function M.render(state, config, opts, handlers)
   state.chat_render_cache = cache
   state.chat_dirty_from = nil
   restore_view(state, opts, cache.line_count, previous_view, should_follow, handlers.valid_win)
+  if handlers.valid_win(state.chat_win) then
+    follow.remember(state)
+  end
+  state.chat_view_updating = false
 end
 
 return M

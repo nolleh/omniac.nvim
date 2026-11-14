@@ -38,6 +38,8 @@ function M.new()
     chat_render_opts = nil,
     chat_render_cache = nil,
     chat_dirty_from = nil,
+    chat_following = true,
+    chat_follow_view = nil,
     session_loading = false,
     config = nil,
     submit = nil,

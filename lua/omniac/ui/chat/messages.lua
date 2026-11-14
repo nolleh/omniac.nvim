@@ -2,6 +2,7 @@ local M = {}
 local tools = require("omniac.ui.tools")
 local render = require("omniac.ui.chat.render")
 local markdown = require("omniac.ui.markdown")
+local follow = require("omniac.ui.chat.follow")
 
 local function transport_activity_text(value)
   value = tostring(value or ""):gsub("\r", "")
@@ -26,6 +27,7 @@ local function transport_activity_text(value)
 end
 
 function M.clear(state, config, handlers)
+  follow.reset(state)
   state.messages = {}
   state.chat_render_cache = nil
   state.chat_dirty_from = nil

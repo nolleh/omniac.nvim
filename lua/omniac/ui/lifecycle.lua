@@ -3,6 +3,7 @@ local activity_actions = require("omniac.ui.activity.actions")
 local bindings = require("omniac.ui.bindings")
 local buffers = require("omniac.ui.buffers")
 local chat_scheduler = require("omniac.ui.chat.scheduler")
+local chat_follow = require("omniac.ui.chat.follow")
 local events = require("omniac.ui.events")
 local highlights = require("omniac.ui.highlights")
 local input_bindings = require("omniac.ui.input.bindings")
@@ -23,6 +24,9 @@ function M.relayout(state, handlers)
     return
   end
 
+  if handlers.valid_win(state.chat_win) then
+    chat_follow.observe(state)
+  end
   handlers.resize_aux_windows()
   handlers.render_chat(state.config)
   handlers.render_card()
@@ -39,6 +43,9 @@ function M.resize(state, value, handlers)
     return false
   end
 
+  if handlers.valid_win(state.chat_win) then
+    chat_follow.observe(state)
+  end
   state.user_width = value
   for _, win in ipairs({ state.chat_win, state.activity_win, state.input_win, state.status_win }) do
     if handlers.valid_win(win) then
@@ -91,6 +98,7 @@ function M.open(state, config, submit, queue_submit, handlers)
     handlers.ensure_command_buffer()
   end
 
+  chat_follow.reset(state)
   layout.open_windows(state, { card_height = handlers.card_height })
   handlers.resize_aux_windows()
   handlers.capture_user_width()

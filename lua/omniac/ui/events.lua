@@ -1,4 +1,5 @@
 local layout = require("omniac.ui.layout")
+local follow = require("omniac.ui.chat.follow")
 
 local M = {}
 
@@ -30,7 +31,7 @@ end
 function M.clear(augroup)
   vim.api.nvim_clear_autocmds({
     group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout" },
+    event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout", "WinScrolled", "CursorMoved" },
   })
 end
 
@@ -47,7 +48,18 @@ function M.setup(state, opts)
       "BufWinEnter",
       "BufDelete",
       "BufWipeout",
+      "WinScrolled",
+      "CursorMoved",
     },
+  })
+
+  vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
+    group = opts.augroup,
+    callback = function()
+      if opts.valid_win(state.chat_win) and opts.valid_buf(state.chat_buf) then
+        follow.observe(state)
+      end
+    end,
   })
 
   for _, buf in ipairs({ state.card_buf, state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
