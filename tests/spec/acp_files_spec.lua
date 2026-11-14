@@ -5,6 +5,48 @@ local assert_true = helpers.assert_true
 describe("omniac.nvim acp files", function()
   after_each(helpers.cleanup_after_test)
 
+  it("emits a raw-input preview from a partial tool update and records the applied file", function()
+    local path = vim.fn.tempname()
+    vim.fn.writefile({ "prefix", "before", "suffix" }, path)
+    local client = require("omniac.backend.acp").new({})
+    local preview, applied
+    client:on_notification(function(message)
+      if message.method == "omniac/permission_diff" then
+        preview = message.params
+      elseif message.method == "omniac/file_update" then
+        applied = message.params
+      end
+    end)
+    local function update(value)
+      client:_handle_notification({ method = "session/update", params = { update = value } })
+    end
+    local ok, err = pcall(function()
+      update({ sessionUpdate = "tool_call", toolCallId = "raw-edit", kind = "edit", status = "pending" })
+      update({
+        sessionUpdate = "tool_call_update",
+        toolCallId = "raw-edit",
+        status = "in_progress",
+        rawInput = { filePath = path, oldString = "before", newString = "after" },
+      })
+      assert_true(vim.wait(200, function()
+        return preview ~= nil
+      end))
+      assert_equal(preview.newText, "prefix\nafter\nsuffix\n")
+      assert_equal(vim.fn.readfile(path)[2], "before")
+      vim.fn.writefile({ "prefix", "after", "suffix" }, path)
+      update({ sessionUpdate = "tool_call_update", toolCallId = "raw-edit", status = "completed" })
+      assert_true(vim.wait(200, function()
+        return applied ~= nil
+      end))
+      assert_equal(applied.oldText, "prefix\nbefore\nsuffix\n")
+      assert_equal(applied.newText, "prefix\nafter\nsuffix\n")
+    end)
+    vim.fn.delete(path)
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("ACP edit diff emits permission diff for new files", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

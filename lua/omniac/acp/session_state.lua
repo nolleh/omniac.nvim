@@ -93,6 +93,28 @@ function M.mode_from_modes(modes)
   }
 end
 
+function M.model_from_models(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+  local options = value.availableModels or value.available_models
+  if type(options) ~= "table" then
+    return nil
+  end
+  local models = {}
+  for _, option in ipairs(options) do
+    local id = type(option) == "table" and (option.modelId or option.model_id or option.id)
+    if type(id) == "string" and id ~= "" then
+      table.insert(models, { id = id, name = option.name or id, description = option.description })
+    end
+  end
+  return {
+    source = "models",
+    currentModelId = value.currentModelId or value.current_model_id,
+    availableModels = models,
+  }
+end
+
 local function selected_name(state, items_key, current_key)
   if type(state) ~= "table" then
     return nil

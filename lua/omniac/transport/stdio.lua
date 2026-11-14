@@ -13,7 +13,7 @@ end
 
 local function decode_json(text)
   if vim.json and vim.json.decode then
-    return vim.json.decode(text)
+    return vim.json.decode(text, { luanil = { object = true } })
   end
 
   return vim.fn.json_decode(text)
@@ -261,7 +261,7 @@ function M.new(config)
     self:_record_protocol("recv", message)
     self:_debug("recv", message)
 
-    if message.id ~= nil and (message.result ~= nil or message.error ~= nil) then
+    if message.id ~= nil and not message.method then
       local pending = self:_clear_pending(message.id)
 
       if pending then

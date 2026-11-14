@@ -65,6 +65,37 @@ describe("omniac.nvim core", function()
     assert_equal(sent[4].id, "agent-request", "automatic response id should be preserved")
   end)
 
+  it("accepts null error and result fields without losing JSON array positions", function()
+    local client = require("omniac.transport.stdio").new({})
+    client.running = true
+    client._send_raw = function() end
+    local replies = {}
+    local function receive(err, result)
+      table.insert(replies, { err = err, result = result })
+    end
+    local first = client:request("initialize", {}, receive)
+    local second = client:request("session/cancel", {}, receive)
+    local third = client:request("session/new", {}, receive)
+    client:_handle_output({
+      '{"id":"' .. first .. '","error":null,"result":{"optional":null,"values":[1,null,3]}}',
+      '{"id":"' .. second .. '","result":null}',
+      '{"id":"' .. third .. '","result":null,"error":{"code":-32000,"message":"Denied"}}',
+      "",
+    })
+    assert_true(vim.wait(200, function()
+      return #replies == 3
+    end))
+    assert_equal(replies[1].err, nil)
+    assert_equal(replies[1].result.optional, nil)
+    assert_equal(#replies[1].result.values, 3)
+    assert_equal(replies[1].result.values[2], vim.NIL)
+    assert_equal(replies[2].err, nil)
+    assert_equal(replies[2].result, nil)
+    assert_equal(replies[3].err.message, "Denied")
+    assert_equal(next(client.pending), nil)
+    client:close()
+  end)
+
   it("times out unanswered requests and ignores late responses", function()
     package.loaded["omniac.transport.stdio"] = nil
     local client = require("omniac.transport.stdio").new({

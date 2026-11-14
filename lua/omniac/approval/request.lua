@@ -154,7 +154,7 @@ local function permission_paths(tool_call, raw_input)
     end
   end
 
-  add(raw_input.path or raw_input.filePath)
+  add(raw_input.path or raw_input.filePath or raw_input.file_path)
   add(tool_call.path)
   add_locations(tool_call.locations)
   add_locations(raw_input.locations)
@@ -229,6 +229,35 @@ local function permission_body(params)
     for _, path in ipairs(paths) do
       table.insert(lines, "- `" .. path .. "`")
     end
+  end
+
+  local displayed = {
+    summary = true,
+    reason = true,
+    description = true,
+    title = true,
+    command = true,
+    cmd = true,
+    args = true,
+    argv = true,
+    cwd = true,
+    path = true,
+    filePath = true,
+    file_path = true,
+    locations = true,
+  }
+  local remaining = {}
+  for key, value in pairs(raw_input) do
+    if not displayed[key] then
+      remaining[key] = value
+    end
+  end
+  if next(remaining) then
+    table.insert(lines, "")
+    table.insert(lines, "Input:")
+    table.insert(lines, "```json")
+    table.insert(lines, vim.json.encode(remaining))
+    table.insert(lines, "```")
   end
 
   return table.concat(lines, "\n")

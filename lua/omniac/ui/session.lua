@@ -22,17 +22,28 @@ function M.set_config(state, options, render_status)
 end
 
 function M.set_usage(state, usage, render_status)
-  local used = type(usage) == "table" and tonumber(usage.used) or nil
-  local size = type(usage) == "table" and tonumber(usage.size) or nil
-  if used and size and used >= 0 and size > 0 then
-    state.session_usage = {
-      used = used,
-      size = size,
-      cost = usage.cost,
-    }
-  else
+  if type(usage) ~= "table" then
     state.session_usage = nil
+    render_status()
+    return
   end
+  local merged = vim.deepcopy(state.session_usage or {})
+  local used, size = tonumber(usage.used), tonumber(usage.size)
+  if used and used >= 0 and used < math.huge then
+    merged.used = used
+  end
+  if size and size > 0 and size < math.huge then
+    merged.size = size
+  end
+  local cost = usage.cost
+  if type(cost) == "table" and type(cost.amount) == "number" and cost.amount >= 0 and cost.amount < math.huge then
+    merged.cost = vim.deepcopy(merged.cost or {})
+    merged.cost.amount = cost.amount
+    if type(cost.currency) == "string" then
+      merged.cost.currency = cost.currency
+    end
+  end
+  state.session_usage = next(merged) and merged or nil
   render_status()
 end
 

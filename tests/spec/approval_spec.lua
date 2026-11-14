@@ -7,6 +7,43 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim approval", function()
   after_each(helpers.cleanup_after_test)
 
+  it("reviews raw-input replacements before any tool notification and leaves disk unchanged", function()
+    local approval = require("omniac.approval").new()
+    local path = vim.fn.tempname()
+    vim.fn.writefile({ "prefix", "before", "suffix" }, path)
+    local review = require("omniac.changes.review")
+    local original = review.open_review
+    local captured, result, accept
+    review.open_review = function(target, before, after, _, callback)
+      captured = { path = target, before = before, after = after }
+      accept = callback
+    end
+    local ok, err = pcall(function()
+      approval:review_acp_permission({
+        toolCall = {
+          kind = "edit",
+          toolCallId = "raw-replacement",
+          rawInput = { file_path = path, old_string = "before", new_string = "after" },
+        },
+        options = { { optionId = "allow", kind = "allow_once" }, { optionId = "deny", kind = "reject_once" } },
+      }, function(reply)
+        result = reply
+      end, {})
+      assert_true(captured ~= nil)
+      assert_equal(captured.path, vim.fs.normalize(path))
+      assert_equal(table.concat(captured.after, "\n"), "prefix\nafter\nsuffix\n")
+      accept(true, captured.after, false)
+      assert_equal(result.outcome.optionId, "allow")
+      assert_equal(table.concat(vim.fn.readfile(path), "\n"), "prefix\nbefore\nsuffix")
+    end)
+    review.open_review = original
+    approval:close()
+    vim.fn.delete(path)
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("permission request shows JSON-RPC details in chat and selector", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

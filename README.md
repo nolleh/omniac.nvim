@@ -144,7 +144,7 @@ With `debug = true`, `acp-*.jsonl` records client requests and notifications (`c
 - in the session-selection dialog, `[n]` starts a fresh ACP session; `[Enter]` loads a session and `[r]` resumes one when supported
 - `:Omniac` opens a Neovim chat/input/status UI
 - In pinned-card mode, focus the welcome card and move the cursor normally: nearby vertical movement draws a small hop, moving sideways across the mascot pets it, and repeated pets make it briefly flee. These reactions do not remap `h/j/k/l`.
-- `/model` opens a model selector for the active session; `/model <model>` changes it directly
+- `/model` opens a model selector for the active session; `/model <model>` changes it directly. Model config options take precedence, with a fallback for agents advertising the legacy `models` format.
 - `/mode` opens the agent's mode selector; `/mode <id>` changes the active session mode directly
   The initial mode is configured with `agent.mode_id`, for example `agent = { mode_id = "workspace-write" }`.
   The ID must be advertised by the configured agent. If it is unsupported, Omniac warns with the available modes and keeps the session's current mode.

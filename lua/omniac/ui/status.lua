@@ -15,7 +15,7 @@ local function capsules(state)
     model = model .. " · " .. effort:sub(1, 1):upper() .. effort:sub(2)
   end
   local usage
-  if state.session_usage then
+  if state.session_usage and state.session_usage.used and state.session_usage.size then
     local percent = math.floor((state.session_usage.used / state.session_usage.size) * 100 + 0.5)
     usage = string.format("ctx %d%%", math.max(0, math.min(100, percent)))
   end

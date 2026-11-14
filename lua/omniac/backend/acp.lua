@@ -529,6 +529,9 @@ function M.new(config)
     end
 
     local model_state = session_state.model_from_config(config_options)
+    if not model_state and not (self.session_model and self.session_model.configId) then
+      model_state = session_state.model_from_models(result.models or session.models)
+    end
     if model_state then
       self.session_model = model_state
       self:_emit_session_model_update()
@@ -566,8 +569,8 @@ function M.new(config)
       callback({ message = "ACP session is not ready" })
       return
     end
-    if not model_state or not model_state.configId then
-      callback({ message = "agent did not advertise a model config option" })
+    if not model_state or (not model_state.configId and model_state.source ~= "models") then
+      callback({ message = "agent did not advertise selectable models" })
       return
     end
 
@@ -587,11 +590,13 @@ function M.new(config)
       return
     end
 
-    self.transport:request("session/set_config_option", {
-      sessionId = self.session_id,
-      configId = model_state.configId,
-      value = selected,
-    }, function(err, result)
+    local method = "session/set_config_option"
+    local params = { sessionId = self.session_id, configId = model_state.configId, value = selected }
+    if model_state.source == "models" then
+      method = "session/set_model"
+      params = { sessionId = self.session_id, modelId = selected }
+    end
+    self.transport:request(method, params, function(err, result)
       if not err then
         model_state.currentModelId = selected
         self:_apply_session_state(result)

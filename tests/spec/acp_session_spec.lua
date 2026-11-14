@@ -497,6 +497,59 @@ describe("omniac.nvim acp session", function()
     assert_equal(updates[#updates].currentModelName, "GPT-5 Mini", "model update should follow model changes")
   end)
 
+  it("selects advertised legacy models and leaves the current model unchanged on rejection", function()
+    local client = require("omniac.backend.acp").new({})
+    client.running = true
+    client.session_id = "legacy-model-session"
+    client:_apply_session_state({
+      models = {
+        currentModelId = "model-a",
+        availableModels = { { modelId = "model-a", name = "Model A" }, { modelId = "model-b", name = "Model B" } },
+      },
+    })
+    local sent, reject
+    client.transport = {
+      request = function(_, method, params, callback)
+        sent = { method = method, params = params }
+        callback(reject and { message = "Unsupported" } or nil, {})
+      end,
+    }
+    local selected, failure
+    client:set_session_model("model b", function(err, _, id)
+      failure, selected = err, id
+    end)
+    assert_equal(failure, nil)
+    assert_equal(selected, "model-b")
+    assert_equal(sent.method, "session/set_model")
+    assert_equal(sent.params.modelId, "model-b")
+    assert_equal(sent.params.sessionId, "legacy-model-session")
+    assert_equal(sent.params.configId, nil)
+    assert_equal(client:get_session_model().currentModelId, "model-b")
+    reject = true
+    client:set_session_model("model-a", function(err)
+      failure = err
+    end)
+    assert_equal(failure.message, "Unsupported")
+    assert_equal(client:get_session_model().currentModelId, "model-b")
+    sent = nil
+    client:set_session_model("unknown", function(err)
+      failure = err
+    end)
+    assert_true(failure ~= nil)
+    assert_equal(sent, nil)
+  end)
+
+  it("prefers model config options over legacy model metadata", function()
+    local client = require("omniac.backend.acp").new({})
+    client:_apply_session_state({
+      configOptions = { { id = "model", type = "select", currentValue = "modern", options = { { value = "modern" } } } },
+      models = { currentModelId = "old", availableModels = { { modelId = "old" } } },
+    })
+    client:_apply_session_state({ models = { currentModelId = "older", availableModels = {} } })
+    assert_equal(client:get_session_model().configId, "model")
+    assert_equal(client:get_session_model().currentModelId, "modern")
+  end)
+
   it("ACP mode config options are exposed without a plan option", function()
     package.loaded["omniac.backend.acp"] = nil
     local acp = require("omniac.backend.acp")

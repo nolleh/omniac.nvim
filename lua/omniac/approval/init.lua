@@ -44,7 +44,7 @@ local function select_permission_option(params, reply, config, notice_index, not
   end)
 end
 
-local function diff_payloads(value)
+local function diff_payloads(value, config)
   local payloads = {}
   for _, item in ipairs(request.content_items(value)) do
     if
@@ -69,6 +69,13 @@ local function diff_payloads(value)
     })
   end
 
+  if #payloads == 0 and type(value) == "table" and value.kind == "edit" then
+    local preview =
+      require("omniac.acp.edit_preview").from_input(value.rawInput, config and config.agent and config.agent.cwd)
+    if preview then
+      table.insert(payloads, preview)
+    end
+  end
   return payloads
 end
 
@@ -316,7 +323,7 @@ local function review_acp_permission(approval_state, params, reply, config, on_a
     return false
   end
 
-  append_diff_payloads(pending, diff_payloads(tool_call))
+  append_diff_payloads(pending, diff_payloads(tool_call, config))
   append_diff_payloads(pending, approval_state:cached_diffs(pending.tool_call_id))
   show_pending_paths(pending)
   if #pending.payloads > 0 then

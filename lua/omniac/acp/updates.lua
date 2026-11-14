@@ -10,11 +10,25 @@ local function emit(client, method, params)
   client:_emit_notification({ method = method, params = params })
 end
 
-local function file_items(update)
-  if type(update) ~= "table" or type(update.content) ~= "table" then
+local function file_items(update, client)
+  if type(update) ~= "table" then
     return {}
   end
-  return update.content
+  local items = type(update.content) == "table" and update.content or {}
+  for _, item in ipairs(items) do
+    if type(item) == "table" and item.type == "diff" then
+      return items
+    end
+  end
+  local previous = update.toolCallId and client.tool_calls[update.toolCallId]
+  local kind = update.kind or (previous and previous.kind)
+  if kind == "edit" and update.status ~= "completed" and update.status ~= "failed" then
+    local preview = require("omniac.acp.edit_preview").from_input(update.rawInput, (client.config.agent or {}).cwd)
+    if preview then
+      items = vim.list_extend(vim.list_slice(items), { preview })
+    end
+  end
+  return items
 end
 
 local function is_file_item(item)
@@ -33,7 +47,7 @@ local function edit_call(client, update)
   local call = update.toolCallId and client.edit_tool_calls[update.toolCallId] or nil
   local previous = update.toolCallId and client.tool_calls[update.toolCallId]
   local kind = update.kind or (previous and previous.kind)
-  for _, item in ipairs(file_items(update)) do
+  for _, item in ipairs(file_items(update, client)) do
     if is_file_item(item) then
       kind = "edit"
       break
@@ -73,7 +87,7 @@ local function handle_edit(client, update, call)
       end
     end
   end
-  for _, item in ipairs(file_items(update)) do
+  for _, item in ipairs(file_items(update, client)) do
     if is_file_item(item) then
       local path = absolute(item.path)
       local file = call.files[path]
