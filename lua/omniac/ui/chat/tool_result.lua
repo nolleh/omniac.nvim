@@ -31,14 +31,14 @@ end
 
 local function layout(message, width)
   local inner_width = math.max(1, width - 4)
-  local command, command_marks = ansi.wrapped(message.command, inner_width)
+  local command = ansi.wrapped(message.command, inner_width)
   local output, output_marks = ansi.wrapped(message.output, inner_width)
   local output_limit = math.max(0, math.floor(tonumber(message.output_preview_lines) or 4))
   return {
     width = inner_width,
     command = command,
+    command_source = text.split_lines(ansi.parse(message.command)),
     output = output,
-    command_marks = command_marks,
     output_marks = output_marks,
     output_limit = output_limit,
     hidden = math.max(0, #command - COMMAND_PREVIEW_LINES) + math.max(0, #output - output_limit),
@@ -110,12 +110,45 @@ function M.render(message, width)
     end
   end
 
-  section("Command", info.command, COMMAND_PREVIEW_LINES, "OmniacToolCommand", by_line(info.command_marks))
+  local command_markdown, command_range
+  if #info.command > 0 then
+    local fence_size = 3
+    for _, line in ipairs(info.command_source) do
+      for run in line:gmatch("`+") do
+        fence_size = math.max(fence_size, #run + 1)
+      end
+    end
+    local fence = string.rep("`", fence_size)
+    command_markdown = { from = #lines }
+    table.insert(lines, "  " .. fence .. "bash")
+    command_range = { from = #lines }
+    local remaining = COMMAND_PREVIEW_LINES
+    for _, line in ipairs(info.command_source) do
+      if not message.expanded and remaining <= 0 then
+        break
+      end
+      local rows = line == "" and { "" } or text.wrapped(line, info.width)
+      local value = line
+      if not message.expanded and #rows > remaining then
+        value = table.concat(vim.list_slice(rows, 1, remaining))
+      end
+      -- Keep the shell source intact. The chat window soft-wraps long lines;
+      -- inserting newlines or padding here would alter strings and heredocs.
+      table.insert(lines, "  " .. value)
+      remaining = remaining - math.min(remaining, #rows)
+    end
+    command_range.to = #lines
+    table.insert(lines, "  " .. fence)
+    command_markdown.to = #lines
+    if not message.expanded and #info.command > COMMAND_PREVIEW_LINES then
+      add("… +" .. (#info.command - COMMAND_PREVIEW_LINES) .. " lines", "OmniacMuted")
+    end
+  end
   section("Output", info.output, info.output_limit, "OmniacToolOutput", by_line(info.output_marks))
   if info.hidden > 0 or message.expanded then
     add(message.expanded and "Ctrl-T to collapse" or "Ctrl-T to expand", "OmniacMuted")
   end
-  return { lines = lines, marks = marks }
+  return { lines = lines, marks = marks, command_markdown = command_markdown, command_range = command_range }
 end
 
 return M

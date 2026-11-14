@@ -1,6 +1,15 @@
 local helpers = require("tests.helpers")
 local result = require("omniac.ui.chat.tool_result")
 
+local function command_lines(rendered)
+  local range = rendered.command_range
+  local result_lines = {}
+  for index = range.from + 1, range.to do
+    table.insert(result_lines, rendered.lines[index]:sub(3))
+  end
+  return result_lines
+end
+
 local function section(rendered, group)
   local lines = {}
   for _, mark in ipairs(rendered.marks) do
@@ -25,7 +34,7 @@ describe("tool result previews", function()
       exitCode = 0,
     }
     local rendered = result.render(message, 60)
-    assert.are.same({ "first", "second", "third", "fourth" }, section(rendered, "OmniacToolCommand"))
+    assert.are.same({ "first", "second", "third", "fourth" }, command_lines(rendered))
     assert.are.same({ "PASS" }, section(rendered, "OmniacToolOutput"))
     assert.is_truthy(table.concat(section(rendered, "OmniacToolSummary")):find("Verify turn isolation", 1, true))
     assert.is_truthy(table.concat(rendered.lines):find("+2 lines", 1, true))
@@ -33,7 +42,7 @@ describe("tool result previews", function()
 
     message.expanded = true
     rendered = result.render(message, 60)
-    assert.are.same({ "first", "second", "third", "fourth", "fifth", "sixth" }, section(rendered, "OmniacToolCommand"))
+    assert.are.same({ "first", "second", "third", "fourth", "fifth", "sixth" }, command_lines(rendered))
     assert.is_truthy(table.concat(rendered.lines):find("Ctrl-T to collapse", 1, true))
   end)
 
@@ -46,10 +55,17 @@ describe("tool result previews", function()
     }
     for _, width in ipairs({ 30, 60 }) do
       local rendered = result.render(message, width)
-      assert.are.equal(4, #section(rendered, "OmniacToolCommand"))
+      local command_rows = 0
+      for _, line in ipairs(command_lines(rendered)) do
+        command_rows = command_rows + math.ceil(vim.fn.strdisplaywidth(line) / (width - 4))
+      end
+      assert.are.equal(4, command_rows)
       assert.are.equal(4, #section(rendered, "OmniacToolOutput"))
-      for _, line in ipairs(rendered.lines) do
-        assert.is_true(vim.fn.strdisplaywidth(line) <= width, "preview rows should fit the viewport")
+      for index, line in ipairs(rendered.lines) do
+        local range = rendered.command_range
+        if index <= range.from or index > range.to then
+          assert.is_true(vim.fn.strdisplaywidth(line) <= width, "non-command rows should fit the viewport")
+        end
       end
       assert.is_true(result.can_expand(message, width))
     end
@@ -60,7 +76,7 @@ describe("tool result previews", function()
     for _, title in ipairs({ command, "cat > /tmp/check.lua <<'LUA'" }) do
       local rendered = result.render({ kind = "execute", title = title, command = command, output = "PASS" }, 60)
       assert.are.same({ "✓ Command execution" }, section(rendered, "OmniacToolSummary"))
-      assert.are.equal(4, #section(rendered, "OmniacToolCommand"))
+      assert.are.equal(4, #command_lines(rendered))
     end
   end)
 
@@ -78,6 +94,27 @@ describe("tool result previews", function()
     assert.are.same({ "✗ Run tests (exit 1)" }, section(rendered, "OmniacError"))
     message.expanded = true
     assert.are.same({ "one", "two", "three", "four", "five" }, section(result.render(message, 60), "OmniacToolOutput"))
+  end)
+
+  it("uses a bash fence without rewriting shell source or interpreting output as Markdown", function()
+    local command = "printf '%s' '" .. string.rep("long argument ", 12) .. "' \\\n  | cat <<'EOF'\n```literal\nEOF"
+    local rendered = result.render({
+      kind = "execute",
+      command = command,
+      output = "```bash\n# literal output\n```",
+      expanded = true,
+    }, 42)
+    assert.are.equal(command, table.concat(command_lines(rendered), "\n"))
+    local region = rendered.command_markdown
+    assert.are.equal("  ````bash", rendered.lines[region.from + 1])
+    assert.are.equal("  ````", rendered.lines[region.to])
+    assert.is_truthy(table.concat(section(rendered, "OmniacToolOutput")):find("# literal output", 1, true))
+    for _, mark in ipairs(rendered.marks) do
+      assert.is_true(
+        mark.line <= rendered.command_range.from or mark.line > rendered.command_range.to,
+        "shell highlighting must come from the Bash parser rather than a uniform command color"
+      )
+    end
   end)
 
   it("toggles a long command with short output and preserves literal script syntax", function()
@@ -100,12 +137,12 @@ describe("tool result previews", function()
     assert.is_truthy(expanded:find("print('last')", 1, true))
     assert.is_truthy(expanded:find("[Image 1]", 1, true))
     assert.is_truthy(expanded:find("Ctrl-T to collapse", 1, true))
-    assert.are.same({
-      {
-        from = state.chat_render_cache.ranges[1].from,
-        to = state.chat_render_cache.ranges[1].to - 1,
-      },
-    }, state.chat_render_cache.excluded)
+    local excluded = state.chat_render_cache.excluded
+    assert.are.equal(2, #excluded, "only the fenced command should participate in Markdown parsing")
+    local code = table.concat(vim.api.nvim_buf_get_lines(state.chat_buf, excluded[1].to, excluded[2].from, false), "\n")
+    assert.is_truthy(code:find("````bash", 1, true), "the outer fence must contain literal triple backticks safely")
+    assert.is_truthy(code:find("```lua", 1, true))
+    assert.is_nil(code:find("Output", 1, true))
     helpers.feed("<C-t>")
     assert.are.same(before, vim.api.nvim_buf_get_lines(state.chat_buf, 0, -1, false))
   end)

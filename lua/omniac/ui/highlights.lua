@@ -16,7 +16,6 @@ local definitions = {
   OmniacAssistantText = { fg = "#cdd6f4" },
   OmniacCode = { fg = "#a6e3a1" },
   OmniacToolSummary = { fg = "#89dceb", bold = true },
-  OmniacToolCommand = { fg = "#a6e3a1" },
   OmniacToolOutput = { fg = "#cdd6f4" },
   OmniacError = { fg = "#f38ba8", bold = true },
   OmniacPermissionPending = { fg = "#f9e2af", bold = true },

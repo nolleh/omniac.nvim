@@ -149,9 +149,19 @@ function M.build(opts)
         for _, mark in ipairs(rendered.marks) do
           add_mark(marks, offset + mark.line, mark.from, mark.to, mark.group)
         end
-        -- Commands and output are literal text, not chat Markdown. In
-        -- particular, heredocs and fences must not hide or restyle the preview.
-        table.insert(markdown_excluded_ranges, { from = offset, to = #lines })
+        -- Only our fenced shell block is Markdown. Output stays literal, so
+        -- fences printed by a command cannot change subsequent chat rendering.
+        if rendered.command_markdown then
+          local region = rendered.command_markdown
+          if region.from > 0 then
+            table.insert(markdown_excluded_ranges, { from = offset, to = offset + region.from })
+          end
+          if offset + region.to < #lines then
+            table.insert(markdown_excluded_ranges, { from = offset + region.to, to = #lines })
+          end
+        else
+          table.insert(markdown_excluded_ranges, { from = offset, to = #lines })
+        end
       else
         local message_text, colors = ansi.parse(unwrap_markdown_fences(value))
         local source_offset = 0
