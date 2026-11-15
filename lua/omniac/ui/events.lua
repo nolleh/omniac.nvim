@@ -31,7 +31,16 @@ end
 function M.clear(augroup)
   vim.api.nvim_clear_autocmds({
     group = augroup,
-    event = { "VimResized", "WinResized", "WinClosed", "BufDelete", "BufWipeout", "WinScrolled", "CursorMoved" },
+    event = {
+      "VimResized",
+      "WinResized",
+      "WinClosed",
+      "BufDelete",
+      "BufWipeout",
+      "WinScrolled",
+      "CursorMoved",
+      "OptionSet",
+    },
   })
 end
 
@@ -50,7 +59,21 @@ function M.setup(state, opts)
       "BufWipeout",
       "WinScrolled",
       "CursorMoved",
+      "OptionSet",
     },
+  })
+
+  vim.api.nvim_create_autocmd("OptionSet", {
+    group = opts.augroup,
+    pattern = "laststatus",
+    callback = function()
+      for _, name in ipairs({ "card_win", "chat_win", "activity_win", "input_win", "status_win", "command_win" }) do
+        if opts.valid_win(state[name]) then
+          layout.configure_statusline(state[name])
+        end
+      end
+      schedule_relayout(state, opts.relayout)
+    end,
   })
 
   vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {

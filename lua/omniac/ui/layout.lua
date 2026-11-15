@@ -65,6 +65,26 @@ function M.capture_width(state, valid_win)
   end
 end
 
+function M.configure_statusline(win)
+  -- An empty statusline falls back to Neovim's filename/ruler. Use a
+  -- literal space for internal splits, but preserve the user's global
+  -- statusline when laststatus=3.
+  vim.wo[win].statusline = vim.o.laststatus == 3 and "" or " "
+  local groups = {
+    "Normal:OmniacNormal",
+    "NormalNC:OmniacNormal",
+    "EndOfBuffer:OmniacNormal",
+    "WinBar:OmniacNormal",
+    "WinBarNC:OmniacNormal",
+    "WinSeparator:OmniacSeparator",
+  }
+  if vim.o.laststatus ~= 3 then
+    table.insert(groups, "StatusLine:OmniacNormal")
+    table.insert(groups, "StatusLineNC:OmniacNormal")
+  end
+  vim.wo[win].winhighlight = table.concat(groups, ",")
+end
+
 function M.configure_window(win)
   vim.w[win].omniac_ui = true
   vim.wo[win].number = false
@@ -75,6 +95,16 @@ function M.configure_window(win)
   vim.wo[win].winfixwidth = true
   vim.wo[win].winfixheight = true
   vim.wo[win].list = false
+  vim.wo[win].cursorline = false
+  vim.wo[win].cursorcolumn = false
+  vim.wo[win].colorcolumn = ""
+  vim.wo[win].spell = false
+  vim.wo[win].statuscolumn = ""
+  vim.wo[win].winbar = ""
+  M.configure_statusline(win)
+  vim.api.nvim_win_call(win, function()
+    vim.opt_local.fillchars:append({ eob = " ", stl = " ", stlnc = " " })
+  end)
 end
 
 function M.reset_leftcol(win, valid_win)

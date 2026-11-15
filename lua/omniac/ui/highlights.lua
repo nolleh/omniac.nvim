@@ -64,7 +64,7 @@ local definitions = {
   OmniacPermissionSelected = { fg = "#11111b", bg = "#94e2d5", bold = true },
 }
 
-local function plan_definitions()
+local function theme_definitions()
   local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
   local background = normal.bg or (vim.o.background == "light" and 0xffffff or 0x1e1e2e)
   local foreground = normal.fg or (vim.o.background == "light" and 0x202020 or 0xcdd6f4)
@@ -78,13 +78,15 @@ local function plan_definitions()
     return color
   end
   return {
+    OmniacNormal = { link = "Normal" },
+    OmniacSeparator = { fg = shade(0.18), bg = normal.bg },
     OmniacPlanSummary = { fg = foreground, bg = shade(0.12), bold = true },
     OmniacPlanDetail = { fg = foreground, bg = shade(0.04) },
   }
 end
 
 function M.setup(prefix)
-  local dynamic = plan_definitions()
+  local dynamic = theme_definitions()
   for name, definition in pairs(dynamic) do
     if not prefix or name:sub(1, #prefix) == prefix then
       vim.api.nvim_set_hl(0, name, definition)
@@ -96,5 +98,12 @@ function M.setup(prefix)
     end
   end
 end
+
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("OmniacHighlights", { clear = true }),
+  callback = function()
+    M.setup()
+  end,
+})
 
 return M
