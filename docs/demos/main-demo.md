@@ -21,7 +21,7 @@ The launcher uses this checkout with an isolated Neovim configuration and Space 
 1. Use a dedicated kitty window, approximately 160 columns × 42 rows, with legible text at the intended output size. Hide unrelated tabs, notifications, and private paths where possible.
 2. Run `:OmniacConnect`, wait for the session to become ready, and confirm the mode is `workspace-write`. Leave authentication and connection waits out of the take.
 3. Return focus to `task_summary.py`. Keep the source and conversation visible together; resize the window if review panes are too narrow.
-4. In rehearsal, confirm that the edit opens an **Omniac permission** diff, not just an applied-change preview. Also confirm Enter delivers the second message during the active turn. If either fails, resolve the agent's capabilities or permissions before recording that feature.
+4. In rehearsal, confirm that the edit opens an **Omniac permission** diff, not just an applied-change preview. Some agents allow writes to temporary directories outside their working root; in that case, place the disposable source project under the Git-ignored `.repro/` directory while keeping `agent-workspace/` separate. Also confirm Enter delivers the second message during the active turn. If either fails, resolve the agent's capabilities or permissions before recording that feature.
 5. Start the already-verified windowcapture setup against this kitty window. Hold a clean opening frame for two seconds. This document is the performance/caption script; it does not start a recorder or send keystrokes automatically.
 
 ## Exact prompt copy
