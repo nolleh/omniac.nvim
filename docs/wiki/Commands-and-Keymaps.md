@@ -30,6 +30,7 @@ Existing mappings are preserved. See [Configuration](Configuration.md) to custom
 | `Ctrl-k` / `Ctrl-j` | Move between Omniac windows in normal or insert mode |
 | `Ctrl-P` | Expand or collapse the activity plan |
 | `Ctrl-T` | Expand or collapse the tool result under the cursor |
+| `t` / `s` in normal mode, while a change summary is shown | Review the latest turn / entire session from the conversation, activity, status, or pinned welcome card |
 
 Transient UI handles its own closing behavior. Expanded plans add the activity bar to window navigation; otherwise navigation skips activity and status. The welcome card is skipped while hidden.
 
