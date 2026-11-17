@@ -102,11 +102,11 @@ Browse saved sessions and restore the conversation. Switch between your agent's 
 
 ### A little company while you code
 
-The welcome-card mascot follows your cursor, hops around, and reacts when you pet it. Give it too much attention and it might run away.
+A little companion on the welcome card follows your cursor, hops around, and reacts when you pet it. Give it too much attention and it might run away.
 
-[![Watch the welcome-card mascot react to the cursor](docs/demos/media/mascot.png)](docs/demos/media/mascot.mp4)
+[![Watch the welcome-card companion react to the cursor](docs/demos/media/mascot.png)](docs/demos/media/mascot.mp4)
 
-*[▶ Watch the short demo](docs/demos/media/mascot.mp4) · Move to the welcome card with `Ctrl-K`, then move the cursor across the mascot with `h` / `l`.*
+*[▶ Watch the short demo](docs/demos/media/mascot.mp4) · Move to the welcome card with `Ctrl-K`, then move the cursor across the companion with `h` / `l`.*
 
 ## Installation
 

@@ -9,7 +9,7 @@ All clips use real Neovim UI interactions and live agent execution. Prompts and 
 | Shape proposed changes | [Watch](media/shape-proposals.mp4) | 15.67 s | Vim editing · Space aa | 64 rows |
 | Follow the work | [Watch](media/follow-work.mp4) | 16.3 s | Ctrl-P · Ctrl-T · /changes session | 64 rows |
 | Bring your context | [Watch](media/bring-context.mp4) | 12.1 s | Visual selection · Space as · Space ab · Space af | 64 rows |
-| Mascot | [Watch](media/mascot.mp4) | 8.9 s | Ctrl-K · h / l · j / k | 64 rows |
+| Companion | [Watch](media/mascot.mp4) | 8.9 s | Ctrl-K · h / l · j / k | 64 rows |
 
 The main video is the workflow overview. The five feature clips demonstrate one strength at a time and show the relevant default keys in their captions. Feature videos were captured at 168 columns × 64 rows and exported at 1920 × 1440; the overview is 1920 × 1080.
 

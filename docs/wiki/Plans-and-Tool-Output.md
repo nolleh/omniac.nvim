@@ -20,6 +20,6 @@ Results have a task title and a compact preview. Press `Ctrl-T` over a result to
 
 `Ctrl-k` / `Ctrl-j` moves between the welcome card, chat, and input in normal or insert mode. Hidden cards are skipped. The expanded plan activity area participates in navigation; collapsed activity and status bars are skipped.
 
-The pinned welcome card reacts to cursor movement: nearby vertical movement makes the mascot hop, sideways movement pets it, and repeated pets make it briefly flee. These reactions leave normal movement keys intact. Configure `ui.mascot_follow_cursor`, `ui.mascot_motion`, or use `ui.welcome_card = "welcome_only"`.
+The pinned welcome card reacts to cursor movement: nearby vertical movement makes the companion hop, sideways movement pets it, and repeated pets make it briefly flee. These reactions leave normal movement keys intact. Configure `ui.mascot_follow_cursor`, `ui.mascot_motion`, or use `ui.welcome_card = "welcome_only"`.
 
 `:OmniacResize` resizes the side UI as a body. Width accepts columns, a ratio, or a percentage; see [Configuration](Configuration.md).
