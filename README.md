@@ -164,3 +164,7 @@ The default Codex mode is read-only. Use `/mode` to choose an editing mode.
 [Getting started](docs/wiki/Getting-Started.md) · [Configuration](docs/wiki/Configuration.md) · [Commands and keymaps](docs/wiki/Commands-and-Keymaps.md)
 
 [All guides](docs/wiki/Home.md) · [Changelog](CHANGELOG.md)
+
+## License
+
+[MIT](LICENSE) © 2026 nolleh. Agent logo assets retain their [upstream notices](docs/assets/agents/README.md).
