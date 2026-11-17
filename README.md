@@ -142,7 +142,8 @@ See [Getting started](docs/wiki/Getting-Started.md) for parser setup and agent c
 | Attach the current file | `<leader>ab` |
 | Attach a clipboard image | `Ctrl-V` in input |
 | Choose a session | `/resume` |
-| Choose a model or mode | `/model` · `/mode` |
+| Choose a model | `<leader>am` · `/model` |
+| Choose a mode | `<leader>aM` · `/mode` |
 | Review changes | `/changes` |
 
 Default keymaps are registered automatically and preserve existing mappings. To disable all defaults, set `opts = { keymaps = false }` in your lazy.nvim spec. Customize or disable individual mappings with:
