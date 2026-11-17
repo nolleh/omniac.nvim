@@ -485,7 +485,7 @@ describe("omniac.nvim chat", function()
     assert_true(chat:match("Stopped: end_turn") == nil, "normal end_turn should not render as chat noise")
   end)
 
-  it("assistant prose keeps chat padding", function()
+  it("assistant prose keeps visual padding without changing buffer text", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil
     local ui = require("omniac.ui")
@@ -506,11 +506,16 @@ describe("omniac.nvim chat", function()
       local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
       return chat:match("plain assistant line") ~= nil
     end)
-    local chat = table.concat(vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false), "\n")
-    assert_true(
-      chat:match("^  plain assistant line%s+\n") ~= nil or chat:match("\n  plain assistant line%s+\n") ~= nil,
-      "assistant prose should keep horizontal padding"
-    )
+    local lines = vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)
+    assert_equal(lines[1], "plain assistant line", "assistant text should not contain display padding")
+    local padded = false
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat_buf, -1, 0, -1, { details = true })) do
+      local details = mark[4]
+      if mark[2] == 0 and details.virt_text_pos == "inline" then
+        padded = details.virt_text[1][1] == "  "
+      end
+    end
+    assert_true(padded, "assistant prose should keep horizontal virtual padding")
   end)
 
   it("assistant prose wraps instead of ellipsizing", function()
@@ -535,17 +540,14 @@ describe("omniac.nvim chat", function()
       return chat:match("intentionally long enough") ~= nil
     end)
     local lines = vim.api.nvim_buf_get_lines(chat_buf, 0, -1, false)
-    local prose_lines = 0
-    local prose_text = {}
-    for _, line in ipairs(lines) do
-      if line:match("^  %S") and not line:match("^  [─]+%s*$") then
-        prose_lines = prose_lines + 1
-        table.insert(prose_text, line)
-      end
-    end
-
-    assert_true(table.concat(prose_text, "\n"):match("…") == nil, "assistant prose should not be ellipsized")
-    assert_true(prose_lines >= 2, "assistant prose should wrap across multiple padded lines")
+    assert_equal(
+      lines[1],
+      "this assistant response is intentionally long enough to wrap across more than one visible chat line",
+      "assistant prose should retain its original logical line"
+    )
+    local chat_win = vim.fn.bufwinid(chat_buf)
+    assert_true(vim.wo[chat_win].wrap, "long prose should wrap visually")
+    assert_true(vim.fn.strdisplaywidth(lines[1]) > vim.api.nvim_win_get_width(chat_win))
   end)
 
   it("chat and input redraw after explicit omniac resize", function()

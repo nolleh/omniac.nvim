@@ -126,6 +126,17 @@ function M.render(state, config, opts, handlers)
     for _, mark in ipairs(content.marks) do
       handlers.add_hl(state.chat_buf, offset + mark.line, mark.from, mark.to, mark.group)
     end
+    for _, pad in ipairs(content.padding) do
+      local row = offset + pad.line - 1
+      local group = pad.group or "OmniacNormal"
+      vim.api.nvim_buf_set_extmark(state.chat_buf, handlers.namespace, row, 0, {
+        virt_text = { { "  ", group } },
+        virt_text_pos = "inline",
+        right_gravity = false,
+        -- Fill the bubble through EOL without adding trailing buffer spaces.
+        line_hl_group = pad.group,
+      })
+    end
     for _, mark in ipairs(content.permission_marks) do
       vim.api.nvim_buf_set_extmark(state.chat_buf, handlers.namespace, offset + mark.line - 1, 0, {
         virt_text = { { mark.label, mark.group }, { "  ", "Normal" } },

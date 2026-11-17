@@ -111,7 +111,7 @@ describe("omniac.nvim approval", function()
     local function permission_badge()
       for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(chat_buf, namespace, 0, -1, { details = true })) do
         local chunks = mark[4].virt_text
-        if chunks and chunks[1] then
+        if chunks and chunks[1] and mark[4].virt_text_pos == "right_align" then
           assert_equal(chunks[2][1], "  ", "permission badge should have right padding")
           return chunks[1][1], chunks[1][2]
         end

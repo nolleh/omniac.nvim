@@ -87,8 +87,8 @@ describe("ANSI display", function()
       assert.equals("last", colored[#colored])
       for _, mark in ipairs(rendered.marks) do
         if mark.group:match("^OmniacAnsi_") then
-          assert.is_true(mark.from >= 2)
-          assert.is_true(mark.to <= #rendered.lines[mark.line] - 2)
+          assert.is_true(mark.from >= 0)
+          assert.is_true(mark.to <= #rendered.lines[mark.line])
         end
       end
       message.expanded = true

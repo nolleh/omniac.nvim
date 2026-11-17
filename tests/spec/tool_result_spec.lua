@@ -5,7 +5,7 @@ local function command_lines(rendered)
   local range = rendered.command_range
   local result_lines = {}
   for index = range.from + 1, range.to do
-    table.insert(result_lines, rendered.lines[index]:sub(3))
+    table.insert(result_lines, rendered.lines[index])
   end
   return result_lines
 end
@@ -14,7 +14,7 @@ local function section(rendered, group)
   local lines = {}
   for _, mark in ipairs(rendered.marks) do
     if mark.group == group then
-      local value = rendered.lines[mark.line]:sub(3):gsub("%s+$", "")
+      local value = rendered.lines[mark.line]
       table.insert(lines, value)
     end
   end
@@ -60,10 +60,15 @@ describe("tool result previews", function()
         command_rows = command_rows + math.ceil(vim.fn.strdisplaywidth(line) / (width - 4))
       end
       assert.are.equal(4, command_rows)
-      assert.are.equal(4, #section(rendered, "OmniacToolOutput"))
+      local output_rows = 0
+      for _, line in ipairs(section(rendered, "OmniacToolOutput")) do
+        output_rows = output_rows + math.ceil(vim.fn.strdisplaywidth(line) / (width - 4))
+      end
+      assert.are.equal(4, output_rows)
       for index, line in ipairs(rendered.lines) do
         local range = rendered.command_range
-        if index <= range.from or index > range.to then
+        local is_output = vim.tbl_contains(section(rendered, "OmniacToolOutput"), line)
+        if (index <= range.from or index > range.to) and not is_output then
           assert.is_true(vim.fn.strdisplaywidth(line) <= width, "non-command rows should fit the viewport")
         end
       end
@@ -106,8 +111,8 @@ describe("tool result previews", function()
     }, 42)
     assert.are.equal(command, table.concat(command_lines(rendered), "\n"))
     local region = rendered.command_markdown
-    assert.are.equal("  ````sh", rendered.lines[region.from + 1])
-    assert.are.equal("  ````", rendered.lines[region.to])
+    assert.are.equal("````sh", rendered.lines[region.from + 1])
+    assert.are.equal("````", rendered.lines[region.to])
     assert.is_truthy(table.concat(section(rendered, "OmniacToolOutput")):find("# literal output", 1, true))
     for _, mark in ipairs(rendered.marks) do
       assert.is_true(
@@ -128,7 +133,7 @@ describe("tool result previews", function()
     local lines = vim.api.nvim_buf_get_lines(state.chat_buf, 0, -1, false)
     local command_row
     for row, line in ipairs(lines) do
-      if line == "  " .. command then
+      if line == command then
         command_row = row
         break
       end
@@ -141,10 +146,10 @@ describe("tool result previews", function()
         vim.cmd("normal! zt")
       end)
       vim.cmd("redraw")
-      local first = vim.fn.screenpos(state.chat_win, command_row, 3)
-      local continuation = vim.fn.screenpos(state.chat_win, command_row, width + 1)
+      local first = vim.fn.screenpos(state.chat_win, command_row, 1)
+      local continuation = vim.fn.screenpos(state.chat_win, command_row, width - 1)
       assert.are.equal(first.row + 1, continuation.row)
-      assert.are.equal(first.col, continuation.col, "wrapped commands should retain the two-space left padding")
+      assert.are.equal(first.curscol, continuation.curscol, "wrapped commands should retain the two-space left padding")
     end
   end)
 

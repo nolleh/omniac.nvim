@@ -32,7 +32,16 @@ end
 local function layout(message, width)
   local inner_width = math.max(1, width - 4)
   local command = ansi.wrapped(message.command, inner_width)
-  local output, output_marks = ansi.wrapped(message.output, inner_width)
+  local output_text, output_marks = ansi.parse(message.output)
+  local output, offset = {}, 0
+  for row, line in ipairs(text.split_lines(output_text)) do
+    local chunks = line == "" and { "" } or text.wrapped(line, inner_width)
+    for _, chunk in ipairs(chunks) do
+      table.insert(output, { text = chunk, row = row, from = offset })
+      offset = offset + #chunk
+    end
+    offset = offset + 1
+  end
   local output_limit = math.max(0, math.floor(tonumber(message.output_preview_lines) or 4))
   return {
     width = inner_width,
@@ -53,14 +62,13 @@ function M.render(message, width)
   local info = layout(message, width)
   local lines, marks = {}, {}
   local function add(value, group, colors, source)
-    local fitted = text.fit(value, info.width)
-    local retained = ansi.retained(source or value, fitted)
-    table.insert(lines, "  " .. fitted .. "  ")
+    local retained = ansi.retained(source or value, value)
+    table.insert(lines, value)
     table.insert(marks, { line = #lines, from = 0, to = -1, group = group })
     for _, mark in ipairs(colors or {}) do
       local last = math.min(mark.to, retained)
       if mark.from < last then
-        table.insert(marks, { line = #lines, from = mark.from + 2, to = last + 2, group = mark.group })
+        table.insert(marks, { line = #lines, from = mark.from, to = last, group = mark.group })
       end
     end
   end
@@ -87,25 +95,43 @@ function M.render(message, width)
     add(line, failed and "OmniacError" or "OmniacToolSummary", heading_colors[index], heading_lines[index])
   end
 
-  local function section(label, content, limit, group, colors)
+  local function output_section()
+    local content = info.output
     if #content == 0 then
       return
     end
-    add(label, "OmniacMuted")
-    local visible = message.expanded and #content or math.min(limit, #content)
+    add("Output", "OmniacMuted")
+    local visible = message.expanded and #content or math.min(info.output_limit, #content)
     -- Keep the beginning and end of output, where commands often report results.
     local head = math.ceil(visible / 2)
+    local pending
+    local function flush()
+      if pending then
+        add(pending.text, "OmniacToolOutput", ansi.marks(info.output_marks, pending.from, #pending.text, 0))
+        pending = nil
+      end
+    end
     for index = 1, visible do
       local row = index
-      if label == "Output" and not message.expanded and #content > visible and index > head then
+      if not message.expanded and #content > visible and index > head then
         if index == head + 1 then
+          flush()
           add("… +" .. (#content - visible) .. " lines", "OmniacMuted")
         end
         row = #content - (visible - index)
       end
-      add(content[row], group, colors[row])
+      local chunk = content[row]
+      -- Join adjacent display chunks from one source line. Soft wrapping is
+      -- visual only, including when the selected preview contains a long line.
+      if pending and pending.row == chunk.row and pending.from + #pending.text == chunk.from then
+        pending.text = pending.text .. chunk.text
+      else
+        flush()
+        pending = vim.deepcopy(chunk)
+      end
     end
-    if not message.expanded and #content > visible and (label ~= "Output" or visible < 2) then
+    flush()
+    if not message.expanded and #content > visible and visible < 2 then
       add("… +" .. (#content - visible) .. " lines", "OmniacMuted")
     end
   end
@@ -120,7 +146,7 @@ function M.render(message, width)
     end
     local fence = string.rep("`", fence_size)
     command_markdown = { from = #lines }
-    table.insert(lines, "  " .. fence .. "sh")
+    table.insert(lines, fence .. "sh")
     command_range = { from = #lines }
     local remaining = COMMAND_PREVIEW_LINES
     for _, line in ipairs(info.command_source) do
@@ -134,17 +160,17 @@ function M.render(message, width)
       end
       -- Keep the shell source intact. The chat window soft-wraps long lines;
       -- inserting newlines or padding here would alter strings and heredocs.
-      table.insert(lines, "  " .. value)
+      table.insert(lines, value)
       remaining = remaining - math.min(remaining, #rows)
     end
     command_range.to = #lines
-    table.insert(lines, "  " .. fence)
+    table.insert(lines, fence)
     command_markdown.to = #lines
     if not message.expanded and #info.command > COMMAND_PREVIEW_LINES then
       add("… +" .. (#info.command - COMMAND_PREVIEW_LINES) .. " lines", "OmniacMuted")
     end
   end
-  section("Output", info.output, info.output_limit, "OmniacToolOutput", by_line(info.output_marks))
+  output_section()
   if info.hidden > 0 or message.expanded then
     add(message.expanded and "Ctrl-T to collapse" or "Ctrl-T to expand", "OmniacMuted")
   end

@@ -172,10 +172,10 @@ end
 function M.open_windows(state, opts)
   state.chat_win = M.open_split("botright vertical", state.chat_buf)
   M.configure_window(state.chat_win)
-  -- Shell source stays on its original lines for Markdown injections. Keep
-  -- soft-wrapped continuations aligned with the chat's two-space padding.
+  -- Buffer text stays unpadded and unwrapped. Inline virtual text supplies the
+  -- first-line inset; breakindent supplies it on soft-wrapped continuations.
   vim.wo[state.chat_win].breakindent = true
-  vim.wo[state.chat_win].breakindentopt = "column:2"
+  vim.wo[state.chat_win].breakindentopt = "column:2,min:0"
   vim.wo[state.chat_win].showbreak = ""
   vim.wo[state.chat_win].linebreak = false
   if state.card_pinned then

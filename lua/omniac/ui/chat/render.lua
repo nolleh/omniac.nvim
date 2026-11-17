@@ -52,13 +52,10 @@ local function unwrap_markdown_fences(value)
       table.insert(result, line)
     end
   end
-  if #result > 0 and result[#result] == "" then
-    table.remove(result)
-  end
   return table.concat(result, "\n")
 end
 
-local function chat_message_lines(line, width)
+local function has_padding(line)
   local value = tostring(line or "")
   if
     value == ""
@@ -67,25 +64,28 @@ local function chat_message_lines(line, width)
     or value:match("^%s*~~~")
     or value:match("^%s*%-%-%-+%s*$")
   then
-    return { line }, 0
+    return false
   end
 
-  local result = {}
-  for _, wrapped_line in ipairs(text.wrapped(line, math.max(1, width - 4))) do
-    table.insert(result, "  " .. text.fit(wrapped_line, math.max(1, width - 4)) .. "  ")
-  end
-  return result, 2
+  return true
 end
 
 function M.build(opts)
   local state = opts.state
   local width = opts.width
-  local text_width = math.max(28, width - 6)
   local lines = {}
   local marks = {}
+  local padding = {}
   local permission_marks = {}
   local markdown_excluded_ranges = {}
   local message_ranges = {}
+
+  local function add_content(value, group, padded)
+    add_line(lines, marks, value, group)
+    if padded then
+      table.insert(padding, { line = #lines, group = group })
+    end
+  end
 
   local function add_message_separator()
     add_line(
@@ -127,16 +127,11 @@ function M.build(opts)
 
       if message.role == "You" then
         local range_start = #lines
-        for _, line in ipairs(text.wrapped(value, text_width)) do
-          add_line(lines, marks, "  " .. text.fit(line, width - 4) .. "  ", group)
+        for _, line in ipairs(text.split_lines(value)) do
+          add_content(line, group, true)
         end
         if message.queued then
-          add_line(
-            lines,
-            marks,
-            "  " .. text.fit("Queued · waiting for current turn", width - 4) .. "  ",
-            "OmniacMuted"
-          )
+          add_content("Queued · waiting for current turn", "OmniacMuted", true)
         end
         if #lines > range_start then
           table.insert(markdown_excluded_ranges, { from = range_start, to = #lines })
@@ -148,6 +143,9 @@ function M.build(opts)
         vim.list_extend(lines, rendered.lines)
         for _, mark in ipairs(rendered.marks) do
           add_mark(marks, offset + mark.line, mark.from, mark.to, mark.group)
+        end
+        for row = 1, #rendered.lines do
+          table.insert(padding, { line = offset + row })
         end
         -- Only our fenced shell block is Markdown. Output stays literal, so
         -- fences printed by a command cannot change subsequent chat rendering.
@@ -166,18 +164,12 @@ function M.build(opts)
         local message_text, colors = ansi.parse(unwrap_markdown_fences(value))
         local source_offset = 0
         for _, line in ipairs(text.split_lines(message_text)) do
-          local display_lines, padding = chat_message_lines(line, width)
-          local consumed = 0
-          for _, display_line in ipairs(display_lines) do
-            add_line(lines, marks, display_line, group)
-            local length = math.min(#line - consumed, #display_line - padding * 2)
-            vim.list_extend(marks, ansi.marks(colors, source_offset + consumed, length, #lines, padding))
-            consumed = consumed + length
-          end
+          add_content(line, group, has_padding(line))
+          vim.list_extend(marks, ansi.marks(colors, source_offset, #line, #lines))
           source_offset = source_offset + #line + 1
         end
         if message.stop_footer and message.stop_footer ~= "" then
-          add_line(lines, marks, "  " .. text.fit(message.stop_footer, width - 4) .. "  ", "OmniacMuted")
+          add_content(message.stop_footer, "OmniacMuted", true)
         end
         local complete = message.complete or (message.complete == nil and message.role == "Omniac" and not message.type)
         if complete then
@@ -218,6 +210,7 @@ function M.build(opts)
   return {
     lines = lines,
     marks = marks,
+    padding = padding,
     permission_marks = permission_marks,
     markdown_excluded_ranges = markdown_excluded_ranges,
     message_ranges = message_ranges,
