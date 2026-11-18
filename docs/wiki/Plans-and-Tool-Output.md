@@ -16,6 +16,8 @@ Commands render as Bash blocks. Output preserves ANSI colors and styles while hi
 
 Results have a task title and a compact preview. Press `Ctrl-T` over a result to expand or collapse its command and output. Set `ui.tool_results` to `compact`, `all`, or `none`; failures remain visible. `ui.tool_result_max_lines` controls the preview length.
 
+Use ordinary Neovim yanks or visual selections to copy chat text. Padding and line wrapping are display-only, so they do not add spaces or newlines to the copied text. Expand a tool result before copying its full command or output.
+
 ## Layout and welcome card
 
 `Ctrl-k` / `Ctrl-j` moves between the welcome card, chat, and input in normal or insert mode. Hidden cards are skipped. The expanded plan activity area participates in navigation; collapsed activity and status bars are skipped.

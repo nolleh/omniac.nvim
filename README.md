@@ -1,5 +1,7 @@
 # omniac.nvim
 
+![Omniac.nvim — Your agent. Your editor. One workflow.](docs/assets/branding/omniac-banner.png)
+
 **Your agent. Your editor. One workflow.**
 
 Work with your favorite coding agent inside Neovim. Share the code you're editing, guide the agent as it works, and shape its proposed changes before approving them.
@@ -14,7 +16,7 @@ Keep the coding agent you already know. Omniac brings its models, modes, and com
 
 Build on that experience with the conveniences of a native Neovim plugin:
 
-- **Share what you're editing.** Send selected code or the current buffer directly to your agent, including unsaved edits. Add files from your file tree or paste a screenshot into the conversation.
+- **Share what you're editing.** Send selected code, including unsaved edits, directly to your agent. Attach the current file, add paths from your file tree, or paste a screenshot into the conversation.
 - **See the whole change.** When a change summary appears, press `t` to browse changes from the latest turn or `s` for the entire session, in normal mode inside Omniac. Open file diffs directly from the list.
 - **Stay involved as work unfolds.** Expand plans and tool output, send guidance during a task when supported, and edit proposed changes in Neovim before approving them.
 
@@ -52,7 +54,7 @@ Omniac speaks the [Agent Client Protocol (ACP)](https://agentclientprotocol.com)
 
 Available models, modes, and capabilities come from the agent you choose.
 
-Install and authenticate an ACP agent or adapter, then set [`agent.cmd`](docs/wiki/Getting-Started.md#install-an-agent) to its executable. Codex is the default: `npm install -g @agentclientprotocol/codex-acp`.
+Install and authenticate an ACP agent or adapter, then set [`agent.cmd`](https://github.com/nolleh/omniac.nvim/wiki/Getting-Started#install-an-agent) to its executable. Codex is the default: `npm install -g @agentclientprotocol/codex-acp`.
 
 ## Features
 
@@ -132,7 +134,7 @@ Install Omniac with [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
-See [Getting started](docs/wiki/Getting-Started.md) for parser setup and agent configuration.
+See [Getting started](https://github.com/nolleh/omniac.nvim/wiki/Getting-Started) for parser setup and agent configuration.
 
 ## Quick start
 
@@ -163,9 +165,9 @@ The default Codex mode is read-only. Use `/mode` to choose an editing mode.
 
 ## Documentation
 
-[Getting started](docs/wiki/Getting-Started.md) · [Configuration](docs/wiki/Configuration.md) · [Commands and keymaps](docs/wiki/Commands-and-Keymaps.md)
+[Getting started](https://github.com/nolleh/omniac.nvim/wiki/Getting-Started) · [Configuration](https://github.com/nolleh/omniac.nvim/wiki/Configuration) · [Commands and keymaps](https://github.com/nolleh/omniac.nvim/wiki/Commands-and-Keymaps)
 
-[All guides](docs/wiki/Home.md) · [Changelog](CHANGELOG.md)
+[All guides](https://github.com/nolleh/omniac.nvim/wiki/Home) · [Changelog](CHANGELOG.md)
 
 ## License
 
