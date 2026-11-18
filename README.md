@@ -4,9 +4,9 @@
 
 Work with your favorite coding agent inside Neovim. Share the code you're editing, guide the agent as it works, and shape its proposed changes before approving them.
 
-[![Watch the workflow overview](docs/demos/media/main-demo.png)](docs/demos/media/main-demo.mp4)
+https://github.com/user-attachments/assets/202ed984-5882-4754-bed7-d551df17e3e0
 
-*[▶ Watch the overview](docs/demos/media/main-demo.mp4) · 47 seconds · English captions. Feature demos below use Space as `<leader>`.*
+*[▶ Watch the overview](https://github.com/user-attachments/assets/202ed984-5882-4754-bed7-d551df17e3e0) · 47 seconds · English captions. Feature demos below use Space as `<leader>`.*
 
 ## Why omniac.nvim?
 
@@ -62,9 +62,9 @@ A new thought doesn't have to wait until the task is over.
 
 Press `Enter` to send a message into the running task when your agent supports it, or `Tab` to queue the next request. Code and image attachments stay with your message.
 
-[![Watch immediate delivery and queued prompts](docs/demos/media/guide-work.png)](docs/demos/media/guide-work.mp4)
+https://github.com/user-attachments/assets/c2cbcb67-4e0a-4b47-b71d-a323031dff9d
 
-*[▶ Watch the short demo](docs/demos/media/guide-work.mp4) · `Enter` sends now · `Tab` queues the next request.*
+*[▶ Watch the short demo](https://github.com/user-attachments/assets/c2cbcb67-4e0a-4b47-b71d-a323031dff9d) · `Enter` sends now · `Tab` queues the next request.*
 
 ### Shape proposed changes
 
@@ -72,9 +72,9 @@ Review proposed edits in native Neovim diffs. Accept, reject, or make a small ad
 
 Omniac carries your adjusted proposal into a follow-up so the agent can apply the version you reviewed.
 
-[![Watch an adjusted proposal become the applied change](docs/demos/media/shape-proposals.png)](docs/demos/media/shape-proposals.mp4)
+https://github.com/user-attachments/assets/539a7a13-ffcc-469f-9508-44a2ee49b972
 
-*[▶ Watch the short demo](docs/demos/media/shape-proposals.mp4) · Edit the proposal with normal Vim commands, then press `<leader>aa` to approve.*
+*[▶ Watch the short demo](https://github.com/user-attachments/assets/539a7a13-ffcc-469f-9508-44a2ee49b972) · Edit the proposal with normal Vim commands, then press `<leader>aa` to approve.*
 
 ### Follow the work
 
@@ -82,9 +82,9 @@ See the current step at a glance. Expand the full plan with `Ctrl-P` when you wa
 
 When the task finishes, browse what changed in the latest turn or across the session.
 
-[![Watch plan, output, and session change review](docs/demos/media/follow-work.png)](docs/demos/media/follow-work.mp4)
+https://github.com/user-attachments/assets/0b03a173-727c-4891-849a-b409f606031f
 
-*[▶ Watch the short demo](docs/demos/media/follow-work.mp4) · `Ctrl-P` expands the plan · `Ctrl-T` expands output · `/changes session` opens the changed-file list.*
+*[▶ Watch the short demo](https://github.com/user-attachments/assets/0b03a173-727c-4891-849a-b409f606031f) · `Ctrl-P` expands the plan · `Ctrl-T` expands output · `/changes session` opens the changed-file list.*
 
 ### Bring your context
 
@@ -92,9 +92,9 @@ Select code and send it straight to the conversation. Add a file from your edito
 
 Selected code includes your unsaved edits, so you can discuss what you're working on right now.
 
-[![Watch unsaved code and file attachments](docs/demos/media/bring-context.png)](docs/demos/media/bring-context.mp4)
+https://github.com/user-attachments/assets/12a8034b-102e-467c-aacb-73f3b8172f02
 
-*[▶ Watch the short demo](docs/demos/media/bring-context.mp4) · Select code and press `<leader>as` · `<leader>ab` attaches the current file · `<leader>af` focuses the input.*
+*[▶ Watch the short demo](https://github.com/user-attachments/assets/12a8034b-102e-467c-aacb-73f3b8172f02) · Select code and press `<leader>as` · `<leader>ab` attaches the current file · `<leader>af` focuses the input.*
 
 ### Pick up where you left off
 
@@ -104,18 +104,20 @@ Browse saved sessions and restore the conversation. Switch between your agent's 
 
 A little companion on the welcome card follows your cursor, hops around, and reacts when you pet it. Give it too much attention and it might run away.
 
-[![Watch the welcome-card companion react to the cursor](docs/demos/media/mascot.png)](docs/demos/media/mascot.mp4)
+https://github.com/user-attachments/assets/3eda6537-79d1-488f-a9ed-934f5592690c
 
-*[▶ Watch the short demo](docs/demos/media/mascot.mp4) · Move to the welcome card with `Ctrl-K`, then move the cursor across the companion with `h` / `l`.*
+*[▶ Watch the short demo](https://github.com/user-attachments/assets/3eda6537-79d1-488f-a9ed-934f5592690c) · Move to the welcome card with `Ctrl-K`, then move the cursor across the companion with `h` / `l`.*
 
 ## Installation
 
-Install and authenticate a coding agent first. For the default Codex agent:
+Omniac needs an **ACP-compatible executable**. If your agent's CLI does not support ACP directly, install its ACP adapter first. For Codex, install and authenticate the `codex-acp` adapter:
 
 ```sh
 npm install -g @agentclientprotocol/codex-acp
 codex-acp login
 ```
+
+Omniac uses `codex-acp` as its default agent command, so you don't need to configure `agent.cmd` separately.
 
 Install Omniac with [lazy.nvim](https://github.com/folke/lazy.nvim):
 

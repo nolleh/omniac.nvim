@@ -2,7 +2,7 @@
 
 ## Install an agent
 
-Omniac connects to an ACP-compatible agent running as a local subprocess. Install and authenticate the agent before connecting.
+Omniac connects to an ACP-compatible agent running as a local subprocess. If your agent's CLI does not support ACP directly, install its ACP adapter. Install and authenticate the ACP executable before connecting.
 
 For the default Codex agent:
 
@@ -10,6 +10,8 @@ For the default Codex agent:
 npm install -g @agentclientprotocol/codex-acp
 codex-acp login
 ```
+
+Omniac uses `codex-acp` as its default agent command, so you don't need to configure `agent.cmd` separately.
 
 To use another agent, set its executable and arguments:
 
