@@ -62,6 +62,8 @@ pnpm add -g @mermaid-js/mermaid-cli
 
 Keep pnpm's global executable directory (`PNPM_HOME`) on the PATH inherited by Neovim. Snacks images also require a supported terminal and image-processing tools such as ImageMagick; run `:checkhealth snacks` to check your environment. Restart Neovim after installing missing tools, then confirm `:echo executable('mmdc')` returns `1`.
 
+In chat, inline diagrams hide their code until the cursor enters the block. Moving away or returning to input restores the diagram. Images keep their aspect ratio within 90% of the chat window's width and 85% of its height, and refit when the window is resized. Smaller explicit Snacks image size limits are honored; ordinary Markdown buffers keep their existing behavior.
+
 ## Start a conversation
 
 1. Open a project file and press `<leader>ac` or run `:Omniac`.

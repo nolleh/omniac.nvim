@@ -1,4 +1,5 @@
 local M = {}
+local images = require("omniac.ui.images")
 
 local filetypes = { "omniac", "omniac-permission" }
 vim.treesitter.language.register("markdown", filetypes)
@@ -87,37 +88,13 @@ function M.clear(buf, from)
   end
 end
 
-local function attach_images(buf)
-  local snacks = rawget(_G, "Snacks")
-  local image_config = type(snacks) == "table" and snacks.config and snacks.config.image
-  if
-    vim.bo[buf].filetype ~= "omniac"
-    or type(image_config) ~= "table"
-    or image_config.enabled ~= true
-    or (type(image_config.doc) == "table" and image_config.doc.enabled == false)
-  then
-    return
-  end
-
-  local ok, image = pcall(require, "snacks.image")
-  if not ok then
-    return
-  end
-  -- Scratch chat buffers do not trigger the file-read events that initialize
-  -- Snacks images. Attach after parsing, so Mermaid queries see complete trees.
-  -- Both setup and doc.attach are idempotent and retain the user's settings.
-  pcall(function()
-    image.setup()
-    image.doc.attach(buf)
-  end)
-end
-
 local function render(buf, win, event)
   if not valid_buf(buf) then
     return
   end
 
-  attach_images(buf)
+  local has_images = images.attach(buf)
+  local render_config = vim.deepcopy(config)
 
   local ok, renderer = pcall(require, "render-markdown")
   if not ok or type(renderer) ~= "table" then
@@ -134,6 +111,18 @@ local function render(buf, win, event)
   end
 
   local ok_state, renderer_state = pcall(require, "render-markdown.state")
+  if has_images then
+    -- Snacks anchors overflow image rows to the closing fence. Let it own
+    -- Mermaid blocks so render-markdown cannot conceal that anchor line.
+    local disabled = ok_state and vim.tbl_get(renderer_state, "config", "code", "disable")
+    if disabled ~= true then
+      disabled = type(disabled) == "table" and vim.deepcopy(disabled) or {}
+      if not vim.tbl_contains(disabled, "mermaid") then
+        table.insert(disabled, "mermaid")
+      end
+      render_config.code = { disable = disabled }
+    end
+  end
   if ok_state and type(renderer_state) == "table" then
     -- Register only our filetypes when the user has already set up the
     -- renderer. Re-running setup would replace their settings and callbacks.
@@ -154,6 +143,10 @@ local function render(buf, win, event)
       end
       renderer_state.cache[buf] = nil
     end
+    -- manager.attach also reads this cache, so seed our buffer overrides first.
+    if type(renderer_state.get) == "function" then
+      renderer_state.get(buf, render_config)
+    end
   end
 
   if vim.tbl_contains(filetypes, vim.bo[buf].filetype) then
@@ -170,7 +163,7 @@ local function render(buf, win, event)
       buf = buf,
       win = win,
       event = event or "OmniacRender",
-      config = config,
+      config = render_config,
     })
   elseif type(renderer.buf_enable) == "function" then
     pcall(vim.api.nvim_buf_call, buf, renderer.buf_enable)

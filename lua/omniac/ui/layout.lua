@@ -172,6 +172,8 @@ end
 function M.open_windows(state, opts)
   state.chat_win = M.open_split("botright vertical", state.chat_buf)
   M.configure_window(state.chat_win)
+  vim.wo[state.chat_win].conceallevel = 2
+  vim.wo[state.chat_win].concealcursor = ""
   -- Buffer text stays unpadded and unwrapped. Inline virtual text supplies the
   -- first-line inset; breakindent supplies it on soft-wrapped continuations.
   vim.wo[state.chat_win].breakindent = true

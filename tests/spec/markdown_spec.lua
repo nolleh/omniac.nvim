@@ -58,7 +58,7 @@ describe("chat markdown parsing", function()
         events[#events + 1] = { "disable", vim.api.nvim_get_current_buf() }
       end,
       render = function(ctx)
-        events[#events + 1] = { "render", ctx.buf }
+        events[#events + 1] = { "render", ctx.buf, ctx.config }
       end,
     }
   end)
@@ -136,6 +136,36 @@ describe("chat markdown parsing", function()
     markdown.render(buf)
     assert.are.equal(0, count("images_setup"))
     assert.are.equal(1, count("render"))
+  end)
+
+  it("leaves Mermaid fence rendering to Snacks so overflow image rows stay visible", function()
+    markdown.render(buf)
+    assert.are.same({ "mermaid" }, events[#events][3].code.disable)
+    Snacks.config.image.enabled = false
+    markdown.render(buf)
+    assert.is_nil(events[#events][3].code)
+  end)
+
+  it("seeds buffer overrides before the Markdown manager can cache defaults", function()
+    local old_state = package.loaded["render-markdown.state"]
+    local old_manager = package.loaded["render-markdown.core.manager"]
+    local cached
+    package.loaded["render-markdown.state"] = {
+      config = { code = { disable = { "python" } } },
+      cache = {},
+      get = function(_, custom)
+        cached = custom
+      end,
+    }
+    package.loaded["render-markdown.core.manager"] = {
+      attach = function()
+        assert.are.same({ "python", "mermaid" }, cached.code.disable)
+      end,
+    }
+    markdown.render(buf)
+    package.loaded["render-markdown.state"] = old_state
+    package.loaded["render-markdown.core.manager"] = old_manager
+    assert.are.same({ "python", "mermaid" }, cached.code.disable)
   end)
 
   it("does not attach document images to permission buffers", function()
