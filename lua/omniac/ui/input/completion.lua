@@ -1,6 +1,7 @@
 local M = {}
 
 local local_commands = {
+  { name = "clear", description = "Start a new ACP session" },
   { name = "exit", description = "Close Omniac chat" },
   { name = "changes", description = "Review files changed by Omniac" },
   { name = "mode", description = "Choose an advertised mode for the active session" },

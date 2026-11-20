@@ -49,7 +49,7 @@ describe("omniac.nvim commands", function()
     assert_true(lines:match("/changes") ~= nil, "local changes command should be listed")
     assert_true(lines:match("/model") ~= nil, "local model command should be listed")
     assert_true(lines:match("/mode") ~= nil, "local mode command should be listed")
-    assert_true(lines:match("/resume") ~= nil, "local resume command should be listed")
+    assert_true(lines:match("/clear") ~= nil, "local clear command should be listed")
     assert_true(lines:match("@README") == nil, "slash suggestions should not include file mentions")
 
     local command_lines = vim.api.nvim_buf_get_lines(command_buf, 0, -1, false)
