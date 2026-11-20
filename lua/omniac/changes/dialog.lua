@@ -57,6 +57,9 @@ local function item_detail(item)
   if item.turnId ~= nil then
     table.insert(parts, "turn " .. tostring(item.turnId))
   end
+  if item.beforeSource == "snapshot" then
+    table.insert(parts, "earlier saved state")
+  end
   return table.concat(parts, "  ·  ")
 end
 

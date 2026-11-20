@@ -65,6 +65,7 @@ local function upsert(target, params)
     item = {
       path = path,
       oldText = params.oldText,
+      beforeSource = params.beforeSource,
       newText = params.newText,
       operation = operation(params.oldText, params.newText, params.operation),
       sessionId = params.sessionId,
@@ -238,7 +239,9 @@ function M.open(scope, config)
           plain = true,
         }),
         {
-          title = "Omniac changes: " .. display_path(item.path),
+          title = "Omniac changes: "
+            .. display_path(item.path)
+            .. (item.beforeSource == "snapshot" and " [earlier saved state]" or ""),
           origin_win = diff.select_review_window(),
           separate_tab = config and config.ui and config.ui.diff_separate_tab,
           on_close = function()

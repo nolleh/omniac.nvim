@@ -552,6 +552,10 @@ local function new()
     session.set_available_commands(state, commands, update_command_window)
   end
 
+  function M.is_agent_command(name)
+    return session.is_agent_command(state, name)
+  end
+
   function M.is_open()
     return lifecycle.is_open(state, valid_win)
   end

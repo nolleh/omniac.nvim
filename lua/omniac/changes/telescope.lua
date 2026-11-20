@@ -25,7 +25,10 @@ function M.open(items, opts, callback)
           local path = vim.fn.fnamemodify(item.path, ":.")
           return {
             value = item,
-            display = (labels[item.operation] or "M") .. "  " .. path,
+            display = (labels[item.operation] or "M")
+              .. "  "
+              .. path
+              .. (item.beforeSource == "snapshot" and " [earlier saved state]" or ""),
             ordinal = path,
           }
         end,
@@ -39,7 +42,7 @@ function M.open(items, opts, callback)
             ctxlen = 3,
           })
           local lines = {
-            "--- a/" .. item.path,
+            "--- a/" .. item.path .. (item.beforeSource == "snapshot" and " (earlier saved state)" or ""),
             "+++ b/" .. item.path,
           }
           vim.list_extend(lines, vim.split(patch, "\n", { trimempty = true, plain = true }))

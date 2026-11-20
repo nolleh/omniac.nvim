@@ -14,6 +14,7 @@ local public_methods = {
   flash_activity = true,
   handle_notification = true,
   is_open = true,
+  is_agent_command = true,
   open = true,
   queue_prompt = true,
   resize = true,

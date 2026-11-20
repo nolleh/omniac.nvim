@@ -153,6 +153,76 @@ describe("omniac.nvim agent change tracking", function()
     assert_equal(files["tracked.txt"].newText, "agent edit\nkeep\n")
   end)
 
+  local late_edits = {
+    {
+      name = "extends a replacement",
+      old = "user draft",
+      new = "user draft extended",
+      current = "user draft extended\nkeep\n",
+    },
+    { name = "shortens a replacement", old = "user draft", new = "draft", current = "draft\nkeep\n" },
+    { name = "prepends text", old = "", new = "header\n", current = "header\nuser draft\nkeep\n" },
+    { name = "inserts text", old = "", new = "inserted\n", current = "user draft\ninserted\nkeep\n" },
+    { name = "appends text", old = "", new = "tail\n", current = "user draft\nkeep\ntail\n" },
+    { name = "inserts repeated text", previous = "aaaa\n", old = "", new = "a", current = "aaaaa\n" },
+    { name = "creates a file", path = "new.txt", old = "", new = "created\n", current = "created\n" },
+    {
+      name = "creates a file without a final newline",
+      path = "new.txt",
+      old = "",
+      new = "created",
+      current = "created",
+    },
+    { name = "deletes text", old = "user draft\n", new = "", current = "keep\n" },
+    { name = "deletes a file", path = "deleted.txt", previous = "delete me\n", old = "delete me\n", new = "" },
+    {
+      name = "replaces one of several occurrences",
+      previous = "user draft\nuser draft\nkeep\n",
+      old = "user draft",
+      new = "updated",
+      current = "user draft\nupdated\nkeep\n",
+    },
+    { name = "replaces an overlapping occurrence", previous = "aaa\n", old = "aa", new = "X", current = "aX\n" },
+    {
+      name = "replaces the whole file with extended contents",
+      old = "user draft\nkeep\n",
+      new = "user draft\nkeep\ntail\n",
+      current = "user draft\nkeep\ntail\n",
+    },
+  }
+
+  for index, edit in ipairs(late_edits) do
+    it("recovers a late edit that " .. edit.name, function()
+      local path = edit.path or "tracked.txt"
+      local previous = edit.previous or (path == "tracked.txt" and "user draft\nkeep\n" or "")
+      if edit.previous then
+        vim.fn.writefile(vim.split(previous, "\n", { plain = true }), cwd .. "/" .. path, "b")
+      end
+      start()
+      if edit.current then
+        vim.fn.writefile(vim.split(edit.current, "\n", { plain = true }), cwd .. "/" .. path, "b")
+      else
+        vim.fn.delete(cwd .. "/" .. path)
+      end
+      send({
+        sessionUpdate = "tool_call",
+        toolCallId = "late-edit",
+        kind = "edit",
+        status = "in_progress",
+        locations = index % 2 == 0 and { { path = cwd .. "/" .. path } } or nil,
+        content = { { type = "diff", path = cwd .. "/" .. path, oldText = edit.old, newText = edit.new } },
+      })
+      send({ sessionUpdate = "tool_call_update", toolCallId = "late-edit", status = "completed" })
+      finish()
+      local file = by_path()[path]
+      assert_true(file ~= nil, "late edit must remain in change history")
+      assert_equal(changes.count("turn"), 1)
+      assert_equal(file.oldText, previous)
+      assert_equal(file.newText, edit.current or "")
+      assert_equal(require("omniac.editor.filesystem").read_disk_content(cwd .. "/" .. path), edit.current)
+    end)
+  end
+
   it("includes terminal writes, additions and deletions without including pre-existing changes", function()
     start()
     send({ sessionUpdate = "tool_call", toolCallId = "exec", kind = "execute", status = "in_progress" })
@@ -204,7 +274,7 @@ describe("omniac.nvim agent change tracking", function()
     assert_equal(file.newText, "second edit\nkeep\n")
   end)
 
-  it("does not recover a baseline for an unapplied edit after an unrelated user save", function()
+  it("keeps the existing checkpoint even when disk contents differ from the reported edit", function()
     start()
     write("tracked.txt", { "user save", "keep" })
     send({
@@ -218,7 +288,53 @@ describe("omniac.nvim agent change tracking", function()
     })
     send({ sessionUpdate = "tool_call_update", toolCallId = "noop", status = "completed" })
     finish()
-    assert_equal(changes.count("turn"), 0)
+    local file = by_path()["tracked.txt"]
+    assert_equal(changes.count("turn"), 1)
+    assert_equal(file.oldText, "user draft\nkeep\n")
+    assert_equal(file.newText, "user save\nkeep\n")
+    assert_equal(file.beforeSource, "snapshot")
+  end)
+
+  it("keeps an earlier saved state when the reported edit is mixed with other changes", function()
+    start()
+    write("tracked.txt", { "agent proposal", "unrelated user save", "keep" })
+    send({
+      sessionUpdate = "tool_call",
+      toolCallId = "unapplied",
+      kind = "edit",
+      status = "in_progress",
+      content = {
+        { type = "diff", path = cwd .. "/tracked.txt", oldText = "user draft", newText = "agent proposal" },
+      },
+    })
+    send({ sessionUpdate = "tool_call_update", toolCallId = "unapplied", status = "completed" })
+    finish()
+    local file = by_path()["tracked.txt"]
+    assert_equal(changes.count("turn"), 1)
+    assert_equal(file.oldText, "user draft\nkeep\n")
+    assert_equal(file.newText, "agent proposal\nunrelated user save\nkeep\n")
+    assert_equal(file.beforeSource, "snapshot")
+    assert_equal(by_path("session")["tracked.txt"].beforeSource, "snapshot")
+  end)
+
+  it("shows the earlier hello snapshot alongside the actual externally edited file", function()
+    write("tracked.txt", { "hello" })
+    start()
+    write("tracked.txt", { "hello! world" })
+    send({
+      sessionUpdate = "tool_call",
+      toolCallId = "mixed-addition",
+      kind = "edit",
+      status = "in_progress",
+      content = { { type = "diff", path = cwd .. "/tracked.txt", oldText = "hello", newText = "hello world" } },
+    })
+    send({ sessionUpdate = "tool_call_update", toolCallId = "mixed-addition", status = "completed" })
+    finish()
+    local file = by_path()["tracked.txt"]
+    assert_equal(file.oldText, "hello\n")
+    assert_equal(file.newText, "hello! world\n")
+    assert_equal(file.beforeSource, "snapshot")
+    assert_equal(vim.fn.readfile(cwd .. "/tracked.txt")[1], "hello! world")
   end)
 
   it("does not attribute changes outside agent tool execution to the session", function()

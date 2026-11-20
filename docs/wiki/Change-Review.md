@@ -22,8 +22,8 @@ When a change summary is visible, `t` opens the latest turn and `s` opens sessio
 
 History includes ACP edits and client-mediated writes regardless of approval. Changes without a reported diff are also captured from disk around agent edit or terminal execution.
 
-When an edit notification arrives after a file has already been saved, Omniac checks the reported old/new text against the preceding workspace snapshot to recover its original contents.
+For files reported by edit notifications, Omniac compares its existing preceding workspace snapshot with the file contents observed at completion. The snapshot is used directly, even when another editor has also changed the file or its contents differ from the reported edit. These comparisons are labeled `earlier saved state` and may include other edits made since the snapshot. No extra reconstruction, agent request, or workspace scan is needed, and reviewing history never rolls back the file.
 
-Workspace comparisons cover text files under `agent.cwd`. Existing changes and saves outside execution windows are excluded. Concurrent external writes during an agent command cannot be distinguished from agent writes. Git-ignored files, binary files, and files larger than 2 MiB are excluded. Without Git, text files under `agent.cwd` are scanned directly.
+Workspace comparisons cover text files under `agent.cwd`. For files without reported edit notifications, comparisons around execution windows exclude earlier and later saves. Changes already present in the starting snapshot are excluded. Concurrent external writes cannot be distinguished from agent writes. Git-ignored files, binary files, and files larger than 2 MiB are excluded. Without Git, text files under `agent.cwd` are scanned directly.
 
 Change history is in memory and starts fresh after load, resume, or reconnect. Use `git diff` as the source of truth for the working tree.

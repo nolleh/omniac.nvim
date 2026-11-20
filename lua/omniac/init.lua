@@ -83,7 +83,7 @@ submission_failure = function(item, err)
 end
 
 local function slash_command(text)
-  local command, arguments = tostring(text or ""):match("^%s*/([%w_-]+)%s*(.-)%s*$")
+  local command, arguments = tostring(text or ""):match("^%s*/([^%s]+)%s*(.-)%s*$")
   if not command or arguments:find("\n", 1, true) then
     return nil, nil
   end
@@ -92,7 +92,7 @@ end
 
 local function guard_active_command(text)
   local command = tostring(text or ""):match("^%s*/([^%s]+)")
-  if not command or not command:match("^[%w_-]+$") or not turn_is_active() then
+  if not command or not turn_is_active() or not ui.is_agent_command(command) then
     return false
   end
   -- ACP commands share session/prompt's turn lifecycle. They must neither

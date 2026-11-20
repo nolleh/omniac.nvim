@@ -54,4 +54,14 @@ function M.set_available_commands(state, commands, update_command_window)
   end
 end
 
+function M.is_agent_command(state, name)
+  for _, command in ipairs(state.available_commands or {}) do
+    local advertised = type(command) == "table" and command.name
+    if type(advertised) == "string" and advertised:sub(1, 1) ~= "$" and advertised:gsub("^/", "") == name then
+      return true
+    end
+  end
+  return false
+end
+
 return M

@@ -164,6 +164,7 @@ describe("omniac.nvim changes", function()
       path = path,
       oldText = "before\n",
       newText = "middle\n",
+      beforeSource = "snapshot",
     })
     changes.record({
       sessionId = "sess_1",
@@ -176,6 +177,7 @@ describe("omniac.nvim changes", function()
     assert_equal(changes.finish_turn({ sessionId = "sess_1", turnId = 1 }), 1, "turn should deduplicate files")
     assert_equal(changes.get("turn")[1].oldText, "before\n", "turn should keep the first file contents")
     assert_equal(changes.get("turn")[1].newText, "after\n", "turn should keep the latest file contents")
+    assert_equal(changes.get("turn")[1].beforeSource, "snapshot", "turn should retain its baseline label")
 
     changes.start_turn({ sessionId = "sess_1", turnId = 2 })
     changes.record({
@@ -190,6 +192,7 @@ describe("omniac.nvim changes", function()
     assert_equal(changes.get("turn")[1].oldText, "after\n", "latest turn should have its own baseline")
     assert_equal(changes.get("session")[1].oldText, "before\n", "session should keep its initial baseline")
     assert_equal(changes.get("session")[1].newText, "final\n", "session should keep the latest contents")
+    assert_equal(changes.get("session")[1].beforeSource, "snapshot", "session should retain its first baseline label")
 
     changes.start_turn({ sessionId = "sess_1", turnId = 3 })
     assert_equal(
@@ -223,6 +226,7 @@ describe("omniac.nvim changes", function()
         before = before,
         after = after,
         origin_win = opts.origin_win,
+        title = opts.title,
       }
     end
 
@@ -242,6 +246,7 @@ describe("omniac.nvim changes", function()
     assert_equal(previewed.before[1], "before", "preview should use the session baseline")
     assert_equal(previewed.after[1], "final", "preview should use the latest session contents")
     assert_equal(previewed.origin_win, original_win, "change preview should avoid the Omniac input window")
+    assert_true(previewed.title:find("earlier saved state", 1, true), "preview should identify its comparison baseline")
   end)
 
   it("change dialog matches the session picker layout and selects a file", function()
@@ -254,6 +259,7 @@ describe("omniac.nvim changes", function()
         path = "/tmp/project/README.md",
         operation = "modify",
         source = "acp",
+        beforeSource = "snapshot",
         turnId = 7,
       },
       {
@@ -274,6 +280,7 @@ describe("omniac.nvim changes", function()
     assert_true(rendered:match("connection started") ~= nil, "change dialog should explain the session scope")
     assert_true(rendered:match("README%.md") ~= nil, "change dialog should list changed files")
     assert_true(rendered:match("ACP edit") ~= nil, "change dialog should render change metadata")
+    assert_true(rendered:find("earlier saved state", 1, true), "change dialog should identify its comparison baseline")
     local first_detail_line
     for index, line in ipairs(lines) do
       if line:find("ACP edit", 1, true) then

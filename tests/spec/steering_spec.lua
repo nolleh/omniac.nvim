@@ -2,6 +2,19 @@ local helpers = require("tests.helpers")
 
 describe("omniac.nvim mid-turn steering", function()
   local app, ui, client, state, requests
+  local agent_commands = {
+    "/plan",
+    "/mcp",
+    "/skills",
+    "/status",
+    "/review",
+    "/review-branch main",
+    "/review-commit abc123",
+    "/compact",
+    "/goal keep testing",
+    "/rename new title",
+    "/logout",
+  }
 
   before_each(function()
     helpers.cleanup_omniac_buffers()
@@ -30,6 +43,9 @@ describe("omniac.nvim mid-turn steering", function()
     app.open_chat()
     state = ui.open(app.config)
     ui.clear_conversation(app.config)
+    ui.set_available_commands(vim.tbl_map(function(command)
+      return { name = command:match("^/([^%s]+)") }
+    end, agent_commands))
     vim.v.errmsg = ""
   end)
 
@@ -65,20 +81,6 @@ describe("omniac.nvim mid-turn steering", function()
     end
     return count
   end
-
-  local agent_commands = {
-    "/plan",
-    "/mcp",
-    "/skills",
-    "/status",
-    "/review",
-    "/review-branch main",
-    "/review-commit abc123",
-    "/compact",
-    "/goal keep testing",
-    "/rename new title",
-    "/logout",
-  }
 
   for _, command in ipairs(agent_commands) do
     it("guards active-turn agent commands without changing the current request: " .. command, function()
@@ -130,6 +132,7 @@ describe("omniac.nvim mid-turn steering", function()
   end)
 
   it("guards future commands and multiline arguments without treating dollar skills as commands", function()
+    ui.set_available_commands({ { name = "future-command" }, { name = "status" }, { name = "review" } })
     state.submit("first", {})
     assert.is_false(app.steer("/future-command", {}))
     assert.is_false(app.ask("/status"))
@@ -144,11 +147,14 @@ describe("omniac.nvim mid-turn steering", function()
   it("sends absolute-path messages as steering without changing the current request", function()
     state.submit("first", {})
     local active, turn_id = app.active_submission, client.active_turn_id
-    for _, text in ipairs({
+    local paths = {
       "/Users/nolleh/project/main.lua 파일도 확인해줘",
       "/tmp/project/file-name.lua check this file",
       "/var/log/app.log\nCheck this log too",
-    }) do
+      "/mode/settings.lua check this file too",
+      "/tmp",
+    }
+    for _, text in ipairs(paths) do
       assert.is_true(state.submit(text, {}))
       local request = requests[#requests]
       assert.equals("_session/steering", request.method)
@@ -157,9 +163,57 @@ describe("omniac.nvim mid-turn steering", function()
       assert.equals(turn_id, client.active_turn_id)
       request.callback(nil, { outcome = "injected" })
     end
-    assert.equals(4, #requests)
+    assert.equals(#paths + 1, #requests)
     assert.equals(0, #app.queued_submissions)
     requests[1].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  it("guards advertised names with punctuation and local-command prefixes", function()
+    local names = { "review:branch", "mcp.tool", "mode:custom", "exit/preview" }
+    update({
+      sessionUpdate = "available_commands_update",
+      availableCommands = vim.tbl_map(function(name)
+        return { name = "/" .. name }
+      end, names),
+    })
+    wait_for(function()
+      return ui.is_agent_command("exit/preview")
+    end)
+    state.submit("first", {})
+    local active, turn_id = app.active_submission, client.active_turn_id
+    for _, name in ipairs(names) do
+      assert.is_false(state.submit("/" .. name .. " main", {}))
+      assert.is_false(app.ask("/" .. name))
+      assert.equals(1, #requests)
+      assert.equals(active, app.active_submission)
+      assert.equals(turn_id, client.active_turn_id)
+    end
+    requests[1].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  it("uses updated advertisements without classifying skills or unknown slash text as commands", function()
+    ui.set_available_commands({ { name = "$skill" }, { name = "review:branch" } })
+    state.submit("first", {})
+    assert.is_false(state.submit("/review:branch main", {}))
+    update({ sessionUpdate = "available_commands_update", availableCommands = { { name = "$skill" } } })
+    wait_for(function()
+      return not ui.is_agent_command("review:branch")
+    end)
+    for _, text in ipairs({ "/review:branch main", "/unknown-command", "$skill explain this", "/$skill" }) do
+      assert.is_true(state.submit(text, {}))
+      local request = requests[#requests]
+      assert.equals("_session/steering", request.method)
+      assert.equals(text, request.params.prompt[1].text)
+      request.callback(nil, { outcome = "injected" })
+    end
+    requests[1].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  it("clears advertised commands with the conversation", function()
+    assert.is_true(ui.is_agent_command("status"))
+    ui.clear_conversation(app.config)
+    assert.is_false(ui.is_agent_command("status"))
+    assert.is_false(ui.is_agent_command("review"))
   end)
 
   it("keeps local commands available through their dedicated handlers", function()
