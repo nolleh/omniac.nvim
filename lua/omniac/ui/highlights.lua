@@ -45,6 +45,7 @@ local definitions = {
   OmniacCommandClientName = { fg = "#a6e3a1", bold = true },
   OmniacCommandText = { fg = "#cdd6f4" },
   OmniacCommandMuted = { fg = "#7f849c" },
+  OmniacCommandSelected = { bg = "#45475a" },
   OmniacSessionBorder = { fg = "#f38ba8" },
   OmniacSessionTitle = { fg = "#f9e2af", bold = true },
   OmniacSessionText = { fg = "#cdd6f4" },

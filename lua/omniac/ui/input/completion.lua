@@ -119,19 +119,21 @@ function M.current(available, value)
   return nil, {}
 end
 
-function M.complete(available, value)
+function M.complete(available, value, selected)
   local trigger, prefix = M.command_prefix(value)
   if trigger ~= nil then
     local matches = command_matches(available, trigger, prefix)
     if #matches > 0 then
-      return matches[1].trigger .. matches[1].name
+      local item = matches[selected or 1] or matches[1]
+      return item.trigger .. item.name
     end
   end
   prefix = M.mention_prefix(value)
   if prefix ~= nil then
     local matches = file_matches(prefix)
     if #matches > 0 then
-      return "@" .. matches[1].name
+      local item = matches[selected or 1] or matches[1]
+      return "@" .. item.name
     end
   end
   return value

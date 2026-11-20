@@ -22,13 +22,14 @@ Existing mappings are preserved. See [Configuration](Configuration.md) to custom
 | --- | --- |
 | `Enter` in input | Send; during a turn, send immediately if steering is supported |
 | `Tab` in input | Complete a slash command first, or queue the next prompt while working |
+| `Ctrl-n` / `Ctrl-p` in input | Select the next / previous suggestion for `/` commands, `$` skills, or `@` paths; `Tab` or `Enter` accepts the selected candidate |
 | `Ctrl-V` in input | Attach a clipboard image when supported; otherwise paste text |
 | Up / Down in empty input | Browse prompt history until you edit recalled text |
 | `Ctrl-c` in input | Clear the draft and pending attachments |
 | `Esc` in normal-mode input | Request cancellation of the active turn |
 | `Shift-Tab` | Toggle advertised default/plan collaboration modes |
 | `Ctrl-k` / `Ctrl-j` | Move between Omniac windows in normal or insert mode |
-| `Ctrl-P` | Expand or collapse the activity plan |
+| `Ctrl-P` | Expand or collapse the activity plan when input suggestions are inactive |
 | `Ctrl-T` | Expand or collapse the tool result under the cursor |
 | `t` / `s` in normal mode, while a change summary is shown | Review the latest turn / entire session from the conversation, activity, status, or pinned welcome card |
 

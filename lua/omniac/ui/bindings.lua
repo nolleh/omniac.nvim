@@ -72,7 +72,7 @@ local function bind_sidebar_movement(buf, opts)
 end
 
 function M.setup(state, opts)
-  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.input_buf, state.status_buf }) do
+  for _, buf in ipairs({ state.chat_buf, state.activity_buf, state.status_buf }) do
     vim.keymap.set({ "n", "i" }, "<C-p>", opts.toggle_plan_details, {
       buffer = buf,
       nowait = true,

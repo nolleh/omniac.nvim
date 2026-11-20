@@ -58,7 +58,9 @@ describe("omniac.nvim commands", function()
     local groups_by_line = {}
     for _, mark in ipairs(highlights) do
       groups_by_line[mark[2] + 1] = groups_by_line[mark[2] + 1] or {}
-      groups_by_line[mark[2] + 1][mark[4].hl_group] = true
+      if mark[4].hl_group then
+        groups_by_line[mark[2] + 1][mark[4].hl_group] = true
+      end
     end
     local found_local_highlight = false
     for index, line in ipairs(command_lines) do

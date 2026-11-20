@@ -345,6 +345,7 @@ local function new()
     logical_cursor_from_display = logical_cursor_from_display,
     clear_input_history = clear_input_history_navigation,
     close_command_window = close_command_window,
+    update_command_window = update_command_window,
     reset_input = reset_input,
     set_status = function(...)
       return M.set_status(...)

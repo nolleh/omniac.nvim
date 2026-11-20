@@ -2,6 +2,31 @@ local completion = require("omniac.ui.input.completion")
 
 local M = {}
 
+local function current(state, value)
+  value = value:gsub("^%s+", "")
+  local kind, matches, trigger = completion.current(state.available_commands, value)
+  local selection = state.command_selection
+  if not selection or selection.value ~= value or not vim.deep_equal(selection.matches, matches) then
+    selection = { value = value, matches = matches, index = 1, first = 1 }
+    state.command_selection = selection
+  end
+  return selection, kind, trigger
+end
+
+function M.move(state, value, direction)
+  local selection = current(state, value)
+  if #selection.matches == 0 then
+    return false
+  end
+  selection.index = (selection.index - 1 + direction) % #selection.matches + 1
+  return true
+end
+
+function M.complete(state, value)
+  local selection = current(state, value)
+  return completion.complete(state.available_commands, value, selection.index)
+end
+
 function M.ensure_buffer(state, valid_buf)
   if valid_buf(state.command_buf) then
     return
@@ -21,6 +46,7 @@ function M.close(state, opts)
     pcall(vim.api.nvim_win_close, state.command_win, true)
   end
   state.command_win = nil
+  state.command_selection = nil
   if had_window and opts.resize then
     opts.resize()
     vim.schedule(opts.resize)
@@ -33,7 +59,8 @@ function M.update(state, value, opts)
     return
   end
 
-  local kind, matches, trigger = completion.current(state.available_commands, value)
+  local selection, kind, trigger = current(state, value)
+  local matches = selection.matches
   if kind == nil or #matches == 0 then
     M.close(state, opts)
     return
@@ -58,6 +85,10 @@ function M.update(state, value, opts)
 
   local target = opts.width()
   local display_count = math.min(5, #matches)
+  selection.first = math.max(1, math.min(selection.first, selection.index, #matches - display_count + 1))
+  if selection.index >= selection.first + display_count then
+    selection.first = selection.index - display_count + 1
+  end
   local row, col = opts.position()
   pcall(vim.api.nvim_win_set_config, state.command_win, {
     relative = "editor",
@@ -71,7 +102,7 @@ function M.update(state, value, opts)
 
   local lines = {}
   local marks = {}
-  for index = 1, display_count do
+  for index = selection.first, selection.first + display_count - 1 do
     local item = matches[index]
     local item_trigger = kind == "mention" and "@" or (item.trigger or trigger or "/")
     local hint = item.input and item.input.hint and (" " .. item.input.hint) or ""
@@ -80,7 +111,8 @@ function M.update(state, value, opts)
     local line = opts.fit(item_trigger .. item.name .. hint .. description .. source, target)
     table.insert(lines, line)
     table.insert(marks, {
-      line = index,
+      line = #lines,
+      selected = index == selection.index,
       name_to = math.min(#item.name + 1, #line),
       source = item.source,
     })
@@ -90,6 +122,11 @@ function M.update(state, value, opts)
   vim.api.nvim_buf_set_lines(state.command_buf, 0, -1, false, lines)
   vim.api.nvim_buf_clear_namespace(state.command_buf, opts.namespace, 0, -1)
   for _, mark in ipairs(marks) do
+    if mark.selected then
+      vim.api.nvim_buf_set_extmark(state.command_buf, opts.namespace, mark.line - 1, 0, {
+        line_hl_group = "OmniacCommandSelected",
+      })
+    end
     opts.add_hl(state.command_buf, mark.line, 0, 1, "OmniacCommandMuted")
     local name_group = mark.source == "omniac" and "OmniacCommandClientName" or "OmniacCommandName"
     opts.add_hl(state.command_buf, mark.line, 1, mark.name_to + 1, name_group)

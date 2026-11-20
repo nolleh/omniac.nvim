@@ -77,6 +77,8 @@ function M.new(state, deps)
     reset = deps.reset_input,
     clear_attachments = deps.clear_input_attachments,
     close_suggestions = deps.close_command_window,
+    update_suggestions = deps.update_command_window,
+    toggle_plan_details = deps.toggle_plan_details,
     focus = deps.focus_input,
     close_ui = deps.close_ui,
     set_activity = deps.set_activity,

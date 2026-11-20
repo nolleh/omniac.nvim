@@ -2,12 +2,13 @@ local attachments = require("omniac.ui.input.attachments")
 local ambient = require("omniac.ui.input.ambient")
 local completion = require("omniac.ui.input.completion")
 local editing = require("omniac.ui.input.editing")
+local suggestions = require("omniac.ui.input.suggestions")
 
 local M = {}
 
 local function complete_current(state, opts, scheduled)
   local value = opts.input_text()
-  local completed = completion.complete(state.available_commands, value)
+  local completed = suggestions.complete(state, value)
   if completed == value then
     return false
   end
@@ -60,6 +61,19 @@ end
 function M.setup(state, opts)
   local buf = state.input_buf
   ambient.suppress_completion(buf)
+  for key, direction in pairs({ ["<C-n>"] = 1, ["<C-p>"] = -1 }) do
+    vim.keymap.set({ "n", "i" }, key, function()
+      if suggestions.move(state, opts.raw_text(), direction) then
+        opts.update_suggestions()
+      elseif direction == -1 then
+        opts.toggle_plan_details()
+      end
+    end, {
+      buffer = buf,
+      nowait = true,
+      desc = "Select " .. (direction == 1 and "next" or "previous") .. " Omniac suggestion",
+    })
+  end
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     local value, prepared_attachments = opts.prepared_input()
     if value == "" and #prepared_attachments == 0 then
@@ -73,7 +87,7 @@ function M.setup(state, opts)
       opts.focus()
       return
     end
-    value = completion.complete(state.available_commands, value)
+    value = suggestions.complete(state, value)
     if state.submit and state.submit(value, prepared_attachments) == false then
       return
     end
@@ -96,7 +110,7 @@ function M.setup(state, opts)
       if (value == "" and #prepared_attachments == 0) or not state.queue_submit then
         return "<Tab>"
       end
-      value = completion.complete(state.available_commands, value)
+      value = suggestions.complete(state, value)
       if state.queue_submit(value, prepared_attachments) == false then
         return "<Tab>"
       end
