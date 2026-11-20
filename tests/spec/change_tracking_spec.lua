@@ -129,6 +129,30 @@ describe("omniac.nvim agent change tracking", function()
     assert_equal(by_path()["tracked.txt"].newText, "agent edit\nkeep\n")
   end)
 
+  it("tracks every file when the first edit is written before its start notification", function()
+    start()
+    write("tracked.txt", { "agent edit", "keep" })
+    send({
+      sessionUpdate = "tool_call",
+      toolCallId = "batch-edit",
+      kind = "edit",
+      status = "in_progress",
+      content = {
+        { type = "diff", path = cwd .. "/tracked.txt", oldText = "user draft", newText = "agent edit" },
+        { type = "diff", path = cwd .. "/untracked.txt", oldText = "existing untracked file", newText = "updated" },
+        { type = "diff", path = cwd .. "/new.txt", oldText = "", newText = "created" },
+      },
+    })
+    write("untracked.txt", { "updated" })
+    write("new.txt", { "created" })
+    send({ sessionUpdate = "tool_call_update", toolCallId = "batch-edit", status = "completed" })
+    finish()
+    local files = by_path()
+    assert_equal(changes.count("turn"), 3)
+    assert_equal(files["tracked.txt"].oldText, "user draft\nkeep\n")
+    assert_equal(files["tracked.txt"].newText, "agent edit\nkeep\n")
+  end)
+
   it("includes terminal writes, additions and deletions without including pre-existing changes", function()
     start()
     send({ sessionUpdate = "tool_call", toolCallId = "exec", kind = "execute", status = "in_progress" })
@@ -148,6 +172,53 @@ describe("omniac.nvim agent change tracking", function()
     assert_equal(files["untracked.txt"].oldText, "existing untracked file\n")
     assert_equal(files["ignored.txt"], nil)
     assert_equal(files["untouched.txt"], nil)
+  end)
+
+  it("retains the preceding checkpoint when a late diff arrives at completion", function()
+    start()
+    for index = 1, 2 do
+      local previous = index == 1 and "user draft" or "first edit"
+      local current = index == 1 and "first edit" or "second edit"
+      write("tracked.txt", { current, "keep" })
+      local id = "late-" .. index
+      send({
+        sessionUpdate = "tool_call",
+        toolCallId = id,
+        kind = "edit",
+        status = "in_progress",
+        locations = { { path = cwd .. "/tracked.txt" } },
+      })
+      send({
+        sessionUpdate = "tool_call_update",
+        toolCallId = id,
+        status = "completed",
+        content = {
+          { type = "diff", path = cwd .. "/tracked.txt", oldText = previous, newText = current },
+        },
+      })
+    end
+    finish()
+    local file = by_path()["tracked.txt"]
+    assert_true(file ~= nil)
+    assert_equal(file.oldText, "user draft\nkeep\n")
+    assert_equal(file.newText, "second edit\nkeep\n")
+  end)
+
+  it("does not recover a baseline for an unapplied edit after an unrelated user save", function()
+    start()
+    write("tracked.txt", { "user save", "keep" })
+    send({
+      sessionUpdate = "tool_call",
+      toolCallId = "noop",
+      kind = "edit",
+      status = "in_progress",
+      content = {
+        { type = "diff", path = cwd .. "/tracked.txt", oldText = "user draft", newText = "agent proposal" },
+      },
+    })
+    send({ sessionUpdate = "tool_call_update", toolCallId = "noop", status = "completed" })
+    finish()
+    assert_equal(changes.count("turn"), 0)
   end)
 
   it("does not attribute changes outside agent tool execution to the session", function()

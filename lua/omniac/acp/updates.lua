@@ -55,6 +55,7 @@ local function edit_call(client, update)
   end
   if (kind == "edit" or kind == "delete" or kind == "move") and update.toolCallId and type(call) ~= "table" then
     call = { turn_id = client.active_turn_id, files = {}, order = {}, title = update.title }
+    call.baseline = client.workspace and client.workspace:checkpoint()
     client.edit_tool_calls[update.toolCallId] = call
   end
   return call
@@ -63,6 +64,34 @@ end
 local function handle_edit(client, update, call)
   call.title = update.title or call.title
   local workspace = client.workspace
+  local function recover_before(path, item, before)
+    if not call.baseline then
+      return before
+    end
+    local current = before
+    if current == nil and not (vim.uv or vim.loop).fs_lstat(path) then
+      current = ""
+    end
+    local old, new = old_text(item), item.newText
+    if type(current) ~= "string" or old == new then
+      return before
+    end
+    -- A start notification can arrive after the agent has saved the file.
+    -- Recover only when the reported edit already appears on disk and its
+    -- old text agrees with our preceding workspace snapshot.
+    local already_applied = (new == "" or current:find(new, 1, true)) and (old == "" or not current:find(old, 1, true))
+    if already_applied then
+      local previous = snapshot.content(call.baseline, path)
+      if
+        type(previous) == "string"
+        and previous ~= current
+        and ((old == "" and previous == "") or (old ~= "" and previous:find(old, 1, true)))
+      then
+        return previous
+      end
+    end
+    return before
+  end
   local function absolute(path)
     if path:sub(1, 1) == "/" then
       return vim.fs.normalize(path)
@@ -95,7 +124,7 @@ local function handle_edit(client, update, call)
         local completed_without_snapshot = update.status == "completed"
         local before
         if not completed_without_snapshot and update.status ~= "failed" then
-          before = filesystem.read_disk_content(path)
+          before = recover_before(path, item, filesystem.read_disk_content(path))
         else
           before = workspace and snapshot.content(workspace.initial, path)
         end
@@ -110,6 +139,8 @@ local function handle_edit(client, update, call)
         call.files[path] = file
         table.insert(call.order, path)
       else
+        file.oldText = recover_before(path, item, file.oldText)
+        file.captured_before = type(file.oldText) == "string"
         file.newText = item.newText
         file.operation = (type(item._meta) == "table" and item._meta.kind) or file.operation
       end

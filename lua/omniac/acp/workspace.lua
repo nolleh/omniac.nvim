@@ -13,6 +13,10 @@ function M.new(client)
   local baseline = state.initial
   local window
 
+  function state:checkpoint()
+    return baseline
+  end
+
   local function collect(source)
     local current = snapshot.capture(cwd)
     for _, change in ipairs(snapshot.diff(window or baseline, current)) do
