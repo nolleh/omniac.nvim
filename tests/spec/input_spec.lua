@@ -337,6 +337,41 @@ describe("omniac.nvim input", function()
     assert_equal(submitted[2], "second prompt", "second prompt should be submitted")
   end)
 
+  it("keeps browsing recalled prompts after delayed text events and cursor movement", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local state = ui.open({ ui = { chat_width = 42 } }, function() end)
+    local first = string.rep("긴 이전 입력 ", 10)
+    local second = "second prompt\nwith another line"
+    state.input_history = { first, second, "third prompt" }
+
+    local function expect_prompt(value)
+      assert_true(
+        vim.wait(500, function()
+          local lines = require("omniac.ui.input.render").read(state, vim.api.nvim_buf_is_valid)
+          return table.concat(lines, "\n") == value
+        end),
+        "expected recalled prompt: " .. value
+      )
+    end
+
+    feed("i<Up>")
+    expect_prompt("third prompt")
+    vim.api.nvim_exec_autocmds("TextChangedI", { buffer = state.input_buf })
+    feed("<Left><Right><Up>")
+    expect_prompt(second)
+    vim.api.nvim_exec_autocmds("TextChangedI", { buffer = state.input_buf })
+    feed("<Up>")
+    expect_prompt(first)
+    feed("<Down>")
+    expect_prompt(second)
+    feed("<Down>")
+    expect_prompt("third prompt")
+    feed("<Down>")
+    expect_prompt("")
+  end)
+
   it("input up and down keep normal cursor motion when text is present", function()
     cleanup_omniac_buffers()
     package.loaded["omniac.ui"] = nil

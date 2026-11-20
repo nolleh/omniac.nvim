@@ -57,12 +57,18 @@ function M.enforce(state, args, opts)
     return
   end
 
-  if args and args.event ~= "InsertLeave" and not state.input_history_navigating then
+  local lines = opts.read()
+  if
+    args
+    and args.event ~= "InsertLeave"
+    and not state.input_history_navigating
+    and state.input_history_index
+    and table.concat(lines, "\n") ~= state.input_history[state.input_history_index]
+  then
     opts.clear_history()
   end
   M.clamp_cursor(state, opts)
   local cursor = opts.valid_win(state.input_win) and vim.api.nvim_win_get_cursor(state.input_win) or { 2, #opts.prompt }
-  local lines = opts.read()
   attachments.prune(state, lines)
   local input_cursor = opts.logical_cursor(cursor)
   opts.render(lines, {
