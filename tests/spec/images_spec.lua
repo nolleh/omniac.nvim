@@ -16,6 +16,11 @@ describe("chat diagram presentation", function()
     original = { snacks = rawget(_G, "Snacks"), image = package.loaded["snacks.image"] }
     previous_calls = 0
     image = {
+      terminal = {
+        size = function()
+          return { cell_width = 10, scale = 1 }
+        end,
+      },
       placement = { ns = vim.api.nvim_create_namespace("omniac.test.images") },
       config = {
         doc = {
@@ -53,16 +58,50 @@ describe("chat diagram presentation", function()
     package.loaded["snacks.image"] = original.image
   end)
 
-  it("fits diagrams to the chat window without changing document defaults", function()
+  it("fits diagrams to the chat width without a viewport height limit", function()
     image.config.doc.on_update_pre(placement)
     assert.is_true(placement.opts.conceal)
     assert.equals(54, placement.opts.width)
-    assert.equals(17, placement.opts.height)
-    assert.equals(17, placement.opts.max_height)
+    assert.equals(math.huge, placement.opts.height)
+    assert.equals(math.huge, placement.opts.max_height)
     assert.is_true(vim.b[buf].snacks_image_conceal)
     assert.is_nil(image.config.doc.height)
     assert.is_nil(image.config.doc.conceal)
     assert.equals(1, previous_calls)
+  end)
+
+  it("uses the rendered node layout width regardless of diagram length or viewport height", function()
+    placement.img = { info = { size = { width = 160, height = 1200 } } }
+    image.config.doc.on_update_pre(placement)
+    assert.equals(14, placement.opts.width)
+    assert.equals(math.huge, placement.opts.height)
+
+    placement.img.info.size.height = 12000
+    vim.api.nvim_win_set_config(win, { width = 100, height = 10 })
+    vim.api.nvim_exec_autocmds("WinResized", { group = "omniac.images." .. buf })
+    assert.equals(14, placement.opts.width)
+    assert.equals(math.huge, placement.opts.height)
+
+    placement.img.info.size.width = 480
+    image.config.doc.on_update_pre(placement)
+    assert.equals(41, placement.opts.width)
+
+    vim.api.nvim_win_set_config(win, { width = 40 })
+    vim.api.nvim_exec_autocmds("WinResized", { group = "omniac.images." .. buf })
+    assert.equals(36, placement.opts.width)
+  end)
+
+  it("keeps the same reading width when terminal render scale doubles", function()
+    placement.img = { info = { size = { width = 160, height = 1200 } } }
+    image.config.doc.on_update_pre(placement)
+    assert.equals(14, placement.opts.width)
+
+    image.terminal.size = function()
+      return { cell_width = 20, scale = 2 }
+    end
+    placement.img.info.size = { width = 320, height = 2400 }
+    image.config.doc.on_update_pre(placement)
+    assert.equals(14, placement.opts.width)
   end)
 
   it("keeps images visible outside the block and reveals code inside it", function()
@@ -110,12 +149,13 @@ describe("chat diagram presentation", function()
     assert.equals(2, previous_calls)
   end)
 
-  it("respects a user-configured maximum diagram height", function()
+  it("allows tall chat diagrams to exceed the document maximum height", function()
     Snacks.config.image.doc = { max_height = 10 }
     placement.opts.max_height = 10
     image.config.doc.on_update_pre(placement)
-    assert.equals(10, placement.opts.height)
-    assert.equals(10, placement.opts.max_height)
+    assert.equals(math.huge, placement.opts.height)
+    assert.equals(math.huge, placement.opts.max_height)
+    assert.equals(10, Snacks.config.image.doc.max_height)
   end)
 
   it("refits existing diagrams when the chat window shrinks and grows", function()
@@ -123,11 +163,11 @@ describe("chat diagram presentation", function()
     vim.api.nvim_win_set_config(win, { width = 40, height = 10 })
     vim.api.nvim_exec_autocmds("WinResized", { group = "omniac.images." .. buf })
     assert.equals(36, placement.opts.width)
-    assert.equals(8, placement.opts.height)
+    assert.equals(math.huge, placement.opts.height)
     vim.api.nvim_win_set_config(win, { width = 60, height = 20 })
     vim.api.nvim_exec_autocmds("WinResized", { group = "omniac.images." .. buf })
     assert.equals(54, placement.opts.width)
-    assert.equals(17, placement.opts.height)
+    assert.equals(math.huge, placement.opts.height)
   end)
 
   it("ignores scheduled updates after a diagram is closed", function()

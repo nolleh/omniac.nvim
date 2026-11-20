@@ -31,12 +31,11 @@ local function compact_hidden(placement, image)
   end
 end
 
-local function fit_window(placement, config)
-  local width, height
+local function fit_window(placement, config, image)
+  local width
   for _, win in ipairs(vim.fn.win_findbuf(placement.buf)) do
-    local w, h = vim.api.nvim_win_get_width(win), vim.api.nvim_win_get_height(win)
+    local w = vim.api.nvim_win_get_width(win)
     width = math.min(width or w, w)
-    height = math.min(height or h, h)
   end
   if not width then
     return
@@ -48,9 +47,20 @@ local function fit_window(placement, config)
   end
   local limits = type(config.doc) == "table" and config.doc or {}
   width = math.max(1, math.floor(width * 0.9))
-  height = math.max(1, math.floor(height * 0.85))
+  local size = placement.img and placement.img.info and placement.img.info.size
+  if size then
+    -- Mermaid's rendered width already includes node sizes and column spacing.
+    -- Its PNG includes the terminal render scale, so convert pixels directly
+    -- to cells instead of enlarging narrow diagrams to a viewport percentage.
+    local terminal = image.terminal.size()
+    -- Use 85% of the native size for a more compact inline reading scale.
+    local natural_width = math.max(1, math.ceil(size.width / terminal.cell_width * 0.85))
+    width = math.min(width, natural_width)
+  end
   width = math.min(width, requested.width or width, limits.max_width or width)
-  height = math.min(height, requested.height or height, limits.max_height or height)
+  -- Choose a reading width first. Diagram length must not reduce its scale;
+  -- Snacks derives the height from the aspect ratio and reserves scroll rows.
+  local height = requested.height or math.huge
   placement.opts.width, placement.opts.max_width = width, width
   placement.opts.height, placement.opts.max_height = height, height
 end
@@ -144,9 +154,8 @@ function M.attach(buf)
         end
         if valid_chart(placement) then
           placement.opts.conceal = true
-          -- Bound both dimensions to the chat pane; Snacks preserves the
-          -- image's aspect ratio when fitting it inside these bounds.
-          fit_window(placement, config)
+          -- Fit to the chat width and scroll vertically for tall diagrams.
+          fit_window(placement, config, image)
           compact_hidden(placement, image)
           track(placement)
         end
