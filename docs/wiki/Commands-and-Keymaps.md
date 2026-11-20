@@ -45,7 +45,11 @@ Transient UI handles its own closing behavior. Expanded plans add the activity b
 | `/mode [id]` | Select or change the session mode |
 | `/changes [session]` | Review changes in the latest turn or current session |
 
-Agent-provided slash commands are completed in the input and sent as prompts.
+Agent-provided slash commands are completed in the input and forwarded while idle. During an active turn, Enter rejects them with an explanation and preserves the draft for retry after finishing or cancelling the turn. They are not sent as steering messages or automatically queued. This also applies while a steering acknowledgment or a steering-created turn is outstanding. Ordinary text and `$skill` prompts keep their normal steering behavior.
+
+The current Codex ACP adapter routes every agent slash command through `session/prompt`, which replaces its active request tracking even for read-only commands. Consequently `/plan`, `/mcp`, `/skills`, `/status`, `/review`, `/review-branch`, `/review-commit`, `/compact`, `/goal`, `/rename`, and `/logout` all require an idle session in Omniac. Future agent slash commands use the same guard; Omniac does not duplicate the agent's command validation while idle, and agent errors are displayed normally.
+
+Omniac's `/changes`, `/model`, `/mode`, and `/exit` use their dedicated local handlers during a turn. `/clear` and `/resume` require the turn to finish or be cancelled and preserve rejected input. The guard for agent commands is stricter than Codex CLI's command policy because ACP does not expose a separate command execution request.
 
 ## Neovim commands
 

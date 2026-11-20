@@ -66,6 +66,131 @@ describe("omniac.nvim mid-turn steering", function()
     return count
   end
 
+  local agent_commands = {
+    "/plan",
+    "/mcp",
+    "/skills",
+    "/status",
+    "/review",
+    "/review-branch main",
+    "/review-commit abc123",
+    "/compact",
+    "/goal keep testing",
+    "/rename new title",
+    "/logout",
+  }
+
+  for _, command in ipairs(agent_commands) do
+    it("guards active-turn agent commands without changing the current request: " .. command, function()
+      state.submit("first", {})
+      local active, turn_id = app.active_submission, client.active_turn_id
+      local messages = #state.messages
+      assert.is_false(state.submit(command, {}))
+      assert.equals(1, #requests)
+      assert.equals(active, app.active_submission)
+      assert.equals(turn_id, client.active_turn_id)
+      assert.equals(messages, #state.messages)
+      assert.equals(0, #app.queued_submissions)
+      assert.is_nil(app.failed_submission)
+      assert.is_truthy(state.transient_activity:find("cannot run during a turn through ACP", 1, true))
+      requests[1].callback(nil, { stopReason = "end_turn" })
+    end)
+  end
+
+  it("proxies idle commands and preserves agent errors", function()
+    for _, command in ipairs(agent_commands) do
+      state.submit(command, {})
+      local request = requests[#requests]
+      assert.equals("session/prompt", request.method)
+      assert.equals(command, request.params.prompt[1].text)
+      request.callback(nil, { stopReason = "end_turn" })
+    end
+    state.submit("/compact", {})
+    requests[#requests].callback({ message = "Compaction rejected by agent" })
+    assert.equals("/compact", app.failed_submission.text)
+    assert.is_truthy(vim.inspect(state.messages):find("Compaction rejected by agent", 1, true))
+  end)
+
+  it("preserves a blocked command draft and sends it only when retried after completion", function()
+    helpers.feed("ifirst<CR>")
+    helpers.feed("i/status<CR>")
+    assert.equals(1, #requests)
+    assert.is_truthy(
+      table.concat(vim.api.nvim_buf_get_lines(state.input_buf, 0, -1, false), "\n"):find("/status", 1, true)
+    )
+    requests[1].callback(nil, { stopReason = "end_turn" })
+    vim.wait(30, function()
+      return false
+    end)
+    assert.equals(1, #requests, "blocked commands must not run automatically")
+    helpers.feed("<CR>")
+    assert.equals(2, #requests)
+    assert.equals("/status", requests[2].params.prompt[1].text)
+    requests[2].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  it("guards future commands and multiline arguments without treating dollar skills as commands", function()
+    state.submit("first", {})
+    assert.is_false(app.steer("/future-command", {}))
+    assert.is_false(app.ask("/status"))
+    assert.is_false(state.submit("/review first line\nsecond line", {}))
+    assert.equals(1, #requests)
+    assert.is_true(state.submit("$code-explanation explain this", {}))
+    assert.equals("_session/steering", requests[2].method)
+    requests[2].callback(nil, { outcome = "injected" })
+    requests[1].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  it("sends absolute-path messages as steering without changing the current request", function()
+    state.submit("first", {})
+    local active, turn_id = app.active_submission, client.active_turn_id
+    for _, text in ipairs({
+      "/Users/nolleh/project/main.lua 파일도 확인해줘",
+      "/tmp/project/file-name.lua check this file",
+      "/var/log/app.log\nCheck this log too",
+    }) do
+      assert.is_true(state.submit(text, {}))
+      local request = requests[#requests]
+      assert.equals("_session/steering", request.method)
+      assert.equals(text, request.params.prompt[1].text)
+      assert.equals(active, app.active_submission)
+      assert.equals(turn_id, client.active_turn_id)
+      request.callback(nil, { outcome = "injected" })
+    end
+    assert.equals(4, #requests)
+    assert.equals(0, #app.queued_submissions)
+    requests[1].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  it("keeps local commands available through their dedicated handlers", function()
+    state.submit("first", {})
+    for command, method in pairs({
+      changes = "review_changes",
+      model = "select_model",
+      mode = "select_mode",
+      exit = "exit",
+    }) do
+      local called = false
+      app[method] = function()
+        called = true
+      end
+      state.submit("/" .. command, {})
+      assert.is_true(called)
+    end
+    assert.equals(1, #requests)
+    requests[1].callback(nil, { stopReason = "end_turn" })
+  end)
+
+  for _, command in ipairs({ "/clear", "/resume", "/compact", "/status" }) do
+    it("also guards commands while only a steering acknowledgment is pending: " .. command, function()
+      client.steering_requests = 1
+      assert.is_false(state.submit(command, {}))
+      assert.equals(0, #requests)
+      assert.is_nil(app.active_submission)
+      client.steering_requests = 0
+    end)
+  end
+
   it("uses the initialize response to negotiate steering support", function()
     for _, enabled in ipairs({ true, false }) do
       client.transport.request = function(_, method, _, callback)

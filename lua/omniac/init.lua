@@ -90,6 +90,23 @@ local function slash_command(text)
   return command:lower(), arguments
 end
 
+local function guard_active_command(text)
+  local command = tostring(text or ""):match("^%s*/([^%s]+)")
+  if not command or not command:match("^[%w_-]+$") or not turn_is_active() then
+    return false
+  end
+  -- ACP commands share session/prompt's turn lifecycle. They must neither
+  -- replace the current request nor be injected as ordinary steering text.
+  ui.set_activity(
+    string.format(
+      "/%s cannot run during a turn through ACP. Finish or cancel the current turn, then send it again.",
+      command
+    ),
+    M.config
+  )
+  return true
+end
+
 local function model_activity(model_state)
   if type(model_state) ~= "table" then
     return "The agent did not advertise selectable models."
@@ -290,9 +307,9 @@ function M.open_chat(connect_opts)
         ui.set_activity("Cannot start a new ACP session until the current connection is ready.", M.config)
         return
       end
-      if M.active_submission or M.backend.active_turn_id ~= nil then
+      if turn_is_active() then
         ui.set_activity("Finish or cancel the current turn before starting a new session.", M.config)
-        return
+        return false
       end
       ui.set_status("connecting", M.config)
       M.backend:new_session(function(err)
@@ -304,9 +321,9 @@ function M.open_chat(connect_opts)
       return
     end
     if command == "resume" and #(attachments or {}) == 0 then
-      if M.active_submission or (M.backend and M.backend.active_turn_id ~= nil) then
+      if turn_is_active() then
         ui.set_activity("Finish or cancel the current turn before switching sessions.", M.config)
-        return
+        return false
       end
       ui.set_activity("Opening session list.", M.config)
       ui.set_status("connecting", M.config)
@@ -453,6 +470,9 @@ function M.resize(width)
 end
 
 function M.ask(extra, attachments, item)
+  if (not item or M.active_submission ~= item) and guard_active_command(extra) then
+    return false
+  end
   local prompt = item and item.prompt or prompt_builder.text(extra)
   if item then
     item.prompt = prompt
@@ -501,6 +521,9 @@ function M.ask(extra, attachments, item)
 end
 
 function M.steer(text, attachments)
+  if guard_active_command(text) then
+    return false
+  end
   local client = M.backend
   if not client or not client.supports_steering or not client:supports_steering() then
     ui.set_activity("This agent cannot receive messages during a turn. Use Tab to queue the input.", M.config)
