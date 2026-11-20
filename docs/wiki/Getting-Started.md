@@ -42,6 +42,26 @@ With lazy.nvim:
 
 Make the `markdown`, `markdown_inline`, and `bash` Treesitter parsers available for Markdown and shell highlighting. If your Treesitter installation provides `:TSInstall`, use `:TSInstall markdown markdown_inline bash`.
 
+## Optional Mermaid rendering
+
+Mermaid diagrams inside chat use `snacks.nvim` to display images and the external Mermaid CLI (`mmdc`) to generate them. `render-markdown.nvim` alone displays the code block. If you already use Snacks, enable its `image` option in your existing configuration; otherwise add this lazy.nvim spec:
+
+```lua
+{
+  "folke/snacks.nvim",
+  lazy = false,
+  opts = { image = { enabled = true } },
+}
+```
+
+Install the Mermaid CLI with pnpm:
+
+```sh
+pnpm add -g @mermaid-js/mermaid-cli
+```
+
+Keep pnpm's global executable directory (`PNPM_HOME`) on the PATH inherited by Neovim. Snacks images also require a supported terminal and image-processing tools such as ImageMagick; run `:checkhealth snacks` to check your environment. Restart Neovim after installing missing tools, then confirm `:echo executable('mmdc')` returns `1`.
+
 ## Start a conversation
 
 1. Open a project file and press `<leader>ac` or run `:Omniac`.

@@ -20,6 +20,21 @@ Install and authenticate the configured CLI separately. Images, embedded context
 
 Check that `render-markdown.nvim` is loaded and Treesitter parsers for `markdown`, `markdown_inline`, and `bash` are available. Chat and permission buffers use `omniac` and `omniac-permission` filetypes, connected to Markdown rendering without triggering normal Markdown document hooks.
 
+Mermaid diagrams use the optional `snacks.nvim` image renderer, separately from `render-markdown.nvim`. With Snacks configured with `image = { enabled = true }`, Omniac attaches its document image renderer to the chat after Markdown parsing completes. Existing image and document settings are preserved. Mermaid rendering also needs `mmdc` and a terminal supported by Snacks images; use `:checkhealth snacks` to diagnose those requirements. Permission buffers keep code as text.
+
+### Mermaid remains a code block
+
+Check the executable from inside Neovim, since its PATH may differ from another shell:
+
+```vim
+:echo executable('mmdc')
+:echo exepath('mmdc')
+```
+
+The first command should return `1`; the second shows the executable actually used. A `0` means Neovim cannot find an executable on its PATH, even if the package exists elsewhere. For a pnpm installation, check `pnpm list -g --depth 0` and ensure `PNPM_HOME` is on Neovim's PATH. See [optional Mermaid rendering](Getting-Started.md#optional-mermaid-rendering) for installation.
+
+Restart Neovim after installing a missing tool or correcting PATH. Snacks caches executable availability and failed image conversions within the running session, so installing the CLI alone may not refresh an existing diagram.
+
 ## Debug logging
 
 Enable logs for diagnosis:

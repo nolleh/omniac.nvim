@@ -87,10 +87,37 @@ function M.clear(buf, from)
   end
 end
 
+local function attach_images(buf)
+  local snacks = rawget(_G, "Snacks")
+  local image_config = type(snacks) == "table" and snacks.config and snacks.config.image
+  if
+    vim.bo[buf].filetype ~= "omniac"
+    or type(image_config) ~= "table"
+    or image_config.enabled ~= true
+    or (type(image_config.doc) == "table" and image_config.doc.enabled == false)
+  then
+    return
+  end
+
+  local ok, image = pcall(require, "snacks.image")
+  if not ok then
+    return
+  end
+  -- Scratch chat buffers do not trigger the file-read events that initialize
+  -- Snacks images. Attach after parsing, so Mermaid queries see complete trees.
+  -- Both setup and doc.attach are idempotent and retain the user's settings.
+  pcall(function()
+    image.setup()
+    image.doc.attach(buf)
+  end)
+end
+
 local function render(buf, win, event)
   if not valid_buf(buf) then
     return
   end
+
+  attach_images(buf)
 
   local ok, renderer = pcall(require, "render-markdown")
   if not ok or type(renderer) ~= "table" then
