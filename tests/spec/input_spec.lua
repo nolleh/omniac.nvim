@@ -7,6 +7,40 @@ local cleanup_omniac_buffers = helpers.cleanup_omniac_buffers
 describe("omniac.nvim input", function()
   after_each(helpers.cleanup_after_test)
 
+  it("excludes the input from autopairs before installing its editing mappings", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local original = package.loaded["nvim-autopairs"]
+    local pairs = { config = { disable_filetype = { "TelescopePrompt" } } }
+    local detached
+    pairs.force_attach = function(buf)
+      detached = buf
+      assert_true(vim.tbl_contains(pairs.config.disable_filetype, "omniac-input"))
+      vim.keymap.set("i", "<BS>", "<BS>", { buffer = buf, desc = "autopairs delete" })
+      vim.b[buf].autopairs_keymaps = { "<BS>" }
+    end
+    package.loaded["nvim-autopairs"] = pairs
+    local ok, err = xpcall(function()
+      local state = require("omniac.ui").open({
+        agent = { cmd = { "codex-acp" } },
+        ui = { chat_width = 42 },
+      }, function() end)
+      assert_equal(detached, state.input_buf, "only the input buffer should be detached")
+      assert_equal(
+        vim.b[state.input_buf].autopairs_keymaps,
+        nil,
+        "later buffer entries must not delete Omniac mappings"
+      )
+      assert.are.same({ "TelescopePrompt", "omniac-input" }, pairs.config.disable_filetype)
+      local mapping = vim.fn.maparg("<BS>", "i", false, true)
+      assert_equal(mapping.desc, "Delete Omniac input character", "Omniac should own Backspace")
+    end, debug.traceback)
+    package.loaded["nvim-autopairs"] = original
+    if not ok then
+      error(err)
+    end
+  end)
+
   it("suppresses ambient completion in the input buffer", function()
     local original_buf = vim.api.nvim_get_current_buf()
     local input_buf = vim.api.nvim_create_buf(false, true)
@@ -852,6 +886,24 @@ describe("omniac.nvim input", function()
     assert_equal(vim.api.nvim_win_get_height(0), 5, "input window should shrink back to the minimum display height")
     assert_equal(vim.api.nvim_buf_line_count(0), 5, "input box should fill the minimum input window height")
     assert_equal(vim.fn.winsaveview().topline, 1, "input top border should stay visible")
+  end)
+
+  it("backspaces across lines after the input exceeds its visible height", function()
+    cleanup_omniac_buffers()
+    package.loaded["omniac.ui"] = nil
+    local ui = require("omniac.ui")
+    local submitted
+    local state = ui.open({
+      agent = { cmd = { "codex-acp" } },
+      ui = { chat_width = 42 },
+    }, function(value)
+      submitted = value
+    end)
+    feed("ihead" .. string.rep("<S-CR>", 24) .. "tail<Esc>")
+    assert_equal(vim.api.nvim_win_get_height(state.input_win), 12, "the input should stop growing at its height limit")
+    feed("A" .. string.rep("<BS>", 28) .. "<Esc>")
+    feed("<CR>")
+    assert_equal(submitted, "head", "backspace should remove every newline, including offscreen lines")
   end)
 
   it("input line background does not override border foreground", function()
