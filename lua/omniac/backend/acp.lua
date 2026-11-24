@@ -232,7 +232,7 @@ function M.new(config)
       clientInfo = {
         name = client.name or "omniac.nvim",
         title = client.title or "omniac.nvim",
-        version = client.version or "0.1.0",
+        version = client.version or "0.2.0",
       },
       clientCapabilities = capabilities,
     }, function(err, result)
