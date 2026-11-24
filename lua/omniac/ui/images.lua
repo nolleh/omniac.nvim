@@ -3,6 +3,51 @@ local configured = setmetatable({}, { __mode = "k" })
 local tracked = {}
 local requested_sizes = setmetatable({}, { __mode = "k" })
 local compacted = setmetatable({}, { __mode = "k" })
+local centered = setmetatable({}, { __mode = "k" })
+
+local function content_width(buf)
+  local width
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    local info = vim.fn.getwininfo(win)[1]
+    local w = vim.api.nvim_win_get_width(win) - (info and info.textoff or 0)
+    width = math.min(width or w, w)
+  end
+  return width
+end
+
+local function center_chart(placement)
+  if centered[placement] or type(placement._render) ~= "function" then
+    return
+  end
+  centered[placement] = true
+  local previous = placement._render
+  placement._render = function(item, marks)
+    if not item.hidden and vim.bo[item.buf].filetype == "omniac" and item.opts.inline and item.opts.type == "chart" then
+      local width = content_width(item.buf)
+      local loc = item._state and item._state.loc
+      local image_width = loc and loc.width or item.opts.width
+      if width and image_width then
+        local padding = math.max(0, math.floor((width - image_width) / 2))
+        for _, mark in ipairs(marks) do
+          -- Position both the source-line overlays and overflow virtual rows.
+          -- Keep source ranges untouched so cursor detection and conceal work.
+          if mark.virt_text then
+            mark.virt_text_pos = "overlay"
+            mark.virt_text_win_col = padding
+          end
+          for _, line in ipairs(mark.virt_lines or {}) do
+            if line[1] and not line[1][2] then
+              line[1] = { string.rep(" ", padding) }
+            else
+              table.insert(line, 1, { string.rep(" ", padding) })
+            end
+          end
+        end
+      end
+    end
+    return previous(item, marks)
+  end
+end
 
 local function compact_hidden(placement, image)
   if compacted[placement] then
@@ -32,11 +77,7 @@ local function compact_hidden(placement, image)
 end
 
 local function fit_window(placement, config, image)
-  local width
-  for _, win in ipairs(vim.fn.win_findbuf(placement.buf)) do
-    local w = vim.api.nvim_win_get_width(win)
-    width = math.min(width or w, w)
-  end
+  local width = content_width(placement.buf)
   if not width then
     return
   end
@@ -116,6 +157,9 @@ local function track(placement)
       callback = function()
         for item in pairs(tracked[buf] or {}) do
           if valid_chart(item) then
+            -- Native-size images may keep the same dimensions after a resize,
+            -- but their horizontal offset still needs to be recalculated.
+            item._state = nil
             item:update()
           end
         end
@@ -126,6 +170,19 @@ local function track(placement)
   vim.schedule(function()
     update_visibility(placement)
   end)
+end
+
+function M.open_at_cursor()
+  local buf = vim.api.nvim_get_current_buf()
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  for placement in pairs(tracked[buf] or {}) do
+    local range = placement.opts.range
+    if valid_chart(placement) and range and row >= range[1] and row <= range[3] then
+      return require("omniac.ui.diagram").open(placement, require("snacks.image"))
+    end
+  end
+  vim.notify("Place the cursor inside a rendered Mermaid block.", vim.log.levels.INFO, { title = "Omniac" })
+  return false
 end
 
 function M.attach(buf)
@@ -156,6 +213,7 @@ function M.attach(buf)
           placement.opts.conceal = true
           -- Fit to the chat width and scroll vertically for tall diagrams.
           fit_window(placement, config, image)
+          center_chart(placement)
           compact_hidden(placement, image)
           track(placement)
         end

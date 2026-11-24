@@ -17,6 +17,15 @@ Videos are hosted as GitHub attachments in [README demo videos](https://github.c
 
 The reviewed task summary passes the existing tests and the additional content, order, and unchanged-input checks from `scripts/demo/verify.py`.
 
+## Mermaid screenshots
+
+The README also includes two screenshots of Mermaid rendering and navigation:
+
+| Screenshot | Shows |
+| --- | --- |
+| [In-chat diagrams](media/mermaid-chat.png) | Rendered diagrams alongside their source in the conversation |
+| [Diagram viewer](media/mermaid-viewer.png) | A centered diagram in the floating viewer, with zoom and navigation controls |
+
 ## Recording notes
 
 The source projects used for the recorded approval flows live under the Git-ignored `.repro/` directory. The agent's writable workspace remains a separate temporary directory. Files under `/tmp` may be writable by default even outside the agent's working directory; placing both directories there can skip the intended permission diff. Confirm the real permission request before filming an approval feature.

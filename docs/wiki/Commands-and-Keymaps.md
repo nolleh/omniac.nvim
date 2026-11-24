@@ -31,9 +31,24 @@ Existing mappings are preserved. See [Configuration](Configuration.md) to custom
 | `Ctrl-k` / `Ctrl-j` | Move between Omniac windows in normal or insert mode |
 | `Ctrl-P` | Expand or collapse the activity plan when input suggestions are inactive |
 | `Ctrl-T` | Expand or collapse the tool result under the cursor |
+| `Enter` on a Mermaid block in normal-mode chat | Open the diagram viewer |
 | `t` / `s` in normal mode, while a change summary is shown | Review the latest turn / entire session from the conversation, activity, status, or pinned welcome card |
 
 Transient UI handles its own closing behavior. Expanded plans add the activity bar to window navigation; otherwise navigation skips activity and status. The welcome card is skipped while hidden.
+
+The diagram viewer opens in a large floating window with filetype `omniac-diagram` and initially fits the whole image. Images are centered with padding on all sides, including while zoomed. Its mappings are local to that buffer; chat image sizing is unaffected. It requires the same Snacks image support as inline Mermaid rendering.
+
+| Viewer key | Action |
+| --- | --- |
+| `+` / `=` / mouse wheel up | Zoom in around the visible center |
+| `-` / mouse wheel down | Zoom out |
+| `h j k l` / arrow keys | Move the visible area left, down, up, or right |
+| `f` | Fit the entire diagram |
+| `w` | Fit the width and read a tall diagram by moving down |
+| `1` | Reset to the image's native size |
+| `q` / `Esc` | Close and return to chat |
+
+The title shows the current zoom percentage. Zoom is capped at 800%; movement stops at the image edges. Resizing Neovim refits the image in fit modes and preserves the scale in manual mode. Leaving the viewer or closing its chat window also closes the viewer.
 
 ## Chat commands
 

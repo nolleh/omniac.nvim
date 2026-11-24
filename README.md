@@ -98,6 +98,18 @@ https://github.com/user-attachments/assets/12a8034b-102e-467c-aacb-73f3b8172f02
 
 *[▶ Watch the short demo](https://github.com/user-attachments/assets/12a8034b-102e-467c-aacb-73f3b8172f02) · Select code and press `<leader>as` · `<leader>ab` attaches the current file · `<leader>af` focuses the input.*
 
+### Explore diagrams without leaving Neovim
+
+Read Mermaid diagrams directly in the conversation, then open a larger view when you want a closer look.
+
+![Mermaid diagrams rendered inside the Omniac conversation alongside their source](docs/demos/media/mermaid-chat.png)
+
+Place the cursor inside a Mermaid block in normal-mode chat and press `Enter` to open the viewer. Use `+` / `-` to zoom, `h j k l` to move around, and `q` to return to the conversation. Press `f` to fit the whole diagram or `w` to fit its width.
+
+![Mermaid diagram in Omniac's centered floating viewer with zoom controls](docs/demos/media/mermaid-viewer.png)
+
+Diagram rendering uses optional [Snacks image support and the Mermaid CLI](https://github.com/nolleh/omniac.nvim/wiki/Getting-Started#optional-mermaid-rendering).
+
 ### Pick up where you left off
 
 Browse saved sessions and restore the conversation. Switch between your agent's available models and modes as the task changes.

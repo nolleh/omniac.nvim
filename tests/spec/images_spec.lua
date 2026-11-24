@@ -13,7 +13,11 @@ describe("chat diagram presentation", function()
       false,
       { relative = "editor", row = 0, col = 0, width = 60, height = 20, style = "minimal" }
     )
-    original = { snacks = rawget(_G, "Snacks"), image = package.loaded["snacks.image"] }
+    original = {
+      snacks = rawget(_G, "Snacks"),
+      image = package.loaded["snacks.image"],
+      diagram = package.loaded["omniac.ui.diagram"],
+    }
     previous_calls = 0
     image = {
       terminal = {
@@ -46,6 +50,9 @@ describe("chat diagram presentation", function()
       update = function(self)
         image.config.doc.on_update_pre(self)
       end,
+      _render = function(self, marks)
+        self.rendered = marks
+      end,
     }
     images.attach(buf)
   end)
@@ -56,6 +63,7 @@ describe("chat diagram presentation", function()
     vim.api.nvim_buf_delete(buf, { force = true })
     _G.Snacks = original.snacks
     package.loaded["snacks.image"] = original.image
+    package.loaded["omniac.ui.diagram"] = original.diagram
   end)
 
   it("fits diagrams to the chat width without a viewport height limit", function()
@@ -104,6 +112,44 @@ describe("chat diagram presentation", function()
     assert.equals(14, placement.opts.width)
   end)
 
+  it("centers overlay and overflow image rows and recenters after resizing", function()
+    placement.img = { info = { size = { width = 160, height = 1200 } } }
+    image.config.doc.on_update_pre(placement)
+    placement._state = { loc = { width = 14 } }
+    local function marks()
+      return {
+        {
+          row = 1,
+          col = 0,
+          end_row = 4,
+          end_col = 3,
+          virt_text = { { "image", "Image" } },
+          virt_text_pos = "overlay",
+          virt_text_win_col = 0,
+        },
+        { row = 4, col = 0, virt_lines = { { { "" }, { "overflow", "Image" } } } },
+      }
+    end
+    placement:_render(marks())
+    assert.equals(23, placement.rendered[1].virt_text_win_col)
+    assert.equals(string.rep(" ", 23), placement.rendered[2].virt_lines[1][1][1])
+    assert.equals(0, placement.rendered[1].col)
+    assert.equals(3, placement.rendered[1].end_col)
+
+    vim.api.nvim_win_set_config(win, { width = 100 })
+    vim.api.nvim_exec_autocmds("WinResized", { group = "omniac.images." .. buf })
+    assert.is_nil(placement._state)
+    placement:_render(marks())
+    local expected = math.floor((vim.api.nvim_win_get_width(win) - 14) / 2)
+    assert.equals(expected, placement.rendered[1].virt_text_win_col)
+    assert.equals(string.rep(" ", expected), placement.rendered[2].virt_lines[1][1][1])
+
+    placement.hidden = true
+    placement:_render(marks())
+    assert.equals(0, placement.rendered[1].virt_text_win_col)
+    assert.equals("", placement.rendered[2].virt_lines[1][1][1])
+  end)
+
   it("keeps images visible outside the block and reveals code inside it", function()
     vim.api.nvim_set_current_buf(buf)
     vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -123,6 +169,25 @@ describe("chat diagram presentation", function()
       end),
       "leaving chat should restore the image even when its cursor stays inside the code"
     )
+  end)
+
+  it("opens only the chart under the chat cursor", function()
+    local opened = 0
+    package.loaded["omniac.ui.diagram"] = {
+      open = function(source, renderer)
+        assert.equals(placement, source)
+        assert.equals(image, renderer)
+        opened = opened + 1
+        return true
+      end,
+    }
+    image.config.doc.on_update_pre(placement)
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_set_cursor(win, { 3, 0 })
+    assert.is_true(images.open_at_cursor())
+    vim.api.nvim_win_set_cursor(win, { 6, 0 })
+    assert.is_false(images.open_at_cursor())
+    assert.equals(1, opened)
   end)
 
   it("preserves smaller explicit heights and calls existing callbacks once after repeated attachment", function()
